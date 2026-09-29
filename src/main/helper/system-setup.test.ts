@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { detectPackageManager, helperInstallState, packageInstallArgv } from './system-setup.ts'
+import { detectPackageManager, helperInstallState, isSetupPackage, packageInstallArgv, resolvconfPackage } from './system-setup.ts'
 
 // --- detectPackageManager: real os-release files, trimmed to the lines that matter.
 
@@ -115,4 +115,26 @@ test('with nothing bundled to compare against, an installed helper is ready', as
   writeFileSync(f.installed.helper, 'anything')
   writeFileSync(f.installed.policy, 'anything')
   assert.equal(await helperInstallState(join(f.bundled, 'absent'), f.installed), 'ready')
+})
+
+// --- resolvconfPackage: a one-click fix only where systemd-resolved owns resolv.conf.
+
+test('with systemd-resolved in use, each family gets the package that ships its resolvconf shim', () => {
+  const stub = '/run/systemd/resolve/stub-resolv.conf'
+  assert.equal(resolvconfPackage('apt', stub), 'systemd-resolved')
+  assert.equal(resolvconfPackage('dnf', stub), 'systemd-resolved')
+  assert.equal(resolvconfPackage('pacman', stub), 'systemd-resolvconf')
+  assert.equal(resolvconfPackage('pacman', '/run/systemd/resolve/resolv.conf'), 'systemd-resolvconf')
+})
+
+test('without systemd-resolved there is no one-click resolvconf (openresolv would fight the file)', () => {
+  assert.equal(resolvconfPackage('pacman', '/etc/resolv.conf'), null)
+  assert.equal(resolvconfPackage('apt', '/run/NetworkManager/resolv.conf'), null)
+  assert.equal(resolvconfPackage('dnf', null), null)
+  assert.equal(resolvconfPackage(null, '/run/systemd/resolve/stub-resolv.conf'), null)
+})
+
+test('only the packages the app installs pass the allow-list', () => {
+  for (const p of ['wireguard-tools', 'openvpn', 'systemd-resolved', 'systemd-resolvconf']) assert.ok(isSetupPackage(p), p)
+  for (const p of ['openresolv', 'wireguard-tools; rm -rf /', '', 42, null]) assert.equal(isSetupPackage(p), false, String(p))
 })

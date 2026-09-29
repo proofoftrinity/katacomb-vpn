@@ -53,7 +53,10 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   a connect as `SYSTEM_SETUP_REQUIRED` (see the preflight rule in
   [reliability.md](invariants/reliability.md)), and the renderer's `SystemSetup` rows
   install the helper or the distro package (`apt-get`/`dnf`/`pacman`, detected from
-  os-release; any other distro is told to install it by hand).
+  os-release; any other distro is told to install it by hand). The resolvconf row installs
+  `systemd-resolved` (`systemd-resolvconf` on Arch) only where systemd-resolved already
+  owns /etc/resolv.conf, and the install IPC refuses that package anywhere else: installing
+  it there would move the whole system's DNS onto resolved.
 
 - **`daemon/` is the whole root side**: one Go module whose only dependency is the
   tun2socks engine (`go.sum` + the checksum DB are the pin; no `vendor/`).

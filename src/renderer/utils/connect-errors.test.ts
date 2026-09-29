@@ -45,6 +45,7 @@ test('the setup marker carries what the machine lacks, through the IPC wrapper',
   const msg = viaIpc('connection:subscribe', `${SYSTEM_SETUP_REQUIRED}:helper,wireguard-tools: Can't connect, not charged.`)
   assert.deepEqual(setupItemsRequired(msg), ['helper', 'wireguard-tools'])
   assert.deepEqual(setupItemsRequired(`${SYSTEM_SETUP_REQUIRED}:openvpn: x`), ['openvpn'])
+  assert.deepEqual(setupItemsRequired(`${SYSTEM_SETUP_REQUIRED}:helper,resolvconf: x`), ['helper', 'resolvconf'])
 })
 
 test('a setup item the renderer has no install for is dropped', () => {

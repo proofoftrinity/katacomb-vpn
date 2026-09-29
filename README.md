@@ -166,8 +166,20 @@ chmod +x dist/katacomb-vpn-1.10.0.AppImage
 ```
 
 No daemon here, so each privileged operation goes through `pkexec` (one prompt, cached
-for a while). On first run the app offers to install the polkit helper for you. Install
-`wireguard-tools` and `openvpn` yourself if you want those protocols.
+for a while). Nothing is asked at launch: when a connection needs the polkit helper,
+`wireguard-tools` or `openvpn`, the app says so before anything is paid and installs it
+with one password prompt (apt, dnf or pacman), and the same for a missing `resolvconf`
+where systemd-resolved manages DNS. Settings > System does it ahead of time.
+
+What your system has to provide before the AppImage starts at all (Ubuntu 24.04,
+Fedora 44 and Arch checked on clean installs, 2026-09-29):
+
+| Distro | Command |
+|---|---|
+| Ubuntu 24.04+ | `sudo apt install libfuse2t64` |
+| Ubuntu 22.04 | `sudo apt install libfuse2` |
+| Fedora | `sudo dnf install fuse` (`fuse-libs` alone is not enough: the mount needs `fusermount`) |
+| Arch | `sudo pacman -S fuse2 nss` (`nss` comes with Firefox or Chromium on most desktops) |
 
 **Needs FUSE 2.** This is a type-2 AppImage, so it mounts itself with `libfuse.so.2`.
 Ubuntu dropped that from the default install at 22.04, so on 22.04/24.04 you may see
@@ -355,9 +367,11 @@ beside its polkit policy and systemd unit);
 ## Troubleshooting
 
 **Connect fails with a DNS provisioning error.** `wg-quick` and the AmneziaWG bring-up need
-`resolvconf` and fail the whole bring-up without it. Install it, or accept the offered
-retry, which strips the `DNS =` lines and means DNS queries leave the tunnel.
-The app says so before you agree.
+`resolvconf` and fail the whole bring-up without it. Where systemd-resolved manages DNS the
+app catches this before you pay and installs the shim in one click (`systemd-resolved`, or
+`systemd-resolvconf` on Arch). Elsewhere, set up a resolvconf provider such as `openresolv`
+the way your distribution documents, or accept the offered retry, which strips the `DNS =`
+lines and means DNS queries leave the tunnel. The app says so before you agree.
 
 **"Restart katacomb-vpn-daemon" after an upgrade.** The GUI is newer than the running
 daemon: `sudo systemctl restart katacomb-vpn-daemon`.

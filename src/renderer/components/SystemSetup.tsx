@@ -21,6 +21,11 @@ const ROWS: { item: SetupItem; label: string; detail: string }[] = [
   },
   { item: 'wireguard-tools', label: 'WireGuard tools', detail: 'Needed for WireGuard nodes.' },
   { item: 'openvpn', label: 'OpenVPN', detail: 'Needed for OpenVPN nodes.' },
+  {
+    item: 'resolvconf',
+    label: 'VPN DNS (resolvconf)',
+    detail: "Applies the VPN's DNS for WireGuard and AmneziaWG. Without it those connections can only use your system's DNS, outside the tunnel.",
+  },
 ]
 
 /**
@@ -54,6 +59,7 @@ export default function SystemSetup({ only, connected = false }: Props) {
     setErrors((prev) => ({ ...prev, [item]: undefined }))
     try {
       if (item === 'helper') await window.api.setupInstallHelper()
+      else if (item === 'resolvconf') await window.api.setupInstallPackages([status!.resolvconfPackage!])
       else await window.api.setupInstallPackages([item])
       await refresh()
     } catch (err) {
@@ -82,9 +88,11 @@ export default function SystemSetup({ only, connected = false }: Props) {
       {rows.map(({ item, label, detail }) => {
         const ready = item === 'helper' ? status.helper === 'ready'
           : item === 'wireguard-tools' ? status.wireguardTools
+          : item === 'resolvconf' ? status.resolvconf
           : status.openvpn
         const outdated = item === 'helper' && status.helper === 'outdated'
-        const manualOnly = item !== 'helper' && status.packageManager === null
+        const manualOnly = item === 'resolvconf' ? status.resolvconfPackage === null
+          : item !== 'helper' && status.packageManager === null
         const helperBlocked = item === 'helper' && connected
         const error = errors[item]
 
@@ -102,7 +110,13 @@ export default function SystemSetup({ only, connected = false }: Props) {
                   ? 'The installed helper is not the one this version of the app ships, and an older one can refuse configs this version builds.'
                   : detail}
               </p>
-              {!ready && manualOnly && (
+              {!ready && manualOnly && item === 'resolvconf' && (
+                <p className="text-text-secondary text-xs mt-1">
+                  This system doesn't use systemd-resolved, so there is no one-click fix. Set up a resolvconf provider
+                  (for example <span className="font-mono">openresolv</span>) the way your distribution documents, then press Recheck.
+                </p>
+              )}
+              {!ready && manualOnly && item !== 'resolvconf' && (
                 <p className="text-text-secondary text-xs mt-1">
                   Install the <span className="font-mono">{item}</span> package with your system's package manager, then press Recheck.
                 </p>

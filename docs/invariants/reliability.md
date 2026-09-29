@@ -133,6 +133,12 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   (the chain is one bring-up, already checked at the entry; a refusal there would only
   refund a paid entry). `CONNECTION_CONNECT` and `CONNECTION_RECONNECT` run the same
   check with nothing spent, so a retry or a Sessions-tab reconnect gets the pane too.
+  **WireGuard and AmneziaWG also need a `resolvconf`** (looked up on the helper's root
+  PATH, where Debian and Fedora keep it in /usr/sbin), refused here ONLY when a one-click
+  fix exists: systemd-resolved owns /etc/resolv.conf and the package that ships its shim
+  is known (`resolvconfPackage`). Elsewhere the paid-session "Retry without VPN DNS" is
+  the only way those protocols work on that machine, so refusing would remove them; the
+  DNS-less retry itself (`dnsFallback`) skips the check.
 - **The connect flow rides ONE RPC connection, and its handshake retries a 404 —
   nothing else.** `chain-clients.ts` owns the speed path: `resolveRpcBase` follows the
   endpoint's 307/308 redirect once per launch (the default rpc.sentinel.co redirects

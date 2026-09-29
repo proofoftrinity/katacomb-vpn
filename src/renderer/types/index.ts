@@ -546,9 +546,15 @@ export interface SetupStatus {
   helper: 'ready' | 'missing' | 'outdated'
   wireguardTools: boolean
   openvpn: boolean
+  /** A `resolvconf` on root's PATH: WireGuard and AmneziaWG hand the tunnel's DNS to it. */
+  resolvconf: boolean
   /** null = no one-click package installs here; the user installs by hand. */
   packageManager: 'apt' | 'dnf' | 'pacman' | null
+  /** The one-click package for a missing resolvconf; null = install one by hand. */
+  resolvconfPackage: SetupPackage | null
 }
+
+export type SetupPackage = 'wireguard-tools' | 'openvpn' | 'systemd-resolved' | 'systemd-resolvconf'
 
 export interface NodeProbeResult {
   nodeAddress: string
@@ -711,7 +717,7 @@ export interface ElectronAPI {
   setupStatus: () => Promise<SetupStatus>
   /** pkexec: one password prompt. Refused while connected (it restarts the daemon). */
   setupInstallHelper: () => Promise<void>
-  setupInstallPackages: (pkgs: Array<'wireguard-tools' | 'openvpn'>) => Promise<void>
+  setupInstallPackages: (pkgs: SetupPackage[]) => Promise<void>
 
   nodeTestProbe: (params: { nodeAddress: string; remoteUrl: string }) => Promise<NodeProbeResult>
   nodeTestBatch: (nodes: Array<{ nodeAddress: string; remoteUrl: string }>) => Promise<void>

@@ -3281,7 +3281,7 @@ export function registerIpcHandlers(): void {
       // Sessions tab reach here without one. Refused as a setup pane rather than as
       // whatever the bring-up would fail with (a stale helper's guard refusal reads
       // like the node's fault).
-      await assertSystemReady(params.protocol, !proxyOnly, false)
+      await assertSystemReady(params.protocol, !proxyOnly, false, !dnsFallback)
       // A new connect supersedes whatever the last session ended as.
       lastExpiry = null
       if (params.protocol === 'wireguard') {

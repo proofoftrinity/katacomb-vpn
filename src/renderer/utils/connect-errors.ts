@@ -12,8 +12,8 @@ const MARKERS = [DNS_PROVISION_FAILED, INSUFFICIENT_FUNDS, RPC_UNREACHABLE]
 // The one marker with a payload: `SYSTEM_SETUP_REQUIRED:helper,wireguard-tools: text`.
 const SETUP_REQUIRED_RE = new RegExp(`^${SYSTEM_SETUP_REQUIRED}:([a-z,-]+):\\s*`)
 
-export type SetupItem = 'helper' | 'wireguard-tools' | 'openvpn'
-const SETUP_ITEMS: readonly string[] = ['helper', 'wireguard-tools', 'openvpn']
+export type SetupItem = 'helper' | 'wireguard-tools' | 'openvpn' | 'resolvconf'
+const SETUP_ITEMS: readonly string[] = ['helper', 'wireguard-tools', 'openvpn', 'resolvconf']
 
 /**
  * Undo Electron's IPC wrapper. Anything an `ipcMain.handle` handler throws comes

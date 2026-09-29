@@ -1,8 +1,8 @@
 // What this machine needs before the app can bring a tunnel up, and the one-click
 // installs for it: the privileged helper (+ its polkit policy), and the two distro
 // packages the root protocols run (wireguard-tools for WireGuard, openvpn for
-// OpenVPN). A .deb install never needs any of it: the package depends on both and
-// its postinst installs the helper.
+// OpenVPN, a resolvconf for the tunnel's DNS). A .deb install never needs the
+// first three: the package depends on both packages and its postinst installs the helper.
 //
 // Asked for when a connect needs it, never at launch. It used to be two blocking
 // native dialogs before the window existed, each wanting an admin password, at a
@@ -37,11 +37,28 @@ const HELPER_INSTALL_TIMEOUT_MS = 60_000
 const PACKAGE_INSTALL_TIMEOUT_MS = 300_000
 
 export type HelperState = 'ready' | 'missing' | 'outdated'
-export type SetupPackage = 'wireguard-tools' | 'openvpn'
+export type SetupPackage = 'wireguard-tools' | 'openvpn' | 'systemd-resolved' | 'systemd-resolvconf'
 export type PackageManager = 'apt' | 'dnf' | 'pacman'
 
 export function isSetupPackage(value: unknown): value is SetupPackage {
-  return value === 'wireguard-tools' || value === 'openvpn'
+  return value === 'wireguard-tools' || value === 'openvpn' || value === 'systemd-resolved' || value === 'systemd-resolvconf'
+}
+
+/**
+ * The package that gives wg-quick (and the helper's AmneziaWG bring-up) a
+ * `resolvconf` in one click, or null when there is no safe one-click answer.
+ *
+ * Only where systemd-resolved already manages /etc/resolv.conf (it resolves into
+ * /run/systemd/resolve/): its shim then does exactly the right thing, and the
+ * package is `systemd-resolved` on Debian, Ubuntu, Mint and Fedora (verified,
+ * /usr/sbin/resolvconf -> resolvectl) and `systemd-resolvconf` on Arch. Without
+ * resolved, openresolv has to take over a resolv.conf something else writes, and a
+ * fresh install refuses with "signature mismatch" until the system is
+ * reconfigured (seen on Arch, 2026-09-29), so that case gets no button.
+ */
+export function resolvconfPackage(pm: PackageManager | null, resolvConfTarget: string | null): SetupPackage | null {
+  if (!pm || !resolvConfTarget?.startsWith('/run/systemd/resolve/')) return null
+  return pm === 'pacman' ? 'systemd-resolvconf' : 'systemd-resolved'
 }
 
 // Keyed by the file's identity, so the 11.8 MB helper is hashed once per version
