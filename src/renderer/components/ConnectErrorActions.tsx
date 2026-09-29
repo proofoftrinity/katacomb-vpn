@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { displayConnectError, isDnsProvisionFailure, isInsufficientFunds, isRpcUnreachable, setupItemsRequired } from '../utils/connect-errors'
 import InsufficientFunds from './InsufficientFunds'
 import SystemSetup from './SystemSetup'
@@ -12,6 +13,11 @@ interface Props {
    */
   paidSessionId: string | null
   onRetryTunnel: () => void
+  /**
+   * Run the refused purchase again with the choices already made. Used only after
+   * a setup refusal, which main raises before paying, so it buys nothing twice.
+   */
+  onRetryPurchase: () => void
   onStartOver: () => void
   /**
    * WireGuard/AmneziaWG only: retry with the tunnel's DNS stripped. Offered when
@@ -30,14 +36,18 @@ export default function ConnectErrorActions({
   error,
   paidSessionId,
   onRetryTunnel,
+  onRetryPurchase,
   onStartOver,
   onRetryWithoutDns,
 }: Props) {
   const dnsFailure = isDnsProvisionFailure(error)
   // The machine lacks something this connect needs. Not a fault to show in red:
-  // install it here, then the buttons below carry on (a refused purchase spent
-  // nothing, so "Try Again" re-runs the whole preflight).
+  // install it here, then the button below carries on with the same choices (a
+  // refused purchase spent nothing). It stays disabled until every row is Ready,
+  // because pressing it earlier can only be refused again.
   const setupItems = setupItemsRequired(error)
+  const [setupReady, setSetupReady] = useState(false)
+  const setupHeld = setupItems !== null && !setupReady
   const { openSettings } = useNavigation()
 
   // The chain was never reached, so retrying against the same endpoint mostly
@@ -80,8 +90,14 @@ export default function ConnectErrorActions({
     <div className="space-y-3">
       {setupItems ? (
         <>
-          <p className="text-text-secondary text-sm">{displayConnectError(error)}</p>
-          <SystemSetup only={setupItems} />
+          <p className="text-text-secondary text-sm">
+            {!setupReady
+              ? displayConnectError(error)
+              : paidSessionId
+                ? 'Ready to connect.'
+                : 'Ready to connect. Nothing has been charged yet.'}
+          </p>
+          <SystemSetup only={setupItems} onReadyChange={setSetupReady} />
         </>
       ) : (
         <div className="bg-danger-subtle border border-danger p-3 rounded-md">
@@ -109,7 +125,8 @@ export default function ConnectErrorActions({
           </p>
           <button
             onClick={onRetryTunnel}
-            className={dnsFailure && onRetryWithoutDns ? 'btn btn-secondary w-full' : 'btn btn-primary w-full'}
+            disabled={setupHeld}
+            className={`${dnsFailure && onRetryWithoutDns ? 'btn btn-secondary' : 'btn btn-primary'} w-full disabled:opacity-30 disabled:cursor-not-allowed`}
           >
             Retry connection
           </button>
@@ -119,6 +136,23 @@ export default function ConnectErrorActions({
             className="text-text-tertiary hover:text-text-secondary text-xs w-full text-center transition-colors"
           >
             Start over
+          </button>
+        </>
+      ) : setupItems ? (
+        <>
+          <button
+            onClick={onRetryPurchase}
+            disabled={setupHeld}
+            className="btn btn-primary w-full disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Try Again
+          </button>
+          <button
+            type="button"
+            onClick={onStartOver}
+            className="text-text-tertiary hover:text-text-secondary text-xs w-full text-center transition-colors"
+          >
+            Back
           </button>
         </>
       ) : (

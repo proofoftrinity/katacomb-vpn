@@ -11,6 +11,12 @@ interface Props {
    * daemon that holds the tunnel up, so main refuses it then; the button says so first.
    */
   connected?: boolean
+  /**
+   * Whether the caller's retry can go ahead: every row shown is Ready. Also true when
+   * the check itself failed, since main's preflight re-checks anyway and a button
+   * held off with no Recheck would be a dead end.
+   */
+  onReadyChange?: (ready: boolean) => void
 }
 
 const ROWS: { item: SetupItem; label: string; detail: string }[] = [
@@ -28,13 +34,20 @@ const ROWS: { item: SetupItem; label: string; detail: string }[] = [
   },
 ]
 
+function isReady(item: SetupItem, status: SetupStatus): boolean {
+  if (item === 'helper') return status.helper === 'ready'
+  if (item === 'wireguard-tools') return status.wireguardTools
+  if (item === 'resolvconf') return status.resolvconf
+  return status.openvpn
+}
+
 /**
  * The machine's readiness for a connect, with one-click installs. Shown where a
  * connect was refused for it (ConnectErrorActions, the Sessions tab) and in
  * Settings. Each install is one pkexec password prompt, and main runs it async, so
  * the app stays usable while the prompt is open.
  */
-export default function SystemSetup({ only, connected = false }: Props) {
+export default function SystemSetup({ only, connected = false, onReadyChange }: Props) {
   const [status, setStatus] = useState<SetupStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   // One install at a time: two password prompts at once would be anyone's guess.
@@ -53,6 +66,12 @@ export default function SystemSetup({ only, connected = false }: Props) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  const rows = only ? ROWS.filter((r) => only.includes(r.item)) : ROWS
+  const allReady = loadError !== null || (status !== null && rows.every((r) => isReady(r.item, status)))
+  useEffect(() => {
+    onReadyChange?.(allReady)
+  }, [allReady, onReadyChange])
 
   async function install(item: SetupItem) {
     setBusy(item)
@@ -81,15 +100,10 @@ export default function SystemSetup({ only, connected = false }: Props) {
     )
   }
 
-  const rows = only ? ROWS.filter((r) => only.includes(r.item)) : ROWS
-
   return (
     <div className="space-y-2">
       {rows.map(({ item, label, detail }) => {
-        const ready = item === 'helper' ? status.helper === 'ready'
-          : item === 'wireguard-tools' ? status.wireguardTools
-          : item === 'resolvconf' ? status.resolvconf
-          : status.openvpn
+        const ready = isReady(item, status)
         const outdated = item === 'helper' && status.helper === 'outdated'
         const manualOnly = item === 'resolvconf' ? status.resolvconfPackage === null
           : item !== 'helper' && status.packageManager === null

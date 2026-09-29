@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useConnection } from '../hooks/useConnection'
 import { usePlansContext } from '../contexts/PlansContext'
 import { formatBytes as formatPlanBytes, formatDuration as formatPlanDuration } from '../utils/format'
@@ -98,6 +98,10 @@ export default function ActiveSessions({
   const { overview: { allocations } } = usePlansContext()
   const reconnect = useReconnect()
   const { requestConfirm, confirmDialog } = useConfirm()
+  // The session the last reconnect tried, so the setup pane's Try Again can run
+  // that same reconnect once every row it lists is Ready.
+  const [setupRetry, setSetupRetry] = useState<SessionInfo | null>(null)
+  const [setupReady, setSetupReady] = useState(false)
   const vpnConnected = status.state === 'connected'
   // Refresh asks the chain, and WALLET_SESSIONS returns lastKnownSessions verbatim
   // while isVpnActive() — so while our own tunnel carries the traffic the button is a
@@ -223,6 +227,7 @@ export default function ActiveSessions({
   async function handleReconnect(session: SessionInfo) {
     setBusy(session.id)
     setError(null)
+    setSetupRetry(session)
     const result = await reconnect(session)
     if (!result.ok) setError(result.error || 'Reconnection failed')
     else await refreshConnection()
@@ -282,6 +287,7 @@ export default function ActiveSessions({
     // Restore the tunnel we tore down only to reach the chain. Run this even if the
     // end failed — the reconnect target is unrelated to the ended session.
     if (reconnectTarget) {
+      setSetupRetry(reconnectTarget)
       const result = await reconnect(reconnectTarget)
       if (result.ok) await refreshConnection()
       else endError = endError
@@ -326,11 +332,22 @@ export default function ActiveSessions({
       </div>
 
       {error && (setupItems ? (
-        // A reconnect this machine can't bring up yet: offer the install, then the
-        // row's Connect runs again as before. Nothing was spent.
+        // A reconnect this machine can't bring up yet: offer the install, then Try
+        // Again runs the same reconnect (so does the row's Reconnect). Nothing was spent.
         <div className="mx-5 mt-3 space-y-2 shrink-0">
-          <p className="text-text-secondary text-sm">{displayConnectError(error)}</p>
-          <SystemSetup only={setupItems} />
+          <p className="text-text-secondary text-sm">
+            {setupReady ? 'Ready to connect.' : displayConnectError(error)}
+          </p>
+          <SystemSetup only={setupItems} onReadyChange={setSetupReady} />
+          {setupRetry && (
+            <button
+              onClick={() => handleReconnect(setupRetry)}
+              disabled={!setupReady || busy !== null}
+              className="btn btn-primary text-xs px-3 py-1 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Try Again
+            </button>
+          )}
         </div>
       ) : (
         <div className="mx-5 mt-3 bg-danger-subtle border border-danger p-2 rounded-md shrink-0">

@@ -650,6 +650,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
               error={error}
               paidSessionId={paid ? paid.entrySessionId : null}
               onRetryTunnel={handleRetryTunnel}
+              onRetryPurchase={() => void handleBuild()}
               // With two sessions already paid for, "start over" must NOT lead back to
               // the review: the Buy button there is live, and pressing it buys a SECOND
               // pair while the first is still open and still charged. Close instead, and

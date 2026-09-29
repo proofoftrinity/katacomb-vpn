@@ -126,7 +126,11 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   and failed at the bring-up. And "the helper" means the one THIS build bundles
   (`helperInstallState`), not merely a file at the path: a stale one refuses configs as
   root after the session is bought. Refusals carry `SYSTEM_SETUP_REQUIRED:<items>` and
-  name every missing item at once, so the renderer shows one install pane.
+  name every missing item at once, so the renderer shows one install pane. Its Try
+  Again stays disabled until every named item reads Ready, then re-runs the SAME purchase
+  with the choices already made (`useConnectFlow.retryPurchase`; it used to drop the user
+  back on the price form, 2026-09-29). That is safe only because the refusal came before
+  any payment: with a session already paid the pane's button is `retryTunnel`, never this.
   Two placements are load-bearing: `PLAN_SMART_CONNECT` checks the helper ONCE before
   its ladder (inside it a setup refusal reads as a bad node, and the ladder would walk
   every candidate into the same wall), and a chain's EXIT hop passes `tunnel: false`

@@ -34,8 +34,8 @@
 # the password-free connect (needs a fresh login + real funds) — that stays manual.
 #
 # Nothing here spends money or touches the chain. Only phase4 removes the package.
-# DEB below picks the newest built package by mtime — rebuild with `npm run dist`
-# first if dist/ is stale or empty.
+# DEB below picks the newest built package by mtime, and every phase that installs
+# or launches a build refuses one older than the source: rebuild with `npm run dist`.
 
 set -uo pipefail
 
@@ -52,6 +52,27 @@ if [ -z "$DEB" ] && [ "${1:-}" != "appimage" ] && [ "${1:-}" != "fullcycle" ]; t
   echo "No dist/katacomb-vpn_*_amd64.deb found — run 'npm run dist' first." >&2
   exit 1
 fi
+
+# A build older than the source tests old code and reports it as this tree's.
+# 2026-09-29: dist/ still held the 1.10.0 release on the branch that removed the
+# launch-time setup dialogs, so section 6 met the old "VPN Helper Setup" dialog,
+# its Install click failed section 6, and section 7 then passed on the leftover.
+# Build outputs and tests don't count: the helper binary is rebuilt by every
+# `npm run dev`, and daemon/ covers its source.
+refuse_stale() {
+  local artifact newer
+  for artifact in "$@"; do
+    newer="$(cd "$REPO_ROOT" && find src daemon resources package.json electron-builder.yml electron.vite.config.ts \
+      -type f -newer "$artifact" ! -name '*.test.ts' ! -name '*_test.go' \
+      ! -path resources/linux/privileged/katacomb-vpn-helper 2>/dev/null | head -3)"
+    if [ -n "$newer" ]; then
+      echo "$(basename "$artifact") is older than the source, so this would test old code. Changed since:" >&2
+      printf '    %s\n' $newer >&2
+      echo "Run 'npm run dist' first." >&2
+      exit 1
+    fi
+  done
+}
 
 pass=0; fail=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$1"; pass=$((pass+1)); }
@@ -91,7 +112,7 @@ GUI_DISPLAY="${GUI_DISPLAY:-:0}"
 session_env() {
   local pid env
   for pid in $(pgrep -u "$GUI_USER" 2>/dev/null); do
-    env="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null)" || continue
+    env="$(tr '\0' '\n' 2>/dev/null < "/proc/$pid/environ")" || continue
     grep -qx "DISPLAY=$GUI_DISPLAY" <<<"$env" || continue
     grep -q '^DBUS_SESSION_BUS_ADDRESS=' <<<"$env" || continue
     grep -E '^(DBUS_SESSION_BUS_ADDRESS|XDG_CURRENT_DESKTOP|XDG_SESSION_TYPE|XDG_RUNTIME_DIR|DESKTOP_SESSION|XAUTHORITY)=' <<<"$env"
@@ -543,7 +564,9 @@ fullcycle() {
 
   head_ "7. AppImage at the Mint default (sandbox back) + the helper install (needs YOUR click)"
   sysctl -w "$SYSCTL=0" >/dev/null; info "$SYSCTL = $(sysctl -n $SYSCTL)"
-  check "[ ! -e /usr/local/bin/katacomb-vpn-helper ]" "clean slate before the install test"
+  # Section 6 already FAILED if a launch left these. Clear them so the checks below
+  # measure the Install click, not a leftover (they all passed on one, 2026-09-29).
+  rm -f /usr/local/bin/katacomb-vpn-helper /usr/share/polkit-1/actions/com.katacomb.vpn.policy
   if launch_and_install_helper "'$APPIMAGE'" "$log/appimage-off.log" 120; then
     ok "AppImage GUI opens, and the helper installs from Settings, System"
     if pgrep -u "$GUI_USER" -af '\.mount_kataco.*--no-sandbox' >/dev/null 2>&1; then
@@ -556,7 +579,7 @@ fullcycle() {
   fi
   # Why the app stages the helper through mkdtemp: root cannot enter the mount.
   # If this ever FAILS the runtime started passing allow_root — re-read the note
-  # in CLAUDE.md "Packaging" before touching ensurePolkitSetup.
+  # in docs/packaging.md before touching installHelper (helper/system-setup.ts).
   local mnt; mnt="$(appimage_mount)"
   if [ -n "$mnt" ]; then
     check "! cat '$mnt/resources/linux/privileged/katacomb-vpn-helper' >/dev/null 2>&1" "root cannot read the AppImage FUSE mount (no allow_root) — why the helper is staged via mkdtemp"
@@ -599,6 +622,11 @@ revert() {
   echo "  sudo apt install $DEB"
 }
 
+case "${1:-}" in
+  phase1|phase3) refuse_stale "$DEB" ;;
+  appimage) [ -z "$APPIMAGE" ] || refuse_stale "$APPIMAGE" ;;
+  fullcycle) refuse_stale "$DEB" "$APPIMAGE" ;;
+esac
 case "${1:-}" in
   phase1|phase2|phase3|phase4|appimage|fullcycle|revert) "$1" ;;
   *) sed -n '2,20p' "$0"; exit 1 ;;

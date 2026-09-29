@@ -62,7 +62,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
   // The purchase-then-tunnel state machine, shared with the Plans tab's modal.
   const {
     connecting, currentStep, error, tunnelConnected, sessionId, paidProtocol, disconnecting,
-    start, retryTunnel, disconnect: disconnectFlow, reset,
+    start, retryPurchase, retryTunnel, disconnect: disconnectFlow, reset,
   } = useConnectFlow()
   // Full tunnel vs. local SOCKS proxy. Only the child-proxy protocols expose a
   // local listener, so the choice is hidden (and forced to 'tunnel') otherwise.
@@ -607,6 +607,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
             error={error}
             paidSessionId={paidProtocol ? sessionId : null}
             onRetryTunnel={() => retryTunnel()}
+            onRetryPurchase={() => void retryPurchase()}
             onStartOver={reset}
             onRetryWithoutDns={paidProtocol ? () => retryTunnel(true) : undefined}
           />
