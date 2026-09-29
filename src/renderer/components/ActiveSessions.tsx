@@ -5,7 +5,8 @@ import { formatBytes as formatPlanBytes, formatDuration as formatPlanDuration } 
 import { useTrafficStats } from '../hooks/useTrafficStats'
 import { useReconnect } from '../hooks/useReconnect'
 import Spinner from './Spinner'
-import { displayConnectError } from '../utils/connect-errors'
+import { displayConnectError, setupItemsRequired } from '../utils/connect-errors'
+import SystemSetup from './SystemSetup'
 import ChainUnreachable from './ChainUnreachable'
 import { useConfirm } from './ConfirmModal'
 import type { SessionInfo } from '../types'
@@ -284,7 +285,7 @@ export default function ActiveSessions({
       const result = await reconnect(reconnectTarget)
       if (result.ok) await refreshConnection()
       else endError = endError
-        ? `${endError}. Reconnect also failed: ${result.error}`
+        ? `${endError}. Reconnect also failed: ${displayConnectError(result.error ?? 'Reconnection failed')}`
         : (result.error ?? 'Reconnection failed')
     }
 
@@ -302,6 +303,8 @@ export default function ActiveSessions({
       </div>
     )
   }
+
+  const setupItems = error ? setupItemsRequired(error) : null
 
   return (
     <div className="h-full flex flex-col">
@@ -322,11 +325,18 @@ export default function ActiveSessions({
         </button>
       </div>
 
-      {error && (
+      {error && (setupItems ? (
+        // A reconnect this machine can't bring up yet: offer the install, then the
+        // row's Connect runs again as before. Nothing was spent.
+        <div className="mx-5 mt-3 space-y-2 shrink-0">
+          <p className="text-text-secondary text-sm">{displayConnectError(error)}</p>
+          <SystemSetup only={setupItems} />
+        </div>
+      ) : (
         <div className="mx-5 mt-3 bg-danger-subtle border border-danger p-2 rounded-md shrink-0">
           <p className="text-danger text-sm">{displayConnectError(error)}</p>
         </div>
-      )}
+      ))}
 
       {sessions.length === 0 && allocations.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-2">

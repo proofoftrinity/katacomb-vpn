@@ -179,6 +179,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
         amount,
         denom: 'udvpn',
         ...(exitWalletId ? { exitWalletId } : {}),
+        ...(mode === 'proxy' ? { proxyMode: true } : {}),
       })
       setPaid({ entrySessionId: result.sessionId, exitSessionId: result.exitSessionId })
       await connectTunnelOnly(result.protocol as TunnelProtocol)

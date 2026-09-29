@@ -269,6 +269,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
         nodeCountry: node.country,
         nodeType: node.type,
         apiField: node.api,
+        ...(proxyMode ? { proxyMode: true } : {}),
       }
       const res = isReuse
         ? await window.api.planStartSessionFromSub({ subscriptionId, planId: plan.id, ...params })

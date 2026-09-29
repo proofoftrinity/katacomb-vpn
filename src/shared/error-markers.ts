@@ -28,6 +28,16 @@ export const INSUFFICIENT_FUNDS = 'INSUFFICIENT_FUNDS'
 export const RPC_UNREACHABLE = 'RPC_UNREACHABLE'
 
 /**
+ * This machine is missing something the connect needs: the privileged helper
+ * (absent or older than this build), wireguard-tools or openvpn. Like
+ * WALLET_EXISTS it carries a payload naming what, as
+ * `SYSTEM_SETUP_REQUIRED:helper,wireguard-tools: …`, so the renderer can offer
+ * exactly those installs. On the purchase paths it is thrown BEFORE any payment.
+ * Parse it with `setupItemsRequired` in `connect-errors.ts`.
+ */
+export const SYSTEM_SETUP_REQUIRED = 'SYSTEM_SETUP_REQUIRED'
+
+/**
  * A wallet with the derived address is already stored, so nothing was created.
  * Unlike the others this marker carries a payload — `WALLET_EXISTS:<id>: …` —
  * so the renderer can offer to switch to that wallet instead of making the user

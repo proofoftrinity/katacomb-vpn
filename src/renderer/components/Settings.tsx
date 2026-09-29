@@ -9,6 +9,7 @@ import { classifyRpc, rpcHealthLabel, rpcHostLabel, STALE_BLOCK_AGE_SEC } from '
 import { parseSplitTunnelRoutes, MAX_SPLIT_TUNNEL_ROUTES } from '../../shared/split-tunnel'
 import { STATE_DOT } from './RpcStatus'
 import WalletsTab from './settings/WalletsTab'
+import SystemSetup from './SystemSetup'
 
 interface Props {
   /** Which tab to land on — 'network' when something sent the user here to fix the RPC. */
@@ -234,7 +235,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
 
         {/* Tabs */}
         <div className="flex border-b border-border px-6 shrink-0">
-          {(['general', 'network', 'wallets'] as const).map((t) => (
+          {(['general', 'network', 'wallets', 'system'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -606,6 +607,20 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
               onWalletsChanged={onWalletsChanged}
               onAddWallet={onAddWallet}
             />
+          )}
+
+          {tab === 'system' && (
+            <div className="space-y-3">
+              <label className="text-text-secondary text-xs font-medium uppercase tracking-wide block">
+                System Setup
+              </label>
+              <p className="text-text-tertiary text-xs">
+                What this computer needs to bring a connection up. The app asks for anything
+                missing when a connection needs it, so setting it up here first is optional.
+                The .deb package installs all of it with the app.
+              </p>
+              <SystemSetup connected={connected} />
+            </div>
           )}
         </div>
       </div>

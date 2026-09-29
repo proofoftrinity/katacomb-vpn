@@ -178,6 +178,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
           nodeCountry: node.country,
           nodeType: node.type,
           apiField: node.api,
+          ...(proxyCapable && mode === 'proxy' ? { proxyMode: true } : {}),
         })
       }
       if (!selectedPrice) throw new Error('No valid subscription selected')
@@ -191,6 +192,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
         amount,
         denom: 'udvpn',
         quoteValue: selectedPrice.raw,
+        ...(proxyCapable && mode === 'proxy' ? { proxyMode: true } : {}),
       })
     }, { mode: proxyCapable && mode === 'proxy' ? 'proxy' : 'tunnel' })
   }

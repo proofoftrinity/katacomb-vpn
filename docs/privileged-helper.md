@@ -41,8 +41,19 @@ membership only applies to **new login sessions**, so a fresh `.deb` install nee
 log-out/log-in before the password-free path works — until then the GUI can't open the
 socket and silently falls back to `pkexec`. The AppImage and `npm run dev` have no
 daemon, so they fall back to the per-op `pkexec` one-shot (one cached prompt);
-`npm run dev` builds the helper (`predev`) and the existing "VPN Helper Setup" dialog
-installs it. Daemon mode by hand: `sudo /usr/local/bin/katacomb-vpn-helper daemon`.
+`npm run dev` builds the helper (`predev`), and Settings, System (or the setup pane a
+refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/katacomb-vpn-helper daemon`.
+- **The helper is asked for when a connect needs it, never at launch.** Until 1.10.0 two
+  blocking native dialogs (`checkSystemDeps`, `ensurePolkitSetup`) ran before the window
+  existed, each wanting an admin password before the user could have connected at all.
+  Skip left no way back but a restart, the package install was `pkexec apt` only and
+  synchronous, and it was what the AppImage catalog's screenshot of a clean machine
+  showed instead of the app. Now `helper/system-setup.ts` owns the check and the installs
+  (Electron-free, unit-tested) and `ipc/setup.ts` wires them: `assertSystemReady` refuses
+  a connect as `SYSTEM_SETUP_REQUIRED` (see the preflight rule in
+  [reliability.md](invariants/reliability.md)), and the renderer's `SystemSetup` rows
+  install the helper or the distro package (`apt-get`/`dnf`/`pacman`, detected from
+  os-release; any other distro is told to install it by hand).
 
 - **`daemon/` is the whole root side**: one Go module whose only dependency is the
   tun2socks engine (`go.sum` + the checksum DB are the pin; no `vendor/`).
@@ -120,18 +131,22 @@ installs it. Daemon mode by hand: `sudo /usr/local/bin/katacomb-vpn-helper daemo
   `openvpn --daemon`, the embedded AmneziaWG device), so only kernel WireGuard survives one —
   pre-existing, and a separate decision.
 - **Install the helper through a temp name + `mv -f`** (postinstall and
-  `ensurePolkitSetup`'s pkexec script): the daemon now runs FROM
+  `installHelper`'s pkexec script): the daemon now runs FROM
   `/usr/local/bin/katacomb-vpn-helper`, and `cp` onto a running executable fails with
   `ETXTBSY`, which would abort every upgrade's postinst and leave the old daemon running.
-  `ensurePolkitSetup` compares bundled and installed helper with `Buffer.equals` (it is a
-  binary), which only stays quiet across dev rebuilds because `build-daemon.sh` builds
+  `helperInstallState` compares bundled and installed helper + policy byte-exact (SHA-256,
+  cached per file identity so the 11.8 MB helper is hashed once per version), which only
+  stays quiet across dev rebuilds because `build-daemon.sh` builds
   reproducibly (`-trimpath -buildid=`, no VCS stamp): building the same tree twice gives
-  the same bytes. It runs on every start, daemon or not (it used to be skipped when the
-  daemon socket existed): a dev rebuild on a machine with the deb's daemon otherwise
+  the same bytes. It runs in every full-tunnel connect's preflight, daemon or not (the
+  startup check it replaced used to be skipped when the daemon socket existed): a dev
+  rebuild on a machine with the deb's daemon otherwise
   leaves the daemon on the OLD binary, which accepts the app's ops but validates configs
   with the old allow-lists and refuses as root, after the session is paid for (seen
   2026-09-18 with the AmneziaWG 3.1 keys). Its pkexec script ends with
-  `systemctl try-restart katacomb-vpn-daemon.service`, a no-op where no unit exists.
+  `systemctl try-restart katacomb-vpn-daemon.service`, a no-op where no unit exists, and
+  since that restart SIGTERMs the daemon's detached children, `SETUP_INSTALL_HELPER`
+  refuses while any session is live.
 - **`scripts/build-daemon.sh` fails loudly**: it asserts `go version` equals go.mod's
   `toolchain`, runs `go vet` + `go mod verify`, and asserts the output is statically
   linked (`CGO_ENABLED=0`) — because electron-builder only WARNS on a missing

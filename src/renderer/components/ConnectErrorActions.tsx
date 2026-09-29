@@ -1,5 +1,6 @@
-import { displayConnectError, isDnsProvisionFailure, isInsufficientFunds, isRpcUnreachable } from '../utils/connect-errors'
+import { displayConnectError, isDnsProvisionFailure, isInsufficientFunds, isRpcUnreachable, setupItemsRequired } from '../utils/connect-errors'
 import InsufficientFunds from './InsufficientFunds'
+import SystemSetup from './SystemSetup'
 import { useNavigation } from '../contexts/NavigationContext'
 
 interface Props {
@@ -33,6 +34,10 @@ export default function ConnectErrorActions({
   onRetryWithoutDns,
 }: Props) {
   const dnsFailure = isDnsProvisionFailure(error)
+  // The machine lacks something this connect needs. Not a fault to show in red:
+  // install it here, then the buttons below carry on (a refused purchase spent
+  // nothing, so "Try Again" re-runs the whole preflight).
+  const setupItems = setupItemsRequired(error)
   const { openSettings } = useNavigation()
 
   // The chain was never reached, so retrying against the same endpoint mostly
@@ -73,9 +78,16 @@ export default function ConnectErrorActions({
 
   return (
     <div className="space-y-3">
-      <div className="bg-danger-subtle border border-danger p-3 rounded-md">
-        <p className="text-danger text-sm">{displayConnectError(error)}</p>
-      </div>
+      {setupItems ? (
+        <>
+          <p className="text-text-secondary text-sm">{displayConnectError(error)}</p>
+          <SystemSetup only={setupItems} />
+        </>
+      ) : (
+        <div className="bg-danger-subtle border border-danger p-3 rounded-md">
+          <p className="text-danger text-sm">{displayConnectError(error)}</p>
+        </div>
+      )}
 
       {dnsFailure && onRetryWithoutDns && (
         <div className="space-y-2">

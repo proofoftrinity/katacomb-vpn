@@ -24,11 +24,12 @@
 # Or, to do the whole thing from a clean slate (purge -> install -> launch ->
 # negative control -> upgrade -> remove -> both AppImage states -> restore):
 #     sudo ./scripts/verify-deb-portability.sh fullcycle
-# It drives the GUI as $SUDO_USER, so it needs an X11 session plus xdotool and
-# wmctrl (checked up front). ONE step needs you: section 7 leaves the AppImage's
-# "VPN Helper Setup" dialog up and asks you to click Install and authenticate,
-# because that install used to fail silently for every AppImage user (root cannot
-# read the FUSE mount — see CLAUDE.md "Packaging") and nothing else exercises it.
+# It drives the GUI as $SUDO_USER, so it needs an X11 session plus wmctrl
+# (checked up front). ONE step needs you: section 7 asks you to open Settings,
+# System in the AppImage and click Install next to the VPN helper, because that
+# install used to fail silently for every AppImage user (root cannot read the
+# FUSE mount — see CLAUDE.md "Packaging") and nothing else exercises it. It needs
+# a wallet in $SUDO_USER's profile: the welcome screen has no Settings button.
 # It leaves the deb UNINSTALLED and the sysctl at Mint's default. It cannot cover
 # the password-free connect (needs a fresh login + real funds) — that stays manual.
 #
@@ -66,14 +67,11 @@ summary() {
 
 need_root() { [ "$(id -u)" -eq 0 ] || { echo "run me with sudo"; exit 1; }; }
 
-# The unattended launches drive the desktop with these two. Fail loudly: with
-# xdotool absent, dismiss_helper_dialog used to no-op behind its 2>/dev/null and
-# the "unattended" run silently waited on a human to click Skip (2026-09-02).
+# The unattended launches find the app's windows with wmctrl. Fail loudly rather
+# than let a launch check no-op behind a 2>/dev/null. (xdotool used to be needed
+# too, to dismiss a startup helper dialog the app no longer shows.)
 need_gui_tools() {
-  local missing=""
-  command -v xdotool >/dev/null 2>&1 || missing="$missing xdotool"
-  command -v wmctrl  >/dev/null 2>&1 || missing="$missing wmctrl"
-  [ -z "$missing" ] || { echo "missing:$missing — apt install$missing" >&2; exit 1; }
+  command -v wmctrl >/dev/null 2>&1 || { echo "missing: wmctrl — apt install wmctrl" >&2; exit 1; }
 }
 
 # ---------------------------------------------------------------------------
@@ -84,34 +82,34 @@ GUI_USER="${SUDO_USER:-$(logname 2>/dev/null || echo root)}"
 GUI_HOME="$(getent passwd "$GUI_USER" | cut -d: -f6)"
 GUI_DISPLAY="${GUI_DISPLAY:-:0}"
 
+# The desktop session's own environment: its D-Bus bus, desktop name and X cookie.
+# A menu launch has them and `sudo -u` strips them. Without them Electron cannot
+# reach the keyring, falls back to its plain-text store, cannot decrypt a seed saved
+# from the desktop, and shows the stored wallet as locked, so Settings, which
+# section 7's step needs, is unreachable (seen 2026-09-29 on Ubuntu 24.04). Read
+# once, as root, from any of the user's processes on $GUI_DISPLAY.
+session_env() {
+  local pid env
+  for pid in $(pgrep -u "$GUI_USER" 2>/dev/null); do
+    env="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null)" || continue
+    grep -qx "DISPLAY=$GUI_DISPLAY" <<<"$env" || continue
+    grep -q '^DBUS_SESSION_BUS_ADDRESS=' <<<"$env" || continue
+    grep -E '^(DBUS_SESSION_BUS_ADDRESS|XDG_CURRENT_DESKTOP|XDG_SESSION_TYPE|XDG_RUNTIME_DIR|DESKTOP_SESSION|XAUTHORITY)=' <<<"$env"
+    return 0
+  done
+}
+mapfile -t GUI_SESSION_ENV < <(session_env)
+
+# Later assignments win in env(1), so the session's XAUTHORITY (GDM keeps it under
+# /run/user) overrides the ~/.Xauthority default that lightdm uses.
 as_user() {
   sudo -u "$GUI_USER" env -u ELECTRON_RUN_AS_NODE \
-    DISPLAY="$GUI_DISPLAY" XAUTHORITY="$GUI_HOME/.Xauthority" "$@"
+    DISPLAY="$GUI_DISPLAY" XAUTHORITY="$GUI_HOME/.Xauthority" "${GUI_SESSION_ENV[@]}" "$@"
 }
 
-# Any window belonging to the app, by WM_CLASS (the main window and the modal
-# helper dialog differ only in case, and a bare name search also matches an
-# editor tab titled "katacomb-vpn").
+# Any window belonging to the app, by WM_CLASS (a bare name search also matches
+# an editor tab titled "katacomb-vpn").
 app_windows() { as_user wmctrl -lx 2>/dev/null | grep -i ' katacomb-vpn\.katacomb-vpn '; }
-
-# The AppImage has no install step, so on a machine where the deb is not
-# installed its first run puts up a MODAL "VPN Helper Setup" dialog
-# (dialog.showMessageBoxSync). Until that is answered the main window never
-# appears, so the launch check must dismiss it.
-#
-# It must be closed with WM_DELETE_WINDOW (xdotool windowclose) — verified by
-# experiment: 'xdotool key --window ... Escape' uses XSendEvent, which GTK
-# ignores, and even a real XTEST Escape after windowactivate does not dismiss
-# it. WM_DELETE maps to the dialog's cancelId, i.e. "Skip": no pkexec runs and
-# no helper is installed (asserted right after section 6). Section 7 deliberately
-# does NOT call this — see launch_and_install_helper.
-dismiss_helper_dialog() {
-  local winid
-  winid="$(as_user xdotool search --name '^VPN Helper Setup$' 2>/dev/null | head -1)"
-  [ -n "$winid" ] || return 0
-  as_user xdotool windowclose "$winid" 2>/dev/null
-  return 0
-}
 
 # Launch $1 as the user and wait for the real window.
 # Returns 0 if the main window appeared.
@@ -119,39 +117,30 @@ launch_and_wait() {
   local cmd="$1" logf="$2" secs="${3:-40}" i
   as_user bash -c "$cmd" >"$logf" 2>&1 &
   for i in $(seq 1 $((secs * 2))); do
-    dismiss_helper_dialog
     app_windows | grep -qi 'Katacomb VPN$' && return 0
     sleep 0.5
   done
   return 1
 }
 
-# Section 7's launcher: leave the "VPN Helper Setup" dialog UP, ask the human to
-# click Install and authenticate, and wait for pkexec to land the helper before
-# waiting for the main window (which only appears once the modal is answered).
-# This is the ONLY thing that exercises the AppImage's helper install. It used to
-# fail silently for every AppImage user: the runtime's FUSE mount has no
-# allow_root, so root's `cp` got EACCES and the app's catch{} swallowed it —
-# three authenticated clicks, nothing on disk (2026-09-02). The app now stages
-# the two files through mkdtemp; this proves that works from a real AppImage.
-# Returns 0 if the helper landed AND the main window appeared.
+# Section 7's launcher: wait for the main window (the app asks nothing at
+# launch), ask the human to install the helper from Settings, System, and
+# wait for pkexec to land it. This is the ONLY thing that exercises the
+# AppImage's helper install. It used to fail silently for every AppImage user:
+# the runtime's FUSE mount has no allow_root, so root's `cp` got EACCES and the
+# app's catch{} swallowed it — three authenticated clicks, nothing on disk
+# (2026-09-02). The app now stages the two files through mkdtemp; this proves
+# that works from a real AppImage.
+# Returns 0 if the main window appeared AND the helper landed.
 launch_and_install_helper() {
   local cmd="$1" logf="$2" secs="${3:-120}" i
-  as_user bash -c "$cmd" >"$logf" 2>&1 &
-  for i in $(seq 1 60); do
-    app_windows | grep -qi 'VPN Helper Setup' && break
-    sleep 0.5
-  done
-  printf '\n  \033[1m>>> The AppImage is showing "VPN Helper Setup".\n'
-  printf '  >>> Click INSTALL and enter your password at the polkit prompt (within %ss).\033[0m\n\n' "$secs"
+  launch_and_wait "$cmd" "$logf" 60 || return 1
+  printf '\n  \033[1m>>> The AppImage is open. Open Settings, then the System tab (Settings needs a\n'
+  printf '  >>> wallet in this profile: the welcome screen has no Settings button),\n'
+  printf '  >>> click Install next to "VPN helper" and enter your password (within %ss).\033[0m\n\n' "$secs"
   for i in $(seq 1 "$secs"); do
-    [ -x /usr/local/bin/katacomb-vpn-helper ] && [ -f /usr/share/polkit-1/actions/com.katacomb.vpn.policy ] && break
+    [ -x /usr/local/bin/katacomb-vpn-helper ] && [ -f /usr/share/polkit-1/actions/com.katacomb.vpn.policy ] && return 0
     sleep 1
-  done
-  [ -x /usr/local/bin/katacomb-vpn-helper ] || return 1
-  for i in $(seq 1 120); do
-    app_windows | grep -qi 'Katacomb VPN$' && return 0
-    sleep 0.5
   done
   return 1
 }
@@ -387,10 +376,11 @@ EOM
   configured correctly" abort. That would mean the AppImage stopped launching
   on stock Ubuntu entirely.
 
-  ALSO: on the "VPN Helper Setup" dialog click INSTALL and authenticate. That
-  install failed silently for every AppImage user until 2026-09-02 (root cannot
-  read the FUSE mount; the app now stages the files through mkdtemp) and this is
-  where it gets checked. Leave the app running until you press Enter.
+  ALSO: open Settings, System and click INSTALL next to "VPN helper", then
+  authenticate. That install failed silently for every AppImage user until
+  2026-09-02 (root cannot read the FUSE mount; the app now stages the files
+  through mkdtemp) and this is where it gets checked. Leave the app running until
+  you press Enter.
 
   THEN, still in the AppImage: connect a V2Ray, XRAY or Hysteria2 node in TUNNEL
   mode (needs a funded wallet). This is the AppImage case the Go helper fixed:
@@ -547,23 +537,22 @@ fullcycle() {
   fi
   kill_app
   assert_no_app
-  # Proves the helper dialog was cancelled, not accepted: if WM_DELETE had hit
-  # "Install" instead of its cancelId, pkexec would have deployed these.
-  check "[ ! -e /usr/local/bin/katacomb-vpn-helper ]" "helper dialog auto-dismissed (Skip) — nothing installed"
-  check "[ ! -e /usr/share/polkit-1/actions/com.katacomb.vpn.policy ]" "no polkit policy installed by the Skip path"
+  # A launch alone installs nothing: setup is asked for when a connect needs it.
+  check "[ ! -e /usr/local/bin/katacomb-vpn-helper ]" "launch installed no helper on its own"
+  check "[ ! -e /usr/share/polkit-1/actions/com.katacomb.vpn.policy ]" "launch installed no polkit policy on its own"
 
   head_ "7. AppImage at the Mint default (sandbox back) + the helper install (needs YOUR click)"
   sysctl -w "$SYSCTL=0" >/dev/null; info "$SYSCTL = $(sysctl -n $SYSCTL)"
   check "[ ! -e /usr/local/bin/katacomb-vpn-helper ]" "clean slate before the install test"
   if launch_and_install_helper "'$APPIMAGE'" "$log/appimage-off.log" 120; then
-    ok "AppImage GUI opens after Install"
+    ok "AppImage GUI opens, and the helper installs from Settings, System"
     if pgrep -u "$GUI_USER" -af '\.mount_kataco.*--no-sandbox' >/dev/null 2>&1; then
       no "still --no-sandbox with the restriction OFF — sandbox never engages"
     else
       ok "no --no-sandbox flag: Chromium sandbox active"
     fi
   else
-    no "no helper after the Install click — either nothing was clicked within 120s, or pkexec's cp failed (journalctl _COMM=pkexec)"; head -20 "$log/appimage-off.log"
+    no "no window, or no helper after the Install click — either nothing was clicked within 120s, or pkexec's cp failed (journalctl _COMM=pkexec)"; head -20 "$log/appimage-off.log"
   fi
   # Why the app stages the helper through mkdtemp: root cannot enter the mount.
   # If this ever FAILS the runtime started passing allow_root — re-read the note

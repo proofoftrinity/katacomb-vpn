@@ -112,11 +112,27 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   the rules is left, deletes a fwmark table only inside wg-quick's own allocation range
   (so another VPN's table is untouched), and bounds every loop. Anything else that tears
   a tunnel down by deleting the link inherits this obligation.
-- **Preflight before paying.** The three session-creating handlers call
-  `preflightConnect(nodeType, apiField)` BEFORE the tx: `protocolRuntimeError()`
-  (binaries present + SHA-verified; WG/AWG also need `canEscalatePrivileges()`), then
-  the node's own `service_type` — fetched from its ROOT path, `/info` 404s — mapped via
-  the pure `serviceTypeToNodeType()` and required to match the aggregator's type.
+- **Preflight before paying.** The session-creating handlers call
+  `preflightConnect(nodeType, apiField, tunnel)` BEFORE the tx: first
+  `assertSystemReady` (`ipc/setup.ts`), then `protocolRuntimeError()` (binaries present
+  + SHA-verified), then the node's own `service_type` — fetched from its ROOT path,
+  `/info` 404s — mapped via the pure `serviceTypeToNodeType()` and required to match the
+  aggregator's type.
+  **The machine check needs the connect's MODE, and every purchase handler takes it**
+  (`proxyMode`, absent = full tunnel, so a caller that forgets it only gets the stricter
+  check). In full-tunnel mode EVERY protocol needs the helper, not just the three root
+  ones: v2ray/xray/hysteria2 route through the helper's `tun-up`. The old check only
+  covered WG/AWG/OpenVPN, so a V2Ray tunnel-mode connect without the helper paid first
+  and failed at the bring-up. And "the helper" means the one THIS build bundles
+  (`helperInstallState`), not merely a file at the path: a stale one refuses configs as
+  root after the session is bought. Refusals carry `SYSTEM_SETUP_REQUIRED:<items>` and
+  name every missing item at once, so the renderer shows one install pane.
+  Two placements are load-bearing: `PLAN_SMART_CONNECT` checks the helper ONCE before
+  its ladder (inside it a setup refusal reads as a bad node, and the ladder would walk
+  every candidate into the same wall), and a chain's EXIT hop passes `tunnel: false`
+  (the chain is one bring-up, already checked at the entry; a refusal there would only
+  refund a paid entry). `CONNECTION_CONNECT` and `CONNECTION_RECONNECT` run the same
+  check with nothing spent, so a retry or a Sessions-tab reconnect gets the pane too.
 - **The connect flow rides ONE RPC connection, and its handshake retries a 404 —
   nothing else.** `chain-clients.ts` owns the speed path: `resolveRpcBase` follows the
   endpoint's 307/308 redirect once per launch (the default rpc.sentinel.co redirects

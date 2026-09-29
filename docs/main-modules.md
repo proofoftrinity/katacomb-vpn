@@ -16,7 +16,15 @@ CLAUDE.md; this is the per-module detail.
 - `vpn-manager.ts`: V2Ray child process lifecycle, WireGuard via polkit helper, tun2socks TUN routing for V2Ray, connection status monitoring. Bundled child-proxy binaries (v2ray, xray, hysteria) verified via SHA-256 before use, with system PATH fallback. tun2socks is no longer a binary: the engine is compiled into the privileged helper (`daemon/internal/tun2socks`), and `tun-up` self-execs it. Likewise the AmneziaWG userspace device (`daemon/internal/amneziawg`), which `awg-up` self-execs: root runs no vendored binary any more.
 - `ipc-handlers.ts`: all IPC channels (registered via a `handle()` wrapper that rejects calls from any frame that isn't our own renderer), pre-connect balance validation, node list fetch from `api.sentnodes.com/v2/nodes` via `net.fetch`, auto-reconnect + a WireGuard liveness monitor. Caches balance/sessions/nodes when VPN is active (RPC unreachable through tunnel).
 - `config-guard.ts`: **pure validators for untrusted-node data** — `assertSafeWireguardConfig` (allow-list keys, reject `PostUp`/`PreUp`/… so a node config can't run shell as root via `wg-quick`), `assertSafeV2RayConfig`, `isAllowedBypassCidr`/`sanitizeBypassRoutes` (reject `0.0.0.0/x` split-tunnel routes), `extractWireguardEndpointHost`. Unit-tested; see [docs/invariants/node-trust.md](invariants/node-trust.md).
+- `helper/system-setup.ts` + `ipc/setup.ts`: what the machine needs before a connect (the
+  helper matching this build, wireguard-tools, openvpn) and the one-click installs, all
+  async pkexec. The first is Electron-free and unit-tested; the second holds
+  `assertSystemReady` (called by the connect preflight) and the `SETUP_*` channels behind
+  Settings, System. Nothing is asked at launch: see
+  [docs/privileged-helper.md](privileged-helper.md).
 - `fs-utils.ts`: `writeFileAtomic(path, data, mode=0o600)` (temp + rename). Use it for all settings/wallet/session/cache writes — never `writeFileSync` directly for persisted state.
+  Also `isOnPath(name, PATH)`, which `binaryExists` uses instead of exec'ing `which`:
+  `which` is not in Arch's base install, and without it every binary read as missing.
 - `kill-switch.ts`: iptables-based kill switch (helper `killswitch-on`/`killswitch-off`); `traffic-stats.ts`, `node-tester.ts`, `plan-service.ts`/`provider-service.ts` and their `*-cache.ts`, `nodes-cache.ts` round out the main process.
 - `async-utils.ts` (`withTimeout`), `connect-decisions.ts` (pure refund-message + reconnect/backoff decisions, `serviceTypeToNodeType` for the preflight, `isDnsProvisionError`/`stripDnsLines` for the DNS fallback), `tx-utils.ts` (`broadcastOrTimeout`): the **Electron-free, unit-tested** reliability helpers. Keep new pure decision logic here rather than inline in the Electron-coupled modules, so it stays testable under the native runner. **Transactions carry no memo** — all `signAndBroadcast` calls pass an empty string or the CosmJS default, never app-identifying labels.
 - `node-normalize.ts`: the aggregator sends `null` for unknown text fields (`moniker`,
