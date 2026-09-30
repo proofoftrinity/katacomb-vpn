@@ -46,9 +46,13 @@ tools and OpenVPN with the package.
   or `systemd-resolvconf` on Arch. Anywhere else it installs nothing, because adding one
   there would change how the whole system handles DNS.
 
-## Fixes in 1.10.0
+## Fixes in 1.11.0
 
-- Speak the AmneziaWG 3.1 tier where a dvpnd node offers it
+- Settings, System: say what the .deb installs, not "all of it"
+- Sessions tab: hold the card's Reconnect instead of a second Try Again
+- Hold the setup pane's Try Again until ready, then connect with the same choices
+- Check for a resolvconf before a WireGuard or AmneziaWG connect pays
+- Ask for the helper and packages when a connect needs them, not at launch
 
 ## Known limitations
 
@@ -82,7 +86,7 @@ Fedora 44 and Arch installs.
 **Recommended: .deb**
 
 ```bash
-sudo apt install ./katacomb-vpn_1.10.0_amd64.deb
+sudo apt install ./katacomb-vpn_1.11.0_amd64.deb
 ```
 
 Installs a root daemon, so connect and disconnect never prompt for a password. It needs
@@ -91,8 +95,8 @@ one log out and log back in after the first install before that takes effect.
 **Alternative: AppImage**
 
 ```bash
-chmod +x katacomb-vpn-1.10.0.AppImage
-./katacomb-vpn-1.10.0.AppImage
+chmod +x katacomb-vpn-1.11.0.AppImage
+./katacomb-vpn-1.11.0.AppImage
 ```
 
 No install needed. The first connection that needs the VPN helper installs it, with one
