@@ -617,7 +617,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
               <p className="text-text-tertiary text-xs">
                 What this computer needs to bring a connection up. The app asks for anything
                 missing when a connection needs it, so setting it up here first is optional.
-                The .deb package installs all of it with the app.
+                The .deb package installs the helper, WireGuard tools and OpenVPN with the app.
               </p>
               <SystemSetup connected={connected} />
             </div>
