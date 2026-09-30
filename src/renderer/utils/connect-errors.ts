@@ -5,8 +5,15 @@
 const DNS_PROVISION_FAILED = 'DNS_PROVISION_FAILED'
 const INSUFFICIENT_FUNDS = 'INSUFFICIENT_FUNDS'
 const RPC_UNREACHABLE = 'RPC_UNREACHABLE'
+const SYSTEM_SETUP_REQUIRED = 'SYSTEM_SETUP_REQUIRED'
 
 const MARKERS = [DNS_PROVISION_FAILED, INSUFFICIENT_FUNDS, RPC_UNREACHABLE]
+
+// The one marker with a payload: `SYSTEM_SETUP_REQUIRED:helper,wireguard-tools: text`.
+const SETUP_REQUIRED_RE = new RegExp(`^${SYSTEM_SETUP_REQUIRED}:([a-z,-]+):\\s*`)
+
+export type SetupItem = 'helper' | 'wireguard-tools' | 'openvpn' | 'resolvconf'
+const SETUP_ITEMS: readonly string[] = ['helper', 'wireguard-tools', 'openvpn', 'resolvconf']
 
 /**
  * Undo Electron's IPC wrapper. Anything an `ipcMain.handle` handler throws comes
@@ -42,9 +49,22 @@ export function isRpcUnreachable(message: string): boolean {
   return unwrapIpc(message).startsWith(RPC_UNREACHABLE)
 }
 
+/**
+ * What the machine still needs before this connect can go ahead, or null when the
+ * failure was something else. Unknown names are dropped, so a newer main can't
+ * make the setup pane render a row it has no install for.
+ */
+export function setupItemsRequired(message: string): SetupItem[] | null {
+  const m = SETUP_REQUIRED_RE.exec(unwrapIpc(message))
+  if (!m) return null
+  return m[1].split(',').filter((i): i is SetupItem => SETUP_ITEMS.includes(i))
+}
+
 /** Strip the IPC wrapper and the internal marker prefix — users should see neither. */
 export function displayConnectError(message: string): string {
   const unwrapped = unwrapIpc(message)
+  const setup = SETUP_REQUIRED_RE.exec(unwrapped)
+  if (setup) return unwrapped.slice(setup[0].length)
   const marker = MARKERS.find((m) => unwrapped.startsWith(m))
   return marker ? unwrapped.slice(marker.length).replace(/^:\s*/, '') : unwrapped
 }

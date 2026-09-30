@@ -1,8 +1,6 @@
-import { app, BrowserWindow, shell, Tray, Menu, nativeImage, nativeTheme, dialog, powerMonitor } from 'electron'
+import { app, BrowserWindow, shell, Tray, Menu, nativeImage, nativeTheme, powerMonitor } from 'electron'
 import { join } from 'path'
-import { execSync, execFile, execFileSync } from 'child_process'
-import { existsSync, readFileSync, mkdtempSync, copyFileSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
+import { execFile } from 'child_process'
 import { fileURLToPath } from 'url'
 import { is } from '@electron-toolkit/utils'
 import {
@@ -15,7 +13,6 @@ import { onChainPathChanged, runAutoRpcSelection, startRpcMonitor, stopRpcMonito
 import { sweepStaleSessionFiles } from './chain/chain-service'
 import { migrateLegacyUserData, dedupeWalletEntries, migrateProviderModeToWallet, migrateRpcMode } from './settings'
 import { listProviders } from './provider/provider-service'
-import { isDaemonAvailable } from './helper/daemon-client'
 import { IPC } from '../shared/ipc-channels'
 import { setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net'
 
@@ -34,9 +31,6 @@ import { setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net'
 // covers a two-hop chain across the world; every caller still bounds the request
 // with its own AbortSignal.
 setDefaultAutoSelectFamilyAttemptTimeout(2_000)
-
-const HELPER_PATH = '/usr/local/bin/katacomb-vpn-helper'
-const POLICY_PATH = '/usr/share/polkit-1/actions/com.katacomb.vpn.policy'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -303,135 +297,6 @@ function createWindow(): void {
   }
 }
 
-function checkSystemDeps(): void {
-  // Only WireGuard tools need to be installed system-wide; v2ray is bundled with the app
-  const missing: string[] = []
-
-  try { execSync('which wg-quick', { stdio: 'ignore' }) } catch { missing.push('wireguard-tools') }
-  try { execSync('which wg', { stdio: 'ignore' }) } catch { if (!missing.includes('wireguard-tools')) missing.push('wireguard-tools') }
-
-  if (missing.length === 0) return
-
-  const result = dialog.showMessageBoxSync({
-    type: 'question',
-    title: 'Missing System Dependencies',
-    message: `Katacomb VPN requires the following packages:\n\n  ${missing.join(', ')}\n\nInstall them now? (requires admin password)`,
-    buttons: ['Install', 'Skip'],
-    defaultId: 0,
-    cancelId: 1,
-  })
-
-  if (result === 0) {
-    try {
-      execSync(`pkexec apt install -y ${missing.join(' ')}`, { stdio: 'pipe', timeout: 120000 })
-    } catch {
-      dialog.showMessageBoxSync({
-        type: 'warning',
-        title: 'Installation Failed',
-        message: `Could not install packages. Please run manually:\n\nsudo apt install ${missing.join(' ')}`,
-      })
-    }
-  }
-}
-
-function ensurePolkitSetup(): void {
-  // Locate resource files — in dev they're in project root, in production in resourcesPath
-  const resourceDir = is.dev
-    ? join(__dirname, '../../resources/linux/privileged')
-    : join(process.resourcesPath, 'linux/privileged')
-
-  const helperSrc = join(resourceDir, 'katacomb-vpn-helper')
-  const policySrc = join(resourceDir, 'com.katacomb.vpn.policy')
-
-  if (!existsSync(helperSrc) || !existsSync(policySrc)) return
-
-  // Check if already installed and up-to-date
-  const needsInstall = !existsSync(HELPER_PATH) || !existsSync(POLICY_PATH)
-  // Byte comparison: the helper is a binary now, and a UTF-8 round-trip is lossy
-  // on one. The build is reproducible (scripts/build-daemon.sh), so an unchanged
-  // tree compares equal and this dialog does not come back on every dev launch.
-  const needsUpdate = !needsInstall && (
-    !readFileSync(helperSrc).equals(readFileSync(HELPER_PATH)) ||
-    !readFileSync(policySrc).equals(readFileSync(POLICY_PATH))
-  )
-
-  if (!needsInstall && !needsUpdate) return
-
-  const dialogMessage = needsInstall
-    ? 'Katacomb VPN needs to install a system helper so you don\'t have to enter your password every time you connect or disconnect.\n\nThis is a one-time setup that requires admin authentication.'
-    : isDaemonAvailable()
-      ? 'The VPN helper has been updated: it needs to be reinstalled and its background service restarted.\n\nThis requires admin authentication.'
-      : 'The VPN helper has been updated and needs to be reinstalled.\n\nThis requires admin authentication.'
-
-  const result = dialog.showMessageBoxSync({
-    type: 'question',
-    title: needsInstall ? 'VPN Helper Setup' : 'VPN Helper Update',
-    message: dialogMessage,
-    buttons: [needsInstall ? 'Install' : 'Update', 'Skip'],
-    defaultId: 0,
-    cancelId: 1,
-  })
-
-  if (result !== 0) return
-
-  // pkexec's `cp` runs as root, and root CANNOT read the AppImage. The runtime
-  // mounts the squashfs as FUSE with user_id=<uid> and neither allow_root nor
-  // allow_other, and FUSE's default denies every other uid — root is not exempt
-  // (it is FUSE's own check, not DAC). Measured 2026-09-02: three authenticated
-  // Install clicks, `cp` EACCES on /tmp/.mount_kataco*/resources/linux/privileged/…,
-  // nothing installed, and the dialog back on the next launch because the catch
-  // below swallowed each one. So stage both files into a private tmpfs dir first
-  // and hand pkexec THOSE paths: a 0700 mkdtemp is enough, since plain DAC lets
-  // root through. Harmless on the deb and in dev, where the sources were already
-  // root-readable.
-  let staging: string | null = null
-  try {
-    staging = mkdtempSync(join(tmpdir(), 'katacomb-helper-'))
-    const stagedHelper = join(staging, 'katacomb-vpn-helper')
-    const stagedPolicy = join(staging, 'com.katacomb.vpn.policy')
-    copyFileSync(helperSrc, stagedHelper)
-    copyFileSync(policySrc, stagedPolicy)
-
-    // Use execFileSync to avoid shell interpolation of paths. The helper goes
-    // in through a temp name + mv: a running daemon executes from $3, and `cp`
-    // onto a running executable fails with ETXTBSY (the deb's postinstall does
-    // the same for the same reason); mv also means a concurrent pkexec never
-    // sees a half-written exec.path. A running daemon keeps the OLD binary until
-    // its unit restarts, so the unit is restarted when there is one (try-restart:
-    // a no-op where no unit exists, AppImage and dev without the deb); the unit
-    // preserves /run/katacomb-vpn across restarts, and at this point in start-up
-    // nothing of ours is connected yet.
-    const script = [
-      `cp -- "$1" "$3.new"`,
-      `chmod 755 "$3.new"`,
-      `chown root:root "$3.new"`,
-      `mv -f "$3.new" "$3"`,
-      `cp -- "$2" "$4"`,
-      `chmod 644 "$4"`,
-      `chown root:root "$4"`,
-      `(systemctl try-restart katacomb-vpn-daemon.service 2>/dev/null || true)`,
-    ].join(' && ')
-
-    // Bounded, unlike the rest of this function's blocking. Running before
-    // createWindow() is deliberate — the helper has to exist before anything can
-    // connect, and the message box above already gates startup on an answer — but
-    // this call had no timeout at all, so a polkit prompt that never gets answered
-    // (no agent running, dialog swallowed by the WM) blocked the main process
-    // forever: no window, no tray, nothing to click, kill it from a terminal. 60s
-    // is what runPrivileged allows for the same shape of call, a prompt plus a fast
-    // command. Failure here is already survivable: the app falls back to
-    // per-operation prompts.
-    execFileSync('pkexec', ['sh', '-c', script, '--', stagedHelper, stagedPolicy, HELPER_PATH, POLICY_PATH], {
-      stdio: 'pipe',
-      timeout: 60000,
-    })
-  } catch {
-    // User cancelled or pkexec failed — app still works with per-operation prompts
-  } finally {
-    if (staging) rmSync(staging, { recursive: true, force: true })
-  }
-}
-
 // Single-instance lock. A second instance would race the first over the sntl0
 // interface, the daemon socket, the kill-switch chain and the settings/wallet
 // files. The loser exits at once and focuses the winner's window.
@@ -457,17 +322,9 @@ app.whenReady().then(() => {
   // Smart RPC: a pre-feature custom endpoint becomes an explicit 'manual' choice.
   // Must precede any saveSettings, which would bake the 'auto' default in.
   migrateRpcMode()
-  checkSystemDeps()
-  // Always, daemon or not. The root daemon (deb install) handles privileged ops
-  // password-free and the deb's postinstall keeps it current, so on a packaged
-  // install the bundled and installed helper compare equal and nothing is asked.
-  // With a daemon installed but a NEWER helper bundled (a dev rebuild on a machine
-  // that has the deb), the daemon keeps running the old binary: it accepts the ops
-  // the app knows but validates configs with the old allow-lists, so a config the
-  // app builds correctly is refused as root only after the session is paid for
-  // (seen 2026-09-18 with the AmneziaWG 3.1 keys). ensurePolkitSetup reinstalls
-  // the helper and restarts the unit in that case.
-  ensurePolkitSetup()
+  // No setup prompts here, deliberately: the window comes first on every launch.
+  // The helper and the distro packages are asked for when a connect needs them,
+  // before any payment (assertSystemReady in ipc/setup.ts), and from Settings, System.
   detectExistingConnection()
   // A tunnel that outlived the run which created it comes back with no session and
   // nothing supervising it, so close it before anything reports it as connected.

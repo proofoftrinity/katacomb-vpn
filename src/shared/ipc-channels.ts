@@ -59,8 +59,10 @@ export const IPC = {
   RPC_PROBE_ALL: 'rpc:probe-all',
   RPC_AUTO_SELECT: 'rpc:auto-select',
 
-  // Binary checks
-  BINARY_CHECK: 'binary:check',
+  // Machine setup: the privileged helper and the distro packages a connect needs
+  SETUP_STATUS: 'setup:status',
+  SETUP_INSTALL_HELPER: 'setup:install-helper',
+  SETUP_INSTALL_PACKAGES: 'setup:install-packages',
 
   // Plan-based subscriptions
   PLAN_DISCOVER: 'plan:discover',

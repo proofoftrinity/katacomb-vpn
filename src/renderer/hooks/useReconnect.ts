@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import type { SessionInfo, TunnelProtocol } from '../types'
-import { displayConnectError } from '../utils/connect-errors'
+import { displayConnectError, setupItemsRequired } from '../utils/connect-errors'
 
 export interface ReconnectOutcome {
   ok: boolean
@@ -31,6 +31,9 @@ export function useReconnect(): (session: SessionInfo) => Promise<ReconnectOutco
           error: `Session #${session.id}: No saved tunnel config. You can end this session to free it, then create a new subscription.`,
         }
       }
+      // The one marker kept: the Sessions tab offers the installs from it (and
+      // shows it through displayConnectError, like every other error it renders).
+      if (setupItemsRequired(msg)) return { ok: false, error: msg }
       // Session-tab reconnect has no DNS-fallback affordance, so just strip the
       // internal marker prefix rather than showing it to the user.
       return { ok: false, error: displayConnectError(msg) }

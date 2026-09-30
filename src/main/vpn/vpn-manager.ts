@@ -20,6 +20,7 @@ import {
   extractOpenVpnRemoteHost,
 } from '../config-guard'
 import { verifyBinaryIntegrity } from './binary-integrity'
+import { isOnPath } from '../fs-utils'
 import { trackProxyChildIn, reapOrphanedProxyChildrenIn } from './proxy-children'
 import { isChildProxyCarryingTraffic } from './connect-decisions'
 import { runPrivileged } from '../helper/privileged'
@@ -63,7 +64,7 @@ function resolveBundled(name: string): string {
   }
   // No bundled binary present — fall back to system PATH. That binary is NOT
   // integrity-checked (unknown provenance); this is a supported path for system
-  // v2ray installs (see BinarySetup), but warn so an operator notices if the
+  // v2ray installs, but warn so an operator notices if the
   // bundled binary was unexpectedly removed to force this fallback (finding M1).
   // Root runs no vendored binary at all any more (the tun2socks engine and the
   // AmneziaWG device are compiled into the helper), so this table is the only pin
@@ -121,16 +122,11 @@ let v2rayExitCallback: (() => void) | null = null
 export function binaryExists(name: string): boolean {
   // Only allow simple binary names (no paths, no shell metacharacters)
   if (!/^[a-zA-Z0-9._-]+$/.test(name)) return false
-  try {
-    execFileSync('which', [name], { stdio: 'ignore' }) // execFile, no shell (finding L4)
-    return true
-  } catch {
-    return false
-  }
+  return isOnPath(name, process.env.PATH ?? '')
 }
 
 /** Check if a binary is available — either bundled or on system PATH */
-export function isBinaryAvailable(name: string): boolean {
+function isBinaryAvailable(name: string): boolean {
   const resolved = resolveBundled(name)
   // If resolveBundled returned an absolute path (not just the name), it found & verified the bundled binary
   if (resolved !== name) return true

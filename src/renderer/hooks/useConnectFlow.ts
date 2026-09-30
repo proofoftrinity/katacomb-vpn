@@ -21,6 +21,11 @@ export function useConnectFlow() {
   const [disconnecting, setDisconnecting] = useState(false)
   // The mode the flow was STARTED with, so a retry keeps it.
   const modeRef = useRef<'tunnel' | 'proxy'>('tunnel')
+  // The last purchase as started, with the user's choices already bound into it.
+  const lastPurchaseRef = useRef<{
+    purchase: () => Promise<{ sessionId: string; protocol: string }>
+    opts?: { mode?: 'tunnel' | 'proxy' }
+  } | null>(null)
 
   useEffect(() => {
     const unsub = window.api.onConnectionProgress((step, detail) => {
@@ -49,6 +54,7 @@ export function useConnectFlow() {
     purchase: () => Promise<{ sessionId: string; protocol: string }>,
     opts?: { mode?: 'tunnel' | 'proxy' },
   ) => {
+    lastPurchaseRef.current = { purchase, opts }
     modeRef.current = opts?.mode ?? 'tunnel'
     setConnecting(true)
     setError(null)
@@ -65,6 +71,17 @@ export function useConnectFlow() {
       setConnecting(false)
     }
   }, [connectTunnelOnly])
+
+  /**
+   * Run the last purchase again with the same choices: the "Try Again" after main
+   * refused it for missing setup. That refusal comes before any payment, so this
+   * is the same purchase the user already chose, not a second one. Never call it
+   * with a session already paid for; retryTunnel is that case.
+   */
+  const retryPurchase = useCallback(async () => {
+    const last = lastPurchaseRef.current
+    if (last) await start(last.purchase, last.opts)
+  }, [start])
 
   /** Error-state retry when the payment succeeded but the tunnel didn't come up. */
   const retryTunnel = useCallback(async (dnsFallback = false) => {
@@ -119,6 +136,7 @@ export function useConnectFlow() {
     paidProtocol,
     disconnecting,
     start,
+    retryPurchase,
     retryTunnel,
     disconnect,
     reset,

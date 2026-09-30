@@ -20,7 +20,6 @@ import PlansView from './components/plans/PlansView'
 import ProviderConsole from './components/provider/ProviderConsole'
 import { useProvider } from './hooks/useProvider'
 import Settings from './components/Settings'
-import BinarySetup from './components/BinarySetup'
 import AboutModal from './components/AboutModal'
 import { SettingsProvider } from './contexts/SettingsContext'
 import { NodesProvider } from './contexts/NodesContext'
@@ -207,7 +206,6 @@ function AppInner() {
   // is connected but redirects nothing, so the RPC endpoint is still reachable there.
   const chainFrozen = isConnected && !connStatus.proxyMode
   const { mainTab, setMainTab, settingsTab, openSettings, closeSettings } = useNavigation()
-  const [showBinarySetup, setShowBinarySetup] = useState(true)
   const [showAbout, setShowAbout] = useState(false)
   // Show the import/create screen even though wallets are already stored:
   // "Add another wallet" from the picker, or Add Wallet from Settings while one
@@ -444,10 +442,6 @@ function AppInner() {
       <StatusBar onShowAbout={() => setShowAbout(true)} />
 
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
-
-      {showBinarySetup && (
-        <BinarySetup onDismiss={() => setShowBinarySetup(false)} />
-      )}
 
       {settingsTab && (
         <Settings

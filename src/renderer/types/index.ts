@@ -66,6 +66,8 @@ export interface SubscribeParams {
   amount: number
   denom: string
   quoteValue: string
+  /** Local-proxy mode, which needs no root; main's preflight skips the helper check. */
+  proxyMode?: boolean
 }
 
 export interface ReconnectParams {
@@ -101,6 +103,8 @@ export interface SubscribeChainParams {
    * between them is itself a public on-chain link.
    */
   exitWalletId?: string
+  /** Local-proxy mode, which needs no root; main's preflight skips the helper check. */
+  proxyMode?: boolean
 }
 
 export type TunnelProtocol = 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2' | 'openvpn'
@@ -533,10 +537,24 @@ export interface RpcAutoSelectReport {
   selected: boolean
 }
 
-export interface BinaryStatus {
-  wireguard: boolean
-  v2ray: boolean
+/**
+ * What this machine has of what a connect can need. Only AppImage and dev installs
+ * ever lack any of it: the .deb depends on both packages and installs the helper.
+ */
+export interface SetupStatus {
+  /** 'outdated' = installed, but not the one this build bundles. */
+  helper: 'ready' | 'missing' | 'outdated'
+  wireguardTools: boolean
+  openvpn: boolean
+  /** A `resolvconf` on root's PATH: WireGuard and AmneziaWG hand the tunnel's DNS to it. */
+  resolvconf: boolean
+  /** null = no one-click package installs here; the user installs by hand. */
+  packageManager: 'apt' | 'dnf' | 'pacman' | null
+  /** The one-click package for a missing resolvconf; null = install one by hand. */
+  resolvconfPackage: SetupPackage | null
 }
+
+export type SetupPackage = 'wireguard-tools' | 'openvpn' | 'systemd-resolved' | 'systemd-resolvconf'
 
 export interface NodeProbeResult {
   nodeAddress: string
@@ -614,6 +632,7 @@ export interface ElectronAPI {
     nodeType: number
     apiField: string
     renewalPolicy?: number
+    proxyMode?: boolean
   }) => Promise<{ sessionId: string; subscriptionId: string; protocol: string; configString: string }>
   planStartSessionFromSub: (params: {
     subscriptionId: string
@@ -624,6 +643,7 @@ export interface ElectronAPI {
     nodeCountry: string
     nodeType: number
     apiField: string
+    proxyMode?: boolean
   }) => Promise<{ sessionId: string; subscriptionId: string; protocol: string; configString: string }>
   /**
    * Smart connect: main ranks the plan's nodes (health, protocol runtime,
@@ -694,7 +714,10 @@ export interface ElectronAPI {
   rpcAutoSelect: () => Promise<RpcAutoSelectReport>
   onRpcHealthUpdate: (callback: (health: RpcHealth) => void) => () => void
 
-  binaryCheck: () => Promise<BinaryStatus>
+  setupStatus: () => Promise<SetupStatus>
+  /** pkexec: one password prompt. Refused while connected (it restarts the daemon). */
+  setupInstallHelper: () => Promise<void>
+  setupInstallPackages: (pkgs: SetupPackage[]) => Promise<void>
 
   nodeTestProbe: (params: { nodeAddress: string; remoteUrl: string }) => Promise<NodeProbeResult>
   nodeTestBatch: (nodes: Array<{ nodeAddress: string; remoteUrl: string }>) => Promise<void>

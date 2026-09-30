@@ -105,8 +105,8 @@ src/main/
   config-guard.ts   THE trust boundary for node data (mirrored by daemon/internal/guard)
   async-utils.ts  fs-utils.ts  disk-cache.ts  socks-agent.ts  net-fetch.ts
 
-  ipc/         peeled handler groups (diagnostics, provider) + validate, handle
-  helper/      the app side of root: privileged, daemon-client, daemon-protocol
+  ipc/         peeled handler groups (diagnostics, provider, setup) + validate, handle
+  helper/      the app side of root: privileged, daemon-client, daemon-protocol, system-setup
   chain/       RPC clients, tx helpers, queries, guards, and the wallet that signs
   vpn/         tunnel lifecycle, monitoring, and the pure connect decisions
   protocols/   the six config builders, the chain builder, the node handshake

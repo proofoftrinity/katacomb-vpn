@@ -140,7 +140,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
   const { udvpn, display: balance, refresh: refreshBalance, refreshing: refreshingBalance } = useBalance()
   const {
     connecting, currentStep, stepDetail, error, tunnelConnected, sessionId, paidProtocol, disconnecting,
-    start, retryTunnel, disconnect: disconnectFlow, reset,
+    start, retryPurchase, retryTunnel, disconnect: disconnectFlow, reset,
   } = useConnectFlow()
 
   const [manual, setManual] = useState(startManual)
@@ -269,6 +269,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
         nodeCountry: node.country,
         nodeType: node.type,
         apiField: node.api,
+        ...(proxyMode ? { proxyMode: true } : {}),
       }
       const res = isReuse
         ? await window.api.planStartSessionFromSub({ subscriptionId, planId: plan.id, ...params })
@@ -544,6 +545,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
             error={error}
             paidSessionId={paidProtocol ? sessionId : null}
             onRetryTunnel={() => retryTunnel()}
+            onRetryPurchase={() => void retryPurchase()}
             onStartOver={reset}
             onRetryWithoutDns={paidProtocol ? () => retryTunnel(true) : undefined}
           />

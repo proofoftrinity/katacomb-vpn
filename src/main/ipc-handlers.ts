@@ -84,6 +84,7 @@ import { SocksHttpsAgent } from './socks-agent'
 import { assertString, assertNumber, assertSentAddress, assertIntRange } from './ipc/validate'
 import { fetchFreshSocket } from './net-fetch'
 import { registerDiagnosticsHandlers } from './ipc/diagnostics'
+import { registerSetupHandlers, assertSystemReady } from './ipc/setup'
 import { registerProviderHandlers } from './ipc/provider'
 import { clearCachedProviderOverview } from './provider/provider-cache'
 import { assertSufficientFunds, assertSufficientFundsFor, noteChainError } from './chain/chain-guards'
@@ -1173,9 +1174,12 @@ const SMART_LATENCY_FRESH_MS = 10 * 60 * 1000
  * after the tx is covered by establishSessionOrRefund, but a refund still burns
  * gas and a block of the user's time.)
  *
- * 1. Can we run this protocol at all — binaries present + integrity-verified,
- *    and for the root protocols, a daemon or the polkit helper to run them with.
- * 2. Does the node agree it runs this protocol? The node list is an aggregator
+ * 1. Is this machine set up for it — the helper installed and matching this
+ *    build whenever the connect goes through root (full-tunnel mode, and the
+ *    root protocols always), plus the distro package the protocol runs. Refused
+ *    as SYSTEM_SETUP_REQUIRED, which the renderer turns into install buttons.
+ * 2. Can we run this protocol at all — binaries present + integrity-verified.
+ * 3. Does the node agree it runs this protocol? The node list is an aggregator
  *    cache; the node's own service_type is the authority.
  *
  * Throws with an actionable message; never silently downgrades.
@@ -1183,6 +1187,13 @@ const SMART_LATENCY_FRESH_MS = 10 * 60 * 1000
 async function preflightConnect(
   nodeType: number,
   apiField: string,
+  /**
+   * The connect routes the device through root: full-tunnel mode, as opposed to
+   * local proxy. A chain's EXIT hop passes false: the chain is ONE bring-up, already
+   * checked for its mode by the entry's preflight, and a refusal at the exit would
+   * only refund an entry that was paid for.
+   */
+  tunnel: boolean,
   /**
    * Ask the node through this proxy instead of directly. Set for a chain's EXIT hop, so
    * the question arrives from the entry node rather than from the user (see
@@ -1193,20 +1204,18 @@ async function preflightConnect(
   const protocol = NODE_TYPE_TO_PROTOCOL[nodeType]
   if (!protocol) throw new Error(`Unsupported nodeType ${nodeType}`)
 
+  // Before protocolRuntimeError, which also knows wg-quick is missing but can only
+  // say so: this refusal comes with the install.
+  await assertSystemReady(protocol, tunnel, true)
+
   const runtimeError = protocolRuntimeError(protocol)
   if (runtimeError) throw new Error(`Can't connect, not charged. ${runtimeError}`)
 
-  // WireGuard/AmneziaWG/OpenVPN go up as root: without the daemon or the helper the
-  // bring-up has no way to escalate and would fail after payment.
   if (protocol === 'wireguard' || protocol === 'amneziawg' || protocol === 'openvpn') {
     const label = protocol === 'wireguard' ? 'WireGuard' : protocol === 'amneziawg' ? 'AmneziaWG' : 'OpenVPN'
-    if (!canEscalatePrivileges()) {
-      throw new Error(
-        `Can't connect, not charged. The privileged helper isn't installed, so ${label} can't be brought up. Restart the app and accept the helper setup prompt.`
-      )
-    }
-    // ...and a daemon left running across an upgrade can be too old to serve the
-    // verb this protocol needs. amneziawg_* and openvpn_* were both added without
+    // A helper file that matches this build is not enough on its own: a daemon left
+    // running across an upgrade still executes the OLD binary, which can be too old
+    // to serve the verb this protocol needs. amneziawg_* and openvpn_* were both added without
     // a protocol-version bump, so the version number cannot see it; the daemon
     // reports its op list instead. Refusing HERE is the point: the alternative is
     // an `unknown op` from the bring-up, which happens after the session is paid
@@ -1521,7 +1530,7 @@ async function establishChainOrRefund(params: {
 
     failedRole = 'exit'
     // Same two pre-purchase checks the single-hop path makes, asked through the entry.
-    await preflightConnect(exit.nodeType, exit.apiField, agent)
+    await preflightConnect(exit.nodeType, exit.apiField, false, agent)
     await assertChainEligible(exit, 'exit', agent)
 
     sendChainHopProgress('exit', 'buy')
@@ -2767,6 +2776,8 @@ export function registerIpcHandlers(): void {
     amount: number
     denom: string
     quoteValue: string
+    /** Local-proxy mode, which needs no root. Absent = full tunnel, the stricter preflight. */
+    proxyMode?: boolean
   }) => {
     assertSentAddress(params.nodeAddress, 'nodeAddress')
     assertString(params.nodeMoniker, 'nodeMoniker')
@@ -2795,7 +2806,7 @@ export function registerIpcHandlers(): void {
     const flowPromise = openChainFlow(wallet)
     try {
       await Promise.all([
-        preflightConnect(params.nodeType, params.apiField),
+        preflightConnect(params.nodeType, params.apiField, params.proxyMode !== true),
         // The deposit is only priced in udvpn for the udvpn denom; for any other the
         // cost is unknown here, so check the gas reserve alone and let the chain judge.
         flowPromise.then((f) => assertSufficientFunds(
@@ -2891,6 +2902,8 @@ export function registerIpcHandlers(): void {
     denom: string
     /** Pay for the exit hop from this wallet instead of the active one. */
     exitWalletId?: string
+    /** Local-proxy mode, which needs no root. Absent = full tunnel, the stricter preflight. */
+    proxyMode?: boolean
   }) => {
     if (params.type !== 'gigabytes' && params.type !== 'hours') throw new Error('Invalid type')
     if (params.exitWalletId !== undefined) assertString(params.exitWalletId, 'exitWalletId')
@@ -2931,7 +2944,7 @@ export function registerIpcHandlers(): void {
     // is that a bad exit is discovered after the entry is paid for rather than before;
     // the picker already refuses an exit without positive evidence, so what remains is
     // a backstop against a node that changed since it was graded.
-    await preflightConnect(params.entry.nodeType, params.entry.apiField)
+    await preflightConnect(params.entry.nodeType, params.entry.apiField, params.proxyMode !== true)
     // ...and the CHAIN policy too, which preflightConnect knows nothing about: it
     // checks that a node runs the protocol the directory claims, not that the node can
     // be an end of a chain. Without this a node that cannot be wrapped in TLS is bought
@@ -3054,6 +3067,9 @@ export function registerIpcHandlers(): void {
         'reconnected. Buy a new session to connect again.'
       )
     }
+    // Before any state is mutated, and before the node is re-handshaked: a Sessions-tab
+    // reconnect is always full-tunnel.
+    await assertSystemReady(saved.protocol, true, false)
 
     activeSessionId = saved.sessionId
     // Populate node info from saved config; fall back to cached node list
@@ -3261,6 +3277,11 @@ export function registerIpcHandlers(): void {
       // Inside the lock, so a connect queued behind an in-flight one sees the
       // first one's tunnel and is refused instead of stacking a second on top.
       assertNotConnected()
+      // A purchase already ran this in its preflight, but "Retry connection" and the
+      // Sessions tab reach here without one. Refused as a setup pane rather than as
+      // whatever the bring-up would fail with (a stale helper's guard refusal reads
+      // like the node's fault).
+      await assertSystemReady(params.protocol, !proxyOnly, false, !dnsFallback)
       // A new connect supersedes whatever the last session ended as.
       lastExpiry = null
       if (params.protocol === 'wireguard') {
@@ -3471,8 +3492,11 @@ export function registerIpcHandlers(): void {
     return settings.bookmarkedNodes || []
   })
 
-  // RPC health, binary presence, node probing, chain eligibility, public IP.
+  // RPC health, node probing, chain eligibility, public IP.
   registerDiagnosticsHandlers(handle)
+
+  // The helper and distro packages a connect needs, and their one-click installs.
+  registerSetupHandlers(handle, connectionIsLive)
 
   // Plan Discovery
   handle(IPC.PLAN_DISCOVER, async (_event, maxCount: number) => {
@@ -3522,6 +3546,8 @@ export function registerIpcHandlers(): void {
     nodeType: number
     apiField: string
     renewalPolicy?: number
+    /** Local-proxy mode, which needs no root. Absent = full tunnel, the stricter preflight. */
+    proxyMode?: boolean
   }) => {
     assertString(params.planId, 'planId')
     if (!/^\d+$/.test(params.planId)) throw new Error('Invalid planId')
@@ -3552,7 +3578,7 @@ export function registerIpcHandlers(): void {
     let remoteUrl: string
     try {
       ;[, , remoteUrl] = await Promise.all([
-        preflightConnect(params.nodeType, params.apiField),
+        preflightConnect(params.nodeType, params.apiField, params.proxyMode !== true),
         flowPromise.then((f) => assertSufficientFunds(cachedPlanCost(params.planId, params.denom), f.query)),
         flowPromise.then((f) => resolveNodeRemoteUrl(params.nodeAddress, params.apiField, f.query)),
       ])
@@ -3641,6 +3667,8 @@ export function registerIpcHandlers(): void {
     nodeCountry: string
     nodeType: number
     apiField: string
+    /** Local-proxy mode, which needs no root. Absent = full tunnel, the stricter preflight. */
+    proxyMode?: boolean
   }) => {
     assertString(params.subscriptionId, 'subscriptionId')
     if (!/^\d+$/.test(params.subscriptionId)) throw new Error('Invalid subscriptionId')
@@ -3668,7 +3696,7 @@ export function registerIpcHandlers(): void {
     let remoteUrl: string
     try {
       ;[, , remoteUrl] = await Promise.all([
-        preflightConnect(params.nodeType, params.apiField),
+        preflightConnect(params.nodeType, params.apiField, params.proxyMode !== true),
         // Reusing a prepaid allocation — gas only, no new subscription is bought.
         flowPromise.then((f) => assertSufficientFunds(0, f.query)),
         flowPromise.then((f) => resolveNodeRemoteUrl(params.nodeAddress, params.apiField, f.query)),
@@ -3769,6 +3797,11 @@ export function registerIpcHandlers(): void {
     // Same breadth as PLAN_START_SESSION_FROM_SUB: proxy mode and the reconnect
     // window count as connected here, not just an active tunnel interface.
     assertNotConnected()
+    // The helper, checked once for the whole plan and BEFORE the ladder: inside it a
+    // setup refusal reads as a bad node, so the ladder would walk every candidate
+    // into the same wall and report them all as failed. No protocol yet: the ranking
+    // below already drops nodes whose distro package is missing (runtimeOk).
+    await assertSystemReady(null, params.requireProxyCapable !== true, true)
 
     const flow = await openChainFlow(wallet)
     try {
@@ -3871,7 +3904,7 @@ export function registerIpcHandlers(): void {
         // Pre-payment checks for THIS node; failures here cost nothing.
         sendPlanProgress('rank', `Checking ${attemptLabel}`)
         try {
-          await preflightConnect(candidate.type, candidate.api)
+          await preflightConnect(candidate.type, candidate.api, params.requireProxyCapable !== true)
         } catch (err) {
           if (recordAndDecide('preflight', err)) continue
           break

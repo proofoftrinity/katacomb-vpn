@@ -4,7 +4,7 @@ import { isSafeNodeApiUrl } from '../config-guard'
 import { fetchFreshSocket } from '../net-fetch'
 import { SocksHttpsAgent } from '../socks-agent'
 import { getRpcHealth, probeFeedCandidates, runAutoRpcSelectionReport } from '../chain/rpc-monitor'
-import { binaryExists, isBinaryAvailable, isVpnActive, getActiveProxyPort } from '../vpn/vpn-manager'
+import { isVpnActive, getActiveProxyPort } from '../vpn/vpn-manager'
 import {
   probeNode,
   startBatch,
@@ -49,7 +49,7 @@ interface ChainEligibilityResult {
 const chainEligibilityCache = new Map<string, ChainEligibilityResult>()
 
 /**
- * Read-only diagnostics: RPC health, bundled-binary presence, node latency
+ * Read-only diagnostics: RPC health, node latency
  * probing, multihop eligibility grading, and the public-IP lookup.
  *
  * None of these spends money or touches the tunnel, which is why they live
@@ -74,18 +74,6 @@ export function registerDiagnosticsHandlers(handle: Handle): void {
   // with the decision.
   handle(IPC.RPC_AUTO_SELECT, async () => {
     return runAutoRpcSelectionReport()
-  })
-
-  // Binary check — checks bundled binaries first, then system PATH. tun2socks is
-  // deliberately NOT here: the engine is compiled into the privileged helper, so
-  // there is no tun2socks executable to find and no package that would be used if
-  // one were installed. Probing for it reported a permanent "Missing" on a healthy
-  // install (seen on the 1.9.0 deb) and pointed users at an irrelevant apt package.
-  handle(IPC.BINARY_CHECK, async () => {
-    return {
-      wireguard: binaryExists('wg-quick'),
-      v2ray: isBinaryAvailable('v2ray'),
-    }
   })
 
   // Node Testing: Single probe

@@ -6,8 +6,9 @@ import {
   isDnsProvisionFailure,
   isInsufficientFunds,
   isRpcUnreachable,
+  setupItemsRequired,
 } from './connect-errors.ts'
-import { DNS_PROVISION_FAILED, INSUFFICIENT_FUNDS, RPC_UNREACHABLE } from '../../shared/error-markers.ts'
+import { DNS_PROVISION_FAILED, INSUFFICIENT_FUNDS, RPC_UNREACHABLE, SYSTEM_SETUP_REQUIRED } from '../../shared/error-markers.ts'
 
 /** Exactly what ipcRenderer.invoke rejects with when a handler throws. */
 function viaIpc(channel: string, message: string): string {
@@ -18,6 +19,7 @@ test('the inlined markers have not drifted from the shared ones', () => {
   assert.ok(isDnsProvisionFailure(`${DNS_PROVISION_FAILED}: x`))
   assert.ok(isInsufficientFunds(`${INSUFFICIENT_FUNDS}: x`))
   assert.ok(isRpcUnreachable(`${RPC_UNREACHABLE}: x`))
+  assert.deepEqual(setupItemsRequired(`${SYSTEM_SETUP_REQUIRED}:helper: x`), ['helper'])
 })
 
 test('markers are detected through the Electron IPC wrapper', () => {
@@ -37,6 +39,29 @@ test('an unrelated failure matches no marker', () => {
   assert.equal(isRpcUnreachable(other), false)
   assert.equal(isInsufficientFunds(other), false)
   assert.equal(isDnsProvisionFailure(other), false)
+})
+
+test('the setup marker carries what the machine lacks, through the IPC wrapper', () => {
+  const msg = viaIpc('connection:subscribe', `${SYSTEM_SETUP_REQUIRED}:helper,wireguard-tools: Can't connect, not charged.`)
+  assert.deepEqual(setupItemsRequired(msg), ['helper', 'wireguard-tools'])
+  assert.deepEqual(setupItemsRequired(`${SYSTEM_SETUP_REQUIRED}:openvpn: x`), ['openvpn'])
+  assert.deepEqual(setupItemsRequired(`${SYSTEM_SETUP_REQUIRED}:helper,resolvconf: x`), ['helper', 'resolvconf'])
+})
+
+test('a setup item the renderer has no install for is dropped', () => {
+  assert.deepEqual(setupItemsRequired(`${SYSTEM_SETUP_REQUIRED}:helper,kernel-module: x`), ['helper'])
+})
+
+test('other failures carry no setup items', () => {
+  assert.equal(setupItemsRequired(viaIpc('connection:subscribe', `${INSUFFICIENT_FUNDS}: You need 50 P2P`)), null)
+  assert.equal(setupItemsRequired('Node handshake failed'), null)
+})
+
+test('displayConnectError strips the setup marker and its payload', () => {
+  assert.equal(
+    displayConnectError(viaIpc('connection:subscribe', `${SYSTEM_SETUP_REQUIRED}:helper: Can't connect, not charged.`)),
+    "Can't connect, not charged.",
+  )
 })
 
 test('displayConnectError strips the IPC wrapper and the marker', () => {

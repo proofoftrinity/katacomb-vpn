@@ -72,7 +72,7 @@ export async function runPrivileged(args: string[]): Promise<void> {
     }
   }
   if (!existsSync(HELPER_PATH)) {
-    throw new Error('VPN helper not installed. Please restart the app to set it up.')
+    throw new Error('VPN helper not installed. Install it from Settings, System.')
   }
   // No shell (see vpn-manager history): keep pkexec's parent the long-lived
   // Electron process so polkit's auth cache persists on the fallback path.

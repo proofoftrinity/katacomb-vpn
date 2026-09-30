@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the privileged helper (daemon/) into
 # resources/linux/privileged/katacomb-vpn-helper, where electron-builder's
-# extraResources picks it up and postinstall / ensurePolkitSetup install it from.
+# extraResources picks it up and postinstall / installHelper install it from.
 #
 # Runs on every `npm run build`, `npm run dist` and (via predev) `npm run dev`.
 #
@@ -17,9 +17,9 @@
 #     supported distro regardless of glibc — the same rule scripts/build-amneziawg.sh
 #     enforces for amneziawg-go;
 #   - the build is reproducible (-trimpath, -buildid=, no VCS stamp): building the
-#     same tree twice gives the same bytes, which is what lets ensurePolkitSetup
+#     same tree twice gives the same bytes, which is what lets helperInstallState
 #     compare the installed helper against the bundled one byte for byte instead of
-#     re-prompting on every dev rebuild.
+#     calling it outdated after every dev rebuild.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

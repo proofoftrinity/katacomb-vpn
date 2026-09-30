@@ -122,7 +122,8 @@ off the mount first.** The runtime mounts the squashfs as
 `fuse … user_id=<uid>,group_id=<gid>` with neither `allow_root` nor `allow_other`
 (measured; the runtime embeds neither string and `/etc/fuse.conf` leaves
 `user_allow_other` off), and FUSE's default denies every other uid — root is not
-exempt, because the check is FUSE's own, not DAC. `ensurePolkitSetup` (`main/index.ts`)
+exempt, because the check is FUSE's own, not DAC. The helper install (then
+`ensurePolkitSetup` in `main/index.ts`, now `installHelper` in `helper/system-setup.ts`)
 used to hand `pkexec sh -c 'cp -- "$1" …'` a `$1` on that mount: root's `cp` got EACCES,
 the `&&` chain stopped, and the `catch {}` swallowed it — so the "VPN Helper Setup"
 dialog came back on every launch, and an AppImage-only user could NEVER get the helper
@@ -130,10 +131,10 @@ dialog came back on every launch, and an AppImage-only user could NEVER get the 
 installed"). Confirmed 2026-09-02: three authenticated Install clicks, nothing on disk,
 while the identical code path worked from `/opt` (deb) and from the repo (dev). Latent
 since the first commit, because the QA script's `dismiss_helper_dialog` deliberately
-answered Skip. The fix stages both files through a private `mkdtempSync` dir under
+answered Skip. The fix stages both files through a private `mkdtemp` dir under
 `tmpdir()` (a 0700 dir is enough — plain DAC lets root through) and removes it in a
 `finally`. `verify-deb-portability.sh` section 7 (and the phased `appimage` step) now
-click **Install** once, assert the helper is 755 root:root and byte-identical to
+click **Install** once (Settings, System, since the app no longer asks at launch), assert the helper is 755 root:root and byte-identical to
 `resources/linux/privileged/`, assert that root really cannot `cat` the mount (a FAIL
 there means the runtime started passing `allow_root` — re-read this before "simplifying"
 the staging away), and then remove both files again so the deb phases keep their clean

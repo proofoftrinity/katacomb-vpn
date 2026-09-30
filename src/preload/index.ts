@@ -63,7 +63,9 @@ contextBridge.exposeInMainWorld('api', {
     }
   },
 
-  binaryCheck: () => ipcRenderer.invoke(IPC.BINARY_CHECK),
+  setupStatus: () => ipcRenderer.invoke(IPC.SETUP_STATUS),
+  setupInstallHelper: () => ipcRenderer.invoke(IPC.SETUP_INSTALL_HELPER),
+  setupInstallPackages: (pkgs: unknown) => ipcRenderer.invoke(IPC.SETUP_INSTALL_PACKAGES, pkgs),
 
   nodeTestProbe: (params: { nodeAddress: string; remoteUrl: string }) =>
     ipcRenderer.invoke(IPC.NODE_TEST_PROBE, params),
