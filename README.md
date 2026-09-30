@@ -56,6 +56,11 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
   against each node's own advertised inbounds *before* anything is paid for, the two
   ends are filtered by different rules, and the two hops can be paid from two different
   wallets so neither node can find the other on chain. Read the honest limits below.
+- **Setup when a connection needs it**: nothing is asked at launch. A connection that
+  needs something this computer lacks (the VPN helper, WireGuard tools, OpenVPN, a
+  `resolvconf`) stops before anything is paid and installs it in one click with apt, dnf
+  or pacman. Settings > System shows the same checks. The .deb installs the helper,
+  WireGuard tools and OpenVPN with the package.
 - Live traffic stats, real egress IP/geo check, tray connect.
 
 **Wallet**

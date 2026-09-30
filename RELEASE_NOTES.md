@@ -1,48 +1,50 @@
-# Katacomb VPN 1.10.0
+# Katacomb VPN 1.11.0
 
 A desktop client for the Sentinel decentralized VPN network. Pick a node, pay for a
 session on-chain, and tunnel through WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY or
 Hysteria2.
 
-1.10.0 is a feature release. AmneziaWG connections now use the AmneziaWG 3.1 protocol
-tier when the node offers it, which encrypts the header of every packet and makes the
-traffic harder to fingerprint. Nodes that do not offer it are spoken to exactly as before.
-It also closes a gap where an updated helper could be left unused by an already-running
-daemon.
+1.11.0 changes the first launch. The window now opens straight away, every time, and
+nothing asks for an admin password until a connection needs something this computer is
+missing. When one does, the app says so before anything is paid and installs it in one
+click. This mostly matters for the AppImage: the .deb still installs the helper, WireGuard
+tools and OpenVPN with the package.
 
 ## Highlights
 
-- **AmneziaWG connections use the 3.1 tier where a node offers it.** AmneziaWG 3.x
-  encrypts the type field and header of every packet with a key the node hands out, adds
-  random trailers and padding, and randomises timers, so the traffic carries less for deep
-  packet inspection to match on than the 2.0 parameter set. This is a change to the wire
-  format that no node can negotiate in-band, so nodes offer it as a second, opt-in tier.
-  Today that means nodes running dvpnd with the tier switched on. Before an AmneziaWG
-  handshake the app reads the node's public inbound list and asks for the tier if it is
-  listed; a node that lists none, or that cannot be read in time, gets the same request
-  as before and answers with the default tier. Either way the paid session is not at
-  risk. The log line `[session] AmneziaWG tier:` says which tier a session landed on.
-- **Every other node is unaffected.** The AmneziaWG device compiled into the privileged
-  helper moved from `amneziawg-go` 0.2.19 to 3.1.20260828. With the 3.x keys unset, the
-  3.1 engine's send and receive paths are the 2.0 engine's byte for byte, so the default
-  parameter set every node hands out is framed exactly as it was. The container-based
-  handshake test now builds its reference server from the same 3.1 commits dvpnd pins,
-  with only the default parameters set, and passes.
-- **The new parameters are validated like everything else a node sends.** The header
-  protection key, the trailers flag, the MTU and the padding range are checked in the
-  app's config guard and again in the root helper's own guard, and a malformed answer is
-  refused before anything reaches root, with the session refunded. On the 3.1 tier the
-  tunnel MTU comes from the node's answer instead of the path measurement, because the
-  tier's prefixes, trailers and padding take room out of every packet.
-- **The helper is checked on every start, daemon or not.** The check that compares the
-  bundled helper with the installed one used to be skipped whenever the root daemon's
-  socket existed. A newer app on a machine with an older daemon then ran with the old
-  helper: it accepted the app's operations but validated configs against its old
-  allow-lists, and refused a correctly built config as root only after the session was
-  paid for. The check now always runs, and when it replaces the helper it also restarts
-  the daemon's service. On a packaged install the two helpers are identical and nothing
-  is asked. This mostly affects builds from source on a machine that also has the .deb
-  installed, which is how it was found.
+- **No pop-ups at launch.** Up to 1.10.0 the AppImage opened two blocking dialogs before
+  its window, one to install `wireguard-tools` and one to install the VPN helper, each
+  asking for an admin password before you could have created a wallet, let alone
+  connected. Skipping one left no way back except restarting the app, and the package
+  install only worked on apt-based systems. Both dialogs are gone.
+- **Missing setup is caught before you pay.** Every connection first checks that this
+  computer has what it needs: the VPN helper for any full-tunnel connection, WireGuard
+  tools for WireGuard nodes, OpenVPN for OpenVPN nodes, and a `resolvconf` for the VPN's
+  DNS on WireGuard and AmneziaWG. If anything is missing it stops with "Can't connect, not
+  charged" and lists all of it in one pane, each item with an Install button. Try Again
+  stays greyed out until everything reads Ready, then connects with the choices you
+  already made. This covers a single node, a plan (smart connect checks once, before it
+  tries any node), a two-hop chain, and reconnecting a paid session from the Sessions
+  tab. Local proxy mode needs none of it.
+- **Two cases that charged you for a connection that could not start are fixed.** A
+  V2Ray, XRAY or Hysteria2 connection in full-tunnel mode paid first and then failed when
+  the helper was missing, because the old check only looked for it on WireGuard,
+  AmneziaWG and OpenVPN. And a helper left over from an older version, which can refuse a
+  config as root after the session is bought, now reads "Needs update" and is replaced
+  before any payment.
+- **One-click installs on Debian, Ubuntu, Fedora and Arch.** The app uses apt, dnf or
+  pacman, chosen from `/etc/os-release`, so derivatives such as Mint, Pop!\_OS, Rocky and
+  Manjaro work too. Each install is one password prompt, and the app stays usable while
+  the prompt is open. On any other distribution the pane names the package to install
+  yourself.
+- **New Settings > System tab.** The same checks, for setting things up ahead of time.
+  Updating the helper is refused while you are connected, because it restarts the
+  service that holds the tunnel up.
+- **`resolvconf` is installed only where that is safe.** WireGuard and AmneziaWG need it
+  to apply the VPN's DNS. Where systemd-resolved manages DNS (the default on Ubuntu, Mint
+  and Fedora), the app installs the `resolvconf` that comes with it: `systemd-resolved`,
+  or `systemd-resolvconf` on Arch. Anywhere else it installs nothing, because adding one
+  there would change how the whole system handles DNS.
 
 ## Fixes in 1.10.0
 
@@ -58,6 +60,11 @@ daemon.
   equivalent of the relay mechanism a chain needs.
 - Expect roughly 2 to 3 MB/s and a large latency increase on a chain. Chains are for
   privacy, not speed.
+- **Without systemd-resolved, a missing `resolvconf` still shows up after you pay.** The
+  app cannot safely install one on such a system, so a WireGuard or AmneziaWG connection
+  there pays first, then offers Retry without VPN DNS on the same session, which sends
+  your DNS queries outside the tunnel. To avoid it, set up a resolvconf provider such as
+  `openresolv` the way your distribution documents.
 - Local-proxy mode tunnels only the apps you point at its SOCKS address. Everything else
   leaks, by design, and the kill switch does not apply.
 - The TLS and Reality wrapping does not authenticate the node. There is nothing on chain
@@ -67,7 +74,8 @@ daemon.
 ## Platform support
 
 **Linux x86_64 only.** Tested on Debian 11+, Ubuntu 20.04+, and derivatives (Mint,
-Pop!\_OS, Zorin).
+Pop!\_OS, Zorin). For this release the AppImage was also checked on clean Ubuntu 24.04,
+Fedora 44 and Arch installs.
 
 ## Installation
 
@@ -87,7 +95,9 @@ chmod +x katacomb-vpn-1.10.0.AppImage
 ./katacomb-vpn-1.10.0.AppImage
 ```
 
-No install needed. Every privileged operation prompts for a password instead.
+No install needed. The first connection that needs the VPN helper installs it, with one
+password prompt. After that each privileged operation prompts for a password, cached for
+a few minutes.
 
 ## Verifying your download
 
@@ -107,8 +117,9 @@ curl -sS https://github.com/trinitystake.gpg | gpg --import
 
 - **Connecting spends real funds.** Sessions are blockchain transactions priced in
   `udvpn`, and a failed connection is refunded automatically, but an expired one is not.
-- **AppImage on Ubuntu 22.04 and 24.04** needs `libfuse2`, or the
-  `APPIMAGE_EXTRACT_AND_RUN=1` workaround. See the README.
+- **The AppImage needs a few packages from your system before it starts**: `libfuse2t64`
+  on Ubuntu 24.04+, `libfuse2` on 22.04, `fuse` on Fedora, `fuse2` and `nss` on Arch. The
+  `APPIMAGE_EXTRACT_AND_RUN=1` workaround avoids needing FUSE. See the README.
 - **AppImage on Ubuntu 24.04+** runs with the Chromium sandbox disabled. An AppImage can
   install neither an AppArmor profile nor a SUID sandbox helper, so prefer the .deb there.
 
