@@ -98,9 +98,9 @@ export default function ActiveSessions({
   const { overview: { allocations } } = usePlansContext()
   const reconnect = useReconnect()
   const { requestConfirm, confirmDialog } = useConfirm()
-  // The session the last reconnect tried, so the setup pane's Try Again can run
-  // that same reconnect once every row it lists is Ready.
-  const [setupRetry, setSetupRetry] = useState<SessionInfo | null>(null)
+  // The session the last reconnect tried. When main refused it for setup, that
+  // card's Reconnect is held until every row the pane lists is Ready.
+  const [setupSessionId, setSetupSessionId] = useState<string | null>(null)
   const [setupReady, setSetupReady] = useState(false)
   const vpnConnected = status.state === 'connected'
   // Refresh asks the chain, and WALLET_SESSIONS returns lastKnownSessions verbatim
@@ -227,7 +227,7 @@ export default function ActiveSessions({
   async function handleReconnect(session: SessionInfo) {
     setBusy(session.id)
     setError(null)
-    setSetupRetry(session)
+    setSetupSessionId(session.id)
     const result = await reconnect(session)
     if (!result.ok) setError(result.error || 'Reconnection failed')
     else await refreshConnection()
@@ -287,7 +287,7 @@ export default function ActiveSessions({
     // Restore the tunnel we tore down only to reach the chain. Run this even if the
     // end failed — the reconnect target is unrelated to the ended session.
     if (reconnectTarget) {
-      setSetupRetry(reconnectTarget)
+      setSetupSessionId(reconnectTarget.id)
       const result = await reconnect(reconnectTarget)
       if (result.ok) await refreshConnection()
       else endError = endError
@@ -332,22 +332,14 @@ export default function ActiveSessions({
       </div>
 
       {error && (setupItems ? (
-        // A reconnect this machine can't bring up yet: offer the install, then Try
-        // Again runs the same reconnect (so does the row's Reconnect). Nothing was spent.
+        // A reconnect this machine can't bring up yet: offer the install, then the
+        // card's own Reconnect carries on. No second button here: the card already
+        // has one, and two that do the same thing read as two different actions.
         <div className="mx-5 mt-3 space-y-2 shrink-0">
           <p className="text-text-secondary text-sm">
-            {setupReady ? 'Ready to connect.' : displayConnectError(error)}
+            {setupReady ? 'Ready. Press Reconnect on the session to connect.' : displayConnectError(error)}
           </p>
           <SystemSetup only={setupItems} onReadyChange={setSetupReady} />
-          {setupRetry && (
-            <button
-              onClick={() => handleReconnect(setupRetry)}
-              disabled={!setupReady || busy !== null}
-              className="btn btn-primary text-xs px-3 py-1 disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              Try Again
-            </button>
-          )}
         </div>
       ) : (
         <div className="mx-5 mt-3 bg-danger-subtle border border-danger p-2 rounded-md shrink-0">
@@ -408,6 +400,9 @@ export default function ActiveSessions({
                 }
               : entryRow.usage
             const isBusy = busy === session.id
+            // Refused for setup: pressing it again before the pane reads Ready can
+            // only be refused again. Only this card: another session may need other items.
+            const setupHeld = setupItems !== null && setupSessionId === session.id && !setupReady
             const isConnectedSession = vpnConnected &&
               (status.sessionId === session.id || status.chainExit?.sessionId === session.id ||
                 (exitRow !== null && status.chainExit?.sessionId === exitRow.session.id))
@@ -514,10 +509,12 @@ export default function ActiveSessions({
                             // 'reconnecting' too: the tunnel is briefly down but
                             // auto-reconnect is restoring it, and main refuses a
                             // competing reconnect in that window (assertNotConnected).
-                            disabled={isBusy || busy !== null || vpnConnected || status.state === 'reconnecting' || quotaUsedUp}
+                            disabled={isBusy || busy !== null || vpnConnected || status.state === 'reconnecting' || quotaUsedUp || setupHeld}
                             className="btn btn-primary text-xs px-3 py-1 disabled:opacity-30 disabled:cursor-not-allowed"
                             title={
-                              quotaUsedUp
+                              setupHeld
+                                ? 'Install what the notice above lists first'
+                                : quotaUsedUp
                                 ? 'This session has used everything it was paid for. End it and start a new one'
                                 : vpnConnected
                                   ? 'Disconnect current VPN first'
