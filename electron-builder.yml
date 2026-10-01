@@ -183,3 +183,10 @@ deb:
   afterRemove: resources/linux/packaging/postrm.sh
 appImage:
   artifactName: katacomb-vpn-${version}.AppImage
+# The static type2 runtime (libfuse3 linked in, zstd squashfs) instead of the default
+# "0.0.0", which dlopens libfuse.so.2. No stock Ubuntu 22.04+ desktop ships that
+# (fuse3 only), so the 1.11.0 AppImage died with "dlopen(): error loading
+# libfuse.so.2" until the user installed it. The cost is AppImageLauncher 2.2.0,
+# which cannot start this runtime at all. See docs/packaging.md before changing it.
+toolsets:
+  appimage: "1.0.3"

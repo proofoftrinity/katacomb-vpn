@@ -45,6 +45,35 @@ on request via the repository's issue tracker. Because the library is dynamicall
 linked and shipped as a separate file with its SONAME intact, a recipient may replace
 it with their own build of alsa-lib by substituting the file.
 
+## AppImage runtime
+
+The first bytes of the AppImage file (`--appimage-offset` prints how many) are the
+**AppImage runtime**: a separate program that mounts the rest of the file and starts the
+app from it. Since 1.11.1 it is the static type2 runtime, taken verbatim from
+electron-builder's `appimage@1.0.3` toolset, which statically links the libraries below.
+It prints the same list itself under `--appimage-help`.
+
+| Component | Upstream | Version | License |
+|---|---|---|---|
+| runtime | [AppImage/type2-runtime](https://github.com/AppImage/type2-runtime) | commit `dd6cebe` | MIT |
+| libfuse | [libfuse/libfuse](https://github.com/libfuse/libfuse) | 3.15.0, with type2-runtime's `mount.c` patch | LGPL-2.1 |
+| squashfuse | [vasi/squashfuse](https://github.com/vasi/squashfuse) | 0.5.2 | BSD-2-Clause |
+| zstd | [facebook/zstd](https://github.com/facebook/zstd) | 1.5.6 (Alpine 3.21) | BSD-3-Clause |
+| zlib | [madler/zlib](https://github.com/madler/zlib) | 1.3.1 (Alpine 3.21) | Zlib |
+| musl libc | [musl](https://musl.libc.org/) | Alpine 3.21.0 | MIT |
+
+**As required by LGPL-2.1 §6**, the complete corresponding source for the runtime and the
+libfuse it links, with the patch applied to it and the scripts that build both, is the
+type2-runtime repository at commit `dd6cebe`
+(<https://github.com/AppImage/type2-runtime/tree/dd6cebe>; its
+`scripts/common/install-dependencies.sh` fetches `fuse-3.15.0.tar.xz` by SHA-256 and
+applies `patches/libfuse/mount.c.diff`). A recipient can rebuild the runtime against a
+modified libfuse and replace the AppImage's first `--appimage-offset` bytes with it. The
+maintainers of this repository will also, for at least three years, supply that source
+on request via the repository's issue tracker. Up to 1.11.0 the runtime was
+AppImageKit's, which loaded the system's `libfuse.so.2` at run time instead, so this
+obligation starts with 1.11.1.
+
 ## Go modules linked into the privileged helper
 
 `katacomb-vpn-helper` (built from [`daemon/`](daemon/), GPL-3.0-or-later like the rest of
@@ -86,7 +115,8 @@ The GPL-2.0 §3(b) source offer that used to accompany `awg` / `awg-quick` went 
 since Phase 3 the AmneziaWG device is the MIT `amneziawg-go` module linked into the
 helper (its licence text is in `daemon/THIRD-PARTY-NOTICES.md`), and nothing from the
 GPL-2.0 `amneziawg-tools` is distributed. The only remaining source obligations are
-`xray`'s MPL-2.0 §3.2 above and `libasound.so.2`'s LGPL-2.1 §6 in its own section.
+`xray`'s MPL-2.0 §3.2 above, and the LGPL-2.1 §6 ones of `libasound.so.2` and of the
+AppImage runtime's libfuse, each in its own section.
 
 ## Runtime dependencies
 
