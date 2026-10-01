@@ -13,6 +13,9 @@ files:
   # node_modules ships to carry them. They go to the app root (extraResources below),
   # not into the asar.
   - "!out/THIRD-PARTY-NOTICES-npm.md"
+  # `npm run typecheck` leaves tsc's incremental cache in out/ (tsconfig.node.json is
+  # composite with outDir ./out). The app never reads it; up to 1.11.1 it shipped.
+  - "!out/*.tsbuildinfo"
 # Ship only English UI strings (saves ~39 MB of Chromium locale .pak files).
 electronLanguages:
   - en-US
