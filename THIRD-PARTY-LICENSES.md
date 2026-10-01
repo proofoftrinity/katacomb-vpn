@@ -120,8 +120,22 @@ AppImage runtime's libfuse, each in its own section.
 
 ## Runtime dependencies
 
-Node/npm dependencies (Electron, React, CosmJS, `@sentinel-official/sentinel-js-sdk`, …)
-are not vendored in this repository — they are resolved from the npm registry at build
-time and their licenses ship inside `node_modules/`. Electron bundles Chromium and
-Node.js under their own licenses (BSD-3-Clause and MIT respectively), reproduced in the
-packaged app under `LICENSES.chromium.html`.
+Node/npm dependencies (React, CosmJS, `@sentinel-official/sentinel-js-sdk`, …) are not
+vendored in this repository: they are resolved from the npm registry at build time, and
+electron-vite inlines the ones the app uses into its own JavaScript and CSS. No
+`node_modules` folder ships, so their licence texts travel in
+`THIRD-PARTY-NOTICES-npm.md` at the root of the installed app, which every build writes
+from the files the bundler actually read (`npmNotices` in
+[`electron.vite.config.ts`](electron.vite.config.ts)). Their licences are MIT, ISC,
+BSD-3-Clause and Apache-2.0, all compatible with GPL-3.0-or-later.
+
+Where a package's npm release ships no licence file, the build takes the upstream text
+from [`resources/npm-licenses/`](resources/npm-licenses/), keyed by exact version, and
+fails if there is none, so a dependency bump cannot ship without its licence being
+re-read. That is how CosmJS's Apache-2.0 `NOTICE` (§4(d)) reaches users. It is also why
+`@sentinel-official/sentinel-js-sdk` 2.0.4 is listed as ISC: that is what it declares,
+with no text or copyright line, although its repository adopted Apache-2.0 on 2026-09-28
+and declares it from 2.1.1.
+
+Electron bundles Chromium and Node.js under their own licenses (BSD-3-Clause and MIT
+respectively), reproduced in the packaged app under `LICENSES.chromium.html`.

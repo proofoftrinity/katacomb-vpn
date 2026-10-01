@@ -216,7 +216,27 @@ the v1 series having been GPL-3.0) and the AmneziaWG device (`amneziawg-go/v3` v
 and their dependencies (gvisor Apache-2.0, `golang.org/x` BSD-3, …): `scripts/gen-go-notices.sh`
 regenerates `daemon/THIRD-PARTY-NOTICES.md` from `go list -deps` — rerun it after any
 change to `daemon/go.mod` — and it ships beside `THIRD-PARTY-LICENSES.md`. `LICENSE`,
-`THIRD-PARTY-LICENSES.md` and `THIRD-PARTY-NOTICES.md` ship via explicit
-`extraResources` entries so the notices travel with the binaries.
+`THIRD-PARTY-LICENSES.md`, `THIRD-PARTY-NOTICES.md` and `THIRD-PARTY-NOTICES-npm.md` ship
+via explicit `extraResources` entries so the notices travel with the binaries.
 **When bumping a bundled binary, re-check its LICENSE at the new tag** — it can change
 between versions.
+
+**The npm packages are inlined into `out/` and no `node_modules` ships, so their
+licence texts would reach nobody on their own.** Up to 1.11.1 `THIRD-PARTY-LICENSES.md`
+claimed they shipped "inside `node_modules/`" while `files` excluded that folder, so
+CosmJS (Apache-2.0, with a §4(d) `NOTICE`), the SDK and every MIT dependency shipped
+without their notices. `npmNotices` in `electron.vite.config.ts` now writes
+`out/THIRD-PARTY-NOTICES-npm.md` on every build from `getWatchFiles()` across main,
+preload and renderer: every module loaded plus every CSS `@import`, the only route
+`flag-icons` takes, so it errs toward listing a package that was tree-shaken away.
+`tailwindcss` is seeded by hand because its preflight CSS arrives through PostCSS
+without the bundler reading any of its files. `files` keeps the result out of the asar
+and `extraResources` puts it at the app root. **A bundled package whose npm release has
+no licence file fails the build** with its `name@version`. To fix it, fetch the text
+from the upstream repository at the matching tag, with any `NOTICE` beside it (or the
+README's licence section verbatim, if that is the only place the package publishes it).
+Put it in `resources/npm-licenses/<dir>/` and map `name@version` to it in
+`VENDORED_LICENCES`. The key is the exact version on purpose: when a mapped package
+is bumped, re-read its licence before remapping it. The SDK's 2.0.4 declares ISC and
+its repository's `package.json` declares Apache-2.0 from 2.1.1, and from 2.1.1 its npm
+release should carry the text itself, so its entry can simply go.

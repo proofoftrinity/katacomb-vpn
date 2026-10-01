@@ -1,0 +1,13 @@
+@sentinel-official/sentinel-js-sdk 2.0.4 declares "license": "ISC" in its
+package.json (author: Tkd-Alex <alex.tkd.alex@gmail.com>). Neither the npm
+package nor its repository published a licence text or a copyright line for
+that version, so what follows is the ISC License as published by SPDX, with
+no copyright line to reproduce. The repository adopted Apache-2.0 on
+2026-09-28 (commit f27b1b48), and its package.json declares Apache-2.0 from
+2.1.1.
+
+ISC License
+
+Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

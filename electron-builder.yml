@@ -9,6 +9,10 @@ files:
   # production node_modules tree (~120 MB) is dead weight in the asar. The only
   # remaining externals are ws's optional native deps, which gracefully no-op.
   - "!node_modules/**"
+  # Their licence notices, which electron.vite.config.ts writes into out/ because no
+  # node_modules ships to carry them. They go to the app root (extraResources below),
+  # not into the asar.
+  - "!out/THIRD-PARTY-NOTICES-npm.md"
 # Ship only English UI strings (saves ~39 MB of Chromium locale .pak files).
 electronLanguages:
   - en-US
@@ -41,6 +45,10 @@ extraResources:
   # (scripts/gen-go-notices.sh) ship beside the file above.
   - from: daemon/THIRD-PARTY-NOTICES.md
     to: ../THIRD-PARTY-NOTICES.md
+  # The npm packages electron-vite inlines into out/, with their licence texts. Written
+  # by every `npm run build` (npmNotices in electron.vite.config.ts), never committed.
+  - from: out/THIRD-PARTY-NOTICES-npm.md
+    to: ../THIRD-PARTY-NOTICES-npm.md
   # App icons → resources/icons/ so main (getIconPath) can load them at runtime.
   # `linux.icon` below only sets the launcher/desktop icon; it is NOT a path
   # readable via nativeImage.createFromPath, so without this copy the About

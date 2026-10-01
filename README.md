@@ -410,6 +410,7 @@ The packages also ship three third-party executables (v2ray, xray, hysteria), ea
 separate program under its own license, with the full text alongside it in
 `resources/linux/bin/`, and the privileged helper statically links the tun2socks engine
 and the AmneziaWG userspace device with their dependencies (MIT, BSD-3-Clause,
-Apache-2.0), whose notices ship as `THIRD-PARTY-NOTICES.md`. Pinned versions and
+Apache-2.0), whose notices ship as `THIRD-PARTY-NOTICES.md`. The npm packages compiled
+into the app carry theirs in `THIRD-PARTY-NOTICES-npm.md`. Pinned versions and
 licenses are in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md); nothing shipped
 carries a GPL-2.0 obligation any more.
