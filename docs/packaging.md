@@ -86,6 +86,48 @@ acceleration", not "no library": keep mesa installed so the X server runs, and t
 away from Chromium instead with `--disable-gpu --disable-software-rasterizer`. Both
 bookworm and ubuntu:24.04 map and paint a window under those flags (2026-08-25).
 
+**The AppImage uses the static FUSE 3 runtime, and AppImageLauncher 2.2.0 cannot start
+it — accepted on purpose.** Up to 1.11.0 electron-builder's default runtime
+(`toolsets.appimage` unset, i.e. `"0.0.0"`, AppImageKit's) dlopened `libfuse.so.2`,
+which no stock Ubuntu 22.04+ desktop ships (the official desktop manifests list `fuse3`
+only), so the AppImage died before any window with `dlopen(): error loading
+libfuse.so.2` and the README needed a per-distro install table. The AppImage catalog's
+test flagged it as well. `toolsets.appimage: "1.0.3"` swaps in AppImage/type2-runtime, a
+static-pie with libfuse 3.15 linked in, over a zstd squashfs (its default; 138.6 MB
+against 149.7 MB). It needs only some `fusermount` on `$PATH`: it mounted with fuse3's
+`fusermount3` and with Fedora's FUSE 2 `fusermount` alike. A host with none still has
+`APPIMAGE_EXTRACT_AND_RUN=1`, which this runtime honours. Measured 2026-09-30 and
+2026-10-01 by extracting a baseline and a new build and diffing them: the app payload is
+byte-identical, and `AppRun` too. What changes is the runtime, the compression, the six
+libraries electron-builder stages in `usr/lib` (newer builds, same sonames, glibc floor
+still the 2.34 our `libasound` sets), and one line of the embedded `.desktop`. On a stock
+Ubuntu 24.04 desktop VM with no libfuse2 it launched, installed the helper through the
+polkit prompt, registered its tray icon and showed a notification through the bundled
+`libnotify`.
+- **AppImageLauncher 2.2.0 cannot start it, gzip or zstd.** 2.2.0 runs every AppImage
+  through its own binfmt_misc interpreter, and under it this runtime dies with `fuse:
+  memory allocation failed` and squashfuse's usage text (measured in that VM, with and
+  without libfuse2; `APPIMAGELAUNCHER_DISABLE=1` and `APPIMAGE_EXTRACT_AND_RUN=1` do not
+  get past it either). Cursor's AppImage hit the same in 2026-08 and the reports blamed
+  zstd; a gzip build fails identically, so compression is NOT the cause, and pinning gzip
+  buys nothing. AppImageLauncher 3.0 (beta) starts it, and so does no AppImageLauncher at
+  all. 2.2.0 is its last stable release and what its Ubuntu PPA ships for 22.04, so Mint
+  21 too (the PPA has no 24.04 build; the AUR moved to the 3.0 betas). Trading those users
+  for every stock desktop without libfuse2 was decided 2026-10-01; every app on this
+  runtime breaks them the same way, and electron-builder v27 makes it the default.
+- **The embedded `.desktop` lost `--no-sandbox`** (`Exec=AppRun %U`, was
+  `Exec=AppRun --no-sandbox %U`): electron-builder injects the flag only for the legacy
+  runtime. Only desktop-integration tools (AppImageLauncher, Gear Lever) read that file,
+  and they still start `AppRun`, whose `unshare` probe (next-but-one entry) adds the flag
+  exactly where the sandbox cannot work. So integrated launches now keep the sandbox
+  wherever it can run. Do not restore the flag through `appImage.executableArgs`.
+- **The runtime is an LGPL obligation the old one was not**: it links libfuse
+  statically, where AppImageKit loaded the system's copy. `THIRD-PARTY-LICENSES.md`
+  carries the component list and the §6 source pointer (type2-runtime at `dd6cebe`).
+  After any toolset bump, re-read `--appimage-version` and `--appimage-help` and update it.
+- `scripts/verify-appimage-containers.sh` asserts the static runtime and a real launch on
+  images without libfuse2. Run it after any electron-builder bump.
+
 **The AppImage bundles `libasound.so.2`, and deliberately does NOT bundle `libgbm.so.1`.**
 An AppImage has no package metadata, so it cannot declare either of the two libraries
 the deb declares above, and both are `DT_NEEDED` on the main Electron binary — a host
@@ -120,8 +162,10 @@ Ubuntu users to the deb; don't patch `AppRun` (diverges from upstream) and don't
 **Root cannot read a running AppImage, so anything handed to `pkexec` must be staged
 off the mount first.** The runtime mounts the squashfs as
 `fuse … user_id=<uid>,group_id=<gid>` with neither `allow_root` nor `allow_other`
-(measured; the runtime embeds neither string and `/etc/fuse.conf` leaves
-`user_allow_other` off), and FUSE's default denies every other uid — root is not
+(measured with `findmnt` on the old runtime and again on the static one, 2026-09-30; the
+static runtime's binary does contain both strings, in libfuse's option table, but never
+passes them, and `/etc/fuse.conf` leaves `user_allow_other` off), and FUSE's default
+denies every other uid — root is not
 exempt, because the check is FUSE's own, not DAC. The helper install (then
 `ensurePolkitSetup` in `main/index.ts`, now `installHelper` in `helper/system-setup.ts`)
 used to hand `pkexec sh -c 'cp -- "$1" …'` a `$1` on that mount: root's `cp` got EACCES,

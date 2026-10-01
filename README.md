@@ -176,27 +176,29 @@ for a while). Nothing is asked at launch: when a connection needs the polkit hel
 with one password prompt (apt, dnf or pacman), and the same for a missing `resolvconf`
 where systemd-resolved manages DNS. Settings > System does it ahead of time.
 
-What your system has to provide before the AppImage starts at all (Ubuntu 24.04,
-Fedora 44 and Arch checked on clean installs, 2026-09-29):
+What your system has to provide before the AppImage starts at all:
 
-| Distro | Command |
-|---|---|
-| Ubuntu 24.04+ | `sudo apt install libfuse2t64` |
-| Ubuntu 22.04 | `sudo apt install libfuse2` |
-| Fedora | `sudo dnf install fuse` (`fuse-libs` alone is not enough: the mount needs `fusermount`) |
-| Arch | `sudo pacman -S fuse2 nss` (`nss` comes with Firefox or Chromium on most desktops) |
+- **A `fusermount`**, which the AppImage uses to mount itself. Stock Ubuntu 22.04+
+  desktops have one in the default install (`fuse3`), and most other desktops do too. If
+  `command -v fusermount3 fusermount` prints nothing, install `fuse3` (`sudo apt install
+  fuse3`, `sudo dnf install fuse3` or `sudo pacman -S fuse3`).
+- **On Arch, `nss`** (`sudo pacman -S nss`). It comes with Firefox or Chromium on most
+  desktops.
 
-**Needs FUSE 2.** This is a type-2 AppImage, so it mounts itself with `libfuse.so.2`.
-Ubuntu dropped that from the default install at 22.04, so on 22.04/24.04 you may see
-`dlopen(): error loading libfuse.so.2` before the app starts at all. Either install it
-with `sudo apt install libfuse2t64` (24.04+) or `libfuse2` (22.04), or skip FUSE
-entirely:
+**No libfuse2 needed.** The AppImage carries its own FUSE library now. Up to 1.11.0 it
+needed `libfuse2` from your system, and without it failed with `dlopen(): error loading
+libfuse.so.2`. On a system with no FUSE at all (some containers, WSL), skip the mount:
 
 ```bash
 APPIMAGE_EXTRACT_AND_RUN=1 ./katacomb-vpn-1.11.0.AppImage
 ```
 
 which unpacks to a temp directory and runs from there (verified working, no mount).
+
+**AppImageLauncher 2.2.0 cannot start it.** If you use AppImageLauncher and the app fails
+with `fuse: memory allocation failed`, you have 2.2.0 (the version in its Ubuntu 22.04
+PPA). Upgrade to AppImageLauncher 3.0 or uninstall it; either way the AppImage starts.
+The same happens to any AppImage built on the current AppImage runtime.
 
 **Needs `libgbm1`.** An AppImage cannot declare dependencies, so a handful of Chromium's
 libraries have to come from your system. The AppImage carries its own `libasound.so.2`,
