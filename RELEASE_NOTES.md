@@ -1,58 +1,35 @@
-# Katacomb VPN 1.11.0
+# Katacomb VPN 1.11.1
 
 A desktop client for the Sentinel decentralized VPN network. Pick a node, pay for a
 session on-chain, and tunnel through WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY or
 Hysteria2.
 
-1.11.0 changes the first launch. The window now opens straight away, every time, and
-nothing asks for an admin password until a connection needs something this computer is
-missing. When one does, the app says so before anything is paid and installs it in one
-click. This mostly matters for the AppImage: the .deb still installs the helper, WireGuard
-tools and OpenVPN with the package.
+1.11.1 is a packaging fix for the AppImage. It now starts on a stock Ubuntu 22.04 or
+newer desktop without installing anything first, and it is 11 MB smaller. The app itself
+and the .deb work exactly as in 1.11.0.
 
 ## Highlights
 
-- **No pop-ups at launch.** Up to 1.10.0 the AppImage opened two blocking dialogs before
-  its window, one to install `wireguard-tools` and one to install the VPN helper, each
-  asking for an admin password before you could have created a wallet, let alone
-  connected. Skipping one left no way back except restarting the app, and the package
-  install only worked on apt-based systems. Both dialogs are gone.
-- **Missing setup is caught before you pay.** Every connection first checks that this
-  computer has what it needs: the VPN helper for any full-tunnel connection, WireGuard
-  tools for WireGuard nodes, OpenVPN for OpenVPN nodes, and a `resolvconf` for the VPN's
-  DNS on WireGuard and AmneziaWG. If anything is missing it stops with "Can't connect, not
-  charged" and lists all of it in one pane, each item with an Install button. Try Again
-  stays greyed out until everything reads Ready, then connects with the choices you
-  already made. This covers a single node, a plan (smart connect checks once, before it
-  tries any node), a two-hop chain, and reconnecting a paid session from the Sessions
-  tab. Local proxy mode needs none of it.
-- **Two cases that charged you for a connection that could not start are fixed.** A
-  V2Ray, XRAY or Hysteria2 connection in full-tunnel mode paid first and then failed when
-  the helper was missing, because the old check only looked for it on WireGuard,
-  AmneziaWG and OpenVPN. And a helper left over from an older version, which can refuse a
-  config as root after the session is bought, now reads "Needs update" and is replaced
-  before any payment.
-- **One-click installs on Debian, Ubuntu, Fedora and Arch.** The app uses apt, dnf or
-  pacman, chosen from `/etc/os-release`, so derivatives such as Mint, Pop!\_OS, Rocky and
-  Manjaro work too. Each install is one password prompt, and the app stays usable while
-  the prompt is open. On any other distribution the pane names the package to install
-  yourself.
-- **New Settings > System tab.** The same checks, for setting things up ahead of time.
-  Updating the helper is refused while you are connected, because it restarts the
-  service that holds the tunnel up.
-- **`resolvconf` is installed only where that is safe.** WireGuard and AmneziaWG need it
-  to apply the VPN's DNS. Where systemd-resolved manages DNS (the default on Ubuntu, Mint
-  and Fedora), the app installs the `resolvconf` that comes with it: `systemd-resolved`,
-  or `systemd-resolvconf` on Arch. Anywhere else it installs nothing, because adding one
-  there would change how the whole system handles DNS.
+- **The AppImage no longer needs libfuse2.** Up to 1.11.0 it stopped before opening any
+  window on a stock Ubuntu 22.04 or 24.04 desktop, with `dlopen(): error loading
+  libfuse.so.2`, until you installed `libfuse2t64` or `libfuse2`, and it needed an extra
+  FUSE 2 package on Fedora and Arch too. It now carries its own FUSE library and only
+  needs the `fusermount` those desktops already have. Checked on Debian 12 and 13,
+  Ubuntu 22.04, 24.04 and 26.04, and Fedora 44, none of them with libfuse2, and on a
+  clean Ubuntu 24.04 desktop, including the VPN helper install.
+- **A smaller download.** The AppImage is 138.6 MB instead of 149.7 MB.
+- **Menu entries keep the Chromium sandbox where it works.** When AppImageLauncher adds
+  the AppImage to your applications menu, the entry used to turn the sandbox off on every
+  system. Now it is only turned off where the system cannot run it, such as Ubuntu
+  24.04, exactly as when you start the file directly.
+- **AppImageLauncher 2.2.0 can no longer start it.** If you run AppImages through
+  AppImageLauncher and the app fails with `fuse: memory allocation failed`, upgrade
+  AppImageLauncher to 3.0 or remove it. 2.2.0 fails the same way on every AppImage built
+  with the current AppImage runtime.
 
-## Fixes in 1.11.0
+## Fixes in 1.11.1
 
-- Settings, System: say what the .deb installs, not "all of it"
-- Sessions tab: hold the card's Reconnect instead of a second Try Again
-- Hold the setup pane's Try Again until ready, then connect with the same choices
-- Check for a resolvconf before a WireGuard or AmneziaWG connect pays
-- Ask for the helper and packages when a connect needs them, not at launch
+<!-- regenerated by release.sh from v1.11.0..HEAD at cut time; leave the heading -->
 
 ## Known limitations
 
@@ -78,8 +55,9 @@ tools and OpenVPN with the package.
 ## Platform support
 
 **Linux x86_64 only.** Tested on Debian 11+, Ubuntu 20.04+, and derivatives (Mint,
-Pop!\_OS, Zorin). For this release the AppImage was also checked on clean Ubuntu 24.04,
-Fedora 44 and Arch installs.
+Pop!\_OS, Zorin). For this release the AppImage was also checked on a clean Ubuntu 24.04
+desktop, and in containers on Debian 12 and 13, Ubuntu 22.04, 24.04 and 26.04, and
+Fedora 44.
 
 ## Installation
 
@@ -121,8 +99,9 @@ curl -sS https://github.com/trinitystake.gpg | gpg --import
 
 - **Connecting spends real funds.** Sessions are blockchain transactions priced in
   `udvpn`, and a failed connection is refunded automatically, but an expired one is not.
-- **The AppImage needs a few packages from your system before it starts**: `libfuse2t64`
-  on Ubuntu 24.04+, `libfuse2` on 22.04, `fuse` on Fedora, `fuse2` and `nss` on Arch. The
+- **The AppImage needs a `fusermount` before it starts**, which stock desktops already
+  have. If `command -v fusermount3 fusermount` prints nothing, install `fuse3`; on Arch,
+  `nss` too. AppImageLauncher 2.2.0 cannot start it: upgrade to 3.0 or remove it. The
   `APPIMAGE_EXTRACT_AND_RUN=1` workaround avoids needing FUSE. See the README.
 - **AppImage on Ubuntu 24.04+** runs with the Chromium sandbox disabled. An AppImage can
   install neither an AppArmor profile nor a SUID sandbox helper, so prefer the .deb there.
