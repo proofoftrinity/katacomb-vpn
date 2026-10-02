@@ -20,7 +20,7 @@ import {
 } from './NodeCells'
 import type { SentNode } from '../../types'
 
-type SortKey = 'country' | 'moniker' | 'type' | 'priceGb' | 'priceHr' | 'leases' | 'sessions' | 'peers' | 'latency' | 'status'
+type SortKey = 'country' | 'moniker' | 'type' | 'version' | 'priceGb' | 'priceHr' | 'leases' | 'sessions' | 'peers' | 'latency' | 'status'
 
 /**
  * Column widths come from NODE_COL (NodeCells.tsx), shared with the Multi-hop table,
@@ -40,6 +40,9 @@ type SortKey = 'country' | 'moniker' | 'type' | 'priceGb' | 'priceHr' | 'leases'
  * Price is one column with two sort keys (priceHr, priceGb), rendered as two buttons
  * in the header: the entry is keyed priceHr so the active-sort lookup works for the
  * first, and the header map special-cases it for the second.
+ *
+ * Type works the same way for the version on the cell's second line: "Type" sorts by
+ * protocol, and a `ver` button beside it sorts by version.
  *
  * The second column is labelled Location but keyed 'country': it renders country over
  * city and sorts by country. Keeping the key is what lets useNodes' shared default
@@ -172,6 +175,22 @@ export default function NodeTable() {
                     }`}
                   >
                     {key === 'priceHr' ? '/hr' : '/GB'}
+                    {sortIndicator(key)}
+                  </button>
+                ))}
+              </div>
+            ) : col.key === 'type' ? (
+              // Protocol over version, in the order the cell stacks them.
+              <div key={col.key} className={`${col.width} flex items-center gap-1.5 shrink-0`}>
+                {(['type', 'version'] as const).map((key) => (
+                  <button
+                    key={key}
+                    onClick={() => toggleSort(key)}
+                    className={`hover:text-accent transition-colors flex items-center gap-1 ${
+                      sortKey === key ? 'text-text-primary' : ''
+                    }`}
+                  >
+                    {key === 'type' ? col.label : 'ver'}
                     {sortIndicator(key)}
                   </button>
                 ))}

@@ -17,12 +17,20 @@ const DEFAULT_FILTER: NodeFilter = {
   search: '',
 }
 
-type SortKey = 'country' | 'moniker' | 'type' | 'priceGb' | 'priceHr' | 'leases' | 'sessions' | 'peers' | 'latency' | 'status' | 'eligibility'
+type SortKey = 'country' | 'moniker' | 'type' | 'version' | 'priceGb' | 'priceHr' | 'leases' | 'sessions' | 'peers' | 'latency' | 'status' | 'eligibility'
 type SortDir = 'asc' | 'desc'
 
 function getUdvpnPrice(prices: { denom: string; value: string }[]): number {
   const p = prices.find((x) => x.denom === 'udvpn')
   return p ? parseInt(p.value, 10) / 1e6 : Infinity
+}
+
+// Numeric per part, so 9.10.0 would sort after 9.2.0. parseInt stops at the '-' of a
+// build suffix (8.3.1-33-g), and a node reporting no version reads as 0.0.0, as in
+// majorVersion.
+function versionParts(version: string): number[] {
+  const parts = version.split('.')
+  return [0, 1, 2].map((i) => parseInt(parts[i], 10) || 0)
 }
 
 function compareNodes(
@@ -42,6 +50,14 @@ function compareNodes(
     case 'type':
       cmp = a.type - b.type
       break
+    case 'version': {
+      const va = versionParts(a.version)
+      const vb = versionParts(b.version)
+      cmp = va[0] - vb[0] || va[1] - vb[1] || va[2] - vb[2]
+      // Same release: the full string keeps a suffixed build next to it.
+      if (cmp === 0) cmp = a.version.localeCompare(b.version)
+      break
+    }
     case 'priceGb':
       cmp = getUdvpnPrice(a.gigabytePrices) - getUdvpnPrice(b.gigabytePrices)
       break
@@ -127,13 +143,15 @@ export function useNodes(
     if (filter.bookmarkedOnly) nodes = nodes.filter((n) => bookmarks.has(n.address))
     if (filter.search) {
       // Address too, and the bech32 address is already lowercase: pasting one from
-      // the Sessions tab or a block explorer finds the node.
+      // the Sessions tab or a block explorer finds the node. Version too: bech32 has
+      // no '.', so a dotted query (9.2, 8.3.1) matches versions and not addresses.
       const q = filter.search.trim().toLowerCase()
       nodes = nodes.filter((n) =>
         n.moniker.toLowerCase().includes(q) ||
         n.address.includes(q) ||
         n.country.toLowerCase().includes(q) ||
-        n.city.toLowerCase().includes(q),
+        n.city.toLowerCase().includes(q) ||
+        n.version.includes(q),
       )
     }
 
