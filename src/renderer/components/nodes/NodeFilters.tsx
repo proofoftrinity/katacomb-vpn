@@ -139,7 +139,7 @@ export default function NodeFilters({
             type="text"
             value={filter.search}
             onChange={(e) => updateFilter({ search: e.target.value })}
-            placeholder="Search moniker, address, location"
+            placeholder="Name, address, place, version"
             className="bg-bg-tertiary border border-border text-text-primary text-sm pl-8 pr-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus w-[250px] placeholder:text-text-tertiary"
           />
         </div>
