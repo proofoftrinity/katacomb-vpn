@@ -7,7 +7,6 @@ import {
   nodeStartSession,
   sessionCancel,
   NodeEventCreateSession,
-  handshake as sdkHandshake,
 } from '@sentinel-official/sentinel-js-sdk'
 import { BrowserWindow, app, net, safeStorage } from 'electron'
 import { IPC } from '../../shared/ipc-channels'
@@ -24,6 +23,8 @@ import { filterV2RayMetadata, isAllCleartext, v2raySecurityBadge, isSafeNodeApiU
 import { buildXRayConfig } from '../protocols/xray-config'
 import { buildMultihopConfig, type HopSpec } from '../protocols/multihop-config'
 import { buildHandshakeBody, postHandshake } from '../protocols/node-handshake'
+import { checkReplySignature, ReplySignatureError, type ReplySigner } from '../protocols/reply-signature'
+import { hasNodeStatusGrant } from './authz-query'
 import { buildHysteria2Config } from '../protocols/hysteria-config'
 import { buildAmneziaWgConfig, nodeOffersAwgVersion3, AWG_VERSION_3 } from '../protocols/amneziawg-config'
 import { fetchNodeServiceMetadata } from '../nodes/node-tester'
@@ -36,6 +37,15 @@ import { GAS_PRICE_STR, TX_TIMEOUT_HEIGHT_OFFSET } from './chain-constants'
 import { resolveRpcBase, TX_POLL_INTERVAL_MS } from './chain-clients'
 
 const GAS_PRICE = GasPrice.fromString(GAS_PRICE_STR)
+
+/** A chain hop's spec, with who signed that node's handshake reply. */
+export type SignedHopSpec = HopSpec & { signer: ReplySigner }
+
+/** A chain is as signed as its weaker hop. */
+export function chainSigner(entry: ReplySigner, exit: ReplySigner): ReplySigner {
+  if (entry === 'unsigned' || exit === 'unsigned') return 'unsigned'
+  return entry === 'hotKey' || exit === 'hotKey' ? 'hotKey' : 'node'
+}
 // A node in this app's threat model may accept the TLS connection but never reply
 // to the handshake POST (the SDK's axios call has no timeout), which would wedge
 // the paid connect flow forever — bound the wait so it fails into the refund path.
@@ -497,6 +507,43 @@ function findFreePort(): Promise<number> {
   })
 }
 
+/**
+ * POST the handshake and check the node's signature over the reply. Every handshake,
+ * direct or through a chain's entry, comes through here, so the check cannot be
+ * skipped by a new caller. A signature that does not hold throws, and so does an
+ * unsigned reply while the user wants signed nodes only; either way the caller's
+ * establish…OrRefund cancels the session, as for any failed handshake.
+ */
+async function signedHandshake(params: {
+  sessionId: string
+  nodeAddress: string
+  peerRequest: unknown
+  privKey: Uint8Array
+  remoteUrl: string
+  agent?: https.Agent
+}): Promise<{ result: { data?: unknown; addrs: string[] }; signer: ReplySigner }> {
+  const { sessionId, nodeAddress, peerRequest, privKey, remoteUrl, agent } = params
+  const body = await buildHandshakeBody(sessionId, peerRequest, privKey)
+  const reply = await postHandshake(remoteUrl, body, { agent, timeoutMs: HANDSHAKE_TIMEOUT_MS })
+  const signer = await checkReplySignature({
+    header: reply.signature,
+    sessionId,
+    request: Buffer.from(body.data, 'base64'),
+    result: reply.result,
+    nodeAddress,
+    hasGrant: hasNodeStatusGrant,
+  })
+  if (signer === 'unsigned' && loadSettings().signedNodesOnly) {
+    throw new ReplySignatureError(
+      'This node does not sign its handshake reply, and "Signed nodes only" is on in Settings.',
+    )
+  }
+  console.log(`[session] handshake reply ${signer === 'node' ? 'signed by the node' : signer === 'hotKey' ? 'signed by a key the node granted' : 'not signed'}`)
+  // addrs as the SDK's handshake typed them; the config builders check every entry.
+  const addrs = Array.isArray(reply.result.addrs) ? reply.result.addrs : []
+  return { result: { data: reply.result.data, addrs }, signer }
+}
+
 export async function performHandshake(params: {
   sessionId: string
   nodeAddress: string
@@ -509,17 +556,18 @@ export async function performHandshake(params: {
   protocol: string
   configString: string
   v2raySummary?: string
+  /** Who signed the node's reply (see reply-signature.ts). */
+  signer: ReplySigner
 }> {
   const { sessionId, nodeAddress, nodeType, remoteUrl, privKey, nodeMoniker, nodeCountry } = params
-  const sid = Long.fromString(sessionId, true)
 
   sendProgress('4/5', 'Performing handshake with node...')
 
   if (nodeType === 1) {
     // WireGuard
     const wg = generateWireguardKeypair()
-    const result = await withTimeout(
-      sdkHandshake(sid, { public_key: wg.publicKey }, privKey, remoteUrl),
+    const { result, signer } = await withTimeout(
+      signedHandshake({ sessionId, nodeAddress, peerRequest: { public_key: wg.publicKey }, privKey, remoteUrl }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -537,7 +585,7 @@ export async function performHandshake(params: {
       nodeCountry,
     })
 
-    return { protocol: 'wireguard', configString }
+    return { protocol: 'wireguard', configString, signer }
   } else if (nodeType === 4) {
     // XRAY (VLESS + Reality). The SDK can't build Reality configs (its V2Ray parser
     // has no flow/reality_* support), so we generate the xray JSON ourselves from the
@@ -547,8 +595,8 @@ export async function performHandshake(params: {
     // buildXRayConfig rejects a node with no encrypted (Reality/TLS) VLESS entry,
     // so an all-cleartext node fails into the refund path.
     const xrayUuid = generateProxyUuid()
-    const result = await withTimeout(
-      sdkHandshake(sid, { uuid: uuidToBytes(xrayUuid) }, privKey, remoteUrl),
+    const { result, signer } = await withTimeout(
+      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid: uuidToBytes(xrayUuid) }, privKey, remoteUrl }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -567,7 +615,7 @@ export async function performHandshake(params: {
       nodeCountry,
     })
 
-    return { protocol: 'xray', configString }
+    return { protocol: 'xray', configString, signer }
   } else if (nodeType === 6) {
     // Hysteria2 (QUIC). The bundled JS SDK has no Hysteria2 class either, so — like
     // xray — we build the client config ourselves from the node's handshake metadata
@@ -581,8 +629,8 @@ export async function performHandshake(params: {
     // string), so the node returns HTTP 500. So we send the canonical UUID STRING, and
     // reuse that exact string as the config `auth` (it must match what the node registered).
     const uuid = randomUUID()
-    const result = await withTimeout(
-      sdkHandshake(sid, { uuid }, privKey, remoteUrl),
+    const { result, signer } = await withTimeout(
+      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid }, privKey, remoteUrl }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -601,7 +649,7 @@ export async function performHandshake(params: {
       nodeCountry,
     })
 
-    return { protocol: 'hysteria2', configString }
+    return { protocol: 'hysteria2', configString, signer }
   } else if (nodeType === 5) {
     // AmneziaWG — same handshake payload as WireGuard (a base64 Curve25519 public
     // key). Only the keypair is needed here, the way the xray branch needs only a
@@ -623,8 +671,8 @@ export async function performHandshake(params: {
     const peerRequest = awgVersion === undefined
       ? { public_key: wg.publicKey }
       : { public_key: wg.publicKey, awg_version: awgVersion }
-    const result = await withTimeout(
-      sdkHandshake(sid, peerRequest, privKey, remoteUrl),
+    const { result, signer } = await withTimeout(
+      signedHandshake({ sessionId, nodeAddress, peerRequest: peerRequest, privKey, remoteUrl }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -645,7 +693,7 @@ export async function performHandshake(params: {
       nodeCountry,
     })
 
-    return { protocol: 'amneziawg', configString }
+    return { protocol: 'amneziawg', configString, signer }
   } else if (nodeType === 3) {
     // OpenVPN. The bundled JS SDK has no OpenVPN class, so openvpn-config.ts builds
     // the client .ovpn from the handshake response.
@@ -656,8 +704,8 @@ export async function performHandshake(params: {
     // us: the node's PKI issues a client certificate + key in the response, and the
     // uuid is only the peer's identifier.
     const uuid = randomUUID()
-    const result = await withTimeout(
-      sdkHandshake(sid, { uuid: Array.from(Buffer.from(uuid.replace(/-/g, ''), 'hex')) }, privKey, remoteUrl),
+    const { result, signer } = await withTimeout(
+      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid: Array.from(Buffer.from(uuid.replace(/-/g, ''), 'hex')) }, privKey, remoteUrl }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -674,13 +722,13 @@ export async function performHandshake(params: {
       nodeCountry,
     })
 
-    return { protocol: 'openvpn', configString }
+    return { protocol: 'openvpn', configString, signer }
   } else {
     // V2Ray. The peer field is v2fly `uuid.UUID`, so the node gets the 16-byte
     // array form (see uuidToBytes); the config carries the same uuid as a string.
     const v2rayUuid = generateProxyUuid()
-    const result = await withTimeout(
-      sdkHandshake(sid, { uuid: uuidToBytes(v2rayUuid) }, privKey, remoteUrl),
+    const { result, signer } = await withTimeout(
+      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid: uuidToBytes(v2rayUuid) }, privKey, remoteUrl }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -720,7 +768,7 @@ export async function performHandshake(params: {
       nodeCountry,
     })
 
-    return { protocol: 'v2ray', configString, v2raySummary }
+    return { protocol: 'v2ray', configString, v2raySummary, signer }
   }
 }
 
@@ -806,23 +854,18 @@ async function handshakeChainHop(
   /**
    * Route this hop's handshake through a proxy instead of dialling it directly. Set for
    * the EXIT hop, whose request must appear to come from the entry node rather than from
-   * the user (see startProvisioningProxy). The SDK's own handshake cannot take an agent,
-   * so an agent means our own equivalent request — proven byte-identical to the SDK's in
-   * node-handshake.test.ts.
+   * the user (see startProvisioningProxy). signedHandshake takes the agent; its request
+   * is proven byte-identical to the SDK's in node-handshake.test.ts.
    */
   agent?: https.Agent,
-): Promise<HopSpec> {
+): Promise<SignedHopSpec> {
   try {
     const hopUuid = generateProxyUuid()
     const peerRequest = { uuid: uuidToBytes(hopUuid) }
-    const result = await withTimeout(
-      agent
-        ? postHandshake(
-            hop.remoteUrl,
-            await buildHandshakeBody(hop.sessionId, peerRequest, privKey),
-            { agent, timeoutMs: HANDSHAKE_TIMEOUT_MS },
-          )
-        : sdkHandshake(Long.fromString(hop.sessionId, true), peerRequest, privKey, hop.remoteUrl),
+    const { result, signer } = await withTimeout(
+      signedHandshake({
+        sessionId: hop.sessionId, nodeAddress: hop.nodeAddress, peerRequest, privKey, remoteUrl: hop.remoteUrl, agent,
+      }),
       agent ? PROXIED_HANDSHAKE_TIMEOUT_MS : HANDSHAKE_TIMEOUT_MS,
       `${role} node handshake`,
     )
@@ -842,6 +885,7 @@ async function handshakeChainHop(
       metadata,
       addrs: Array.isArray(result.addrs) ? result.addrs : [],
       uuid: hopUuid,
+      signer,
     }
   } catch (err) {
     // Everything in here is attributable to ONE node, so say which before it reaches
@@ -925,7 +969,7 @@ async function withPrivatelyResolvedAddrs(addrs: string[]): Promise<string[]> {
  * cancelling whatever has been paid for if any phase throws, and nothing is persisted
  * until `finalizeChain`, so a half-built chain leaves no stale config behind.
  */
-export async function handshakeChainEntry(entry: ChainHopParams, privKey: Uint8Array): Promise<HopSpec> {
+export async function handshakeChainEntry(entry: ChainHopParams, privKey: Uint8Array): Promise<SignedHopSpec> {
   sendChainHopProgress('entry', 'handshake')
   sendProgress('4/5', 'Handshaking entry node...')
   return handshakeChainHop(entry, privKey, 'entry')
@@ -944,7 +988,7 @@ export async function handshakeChainExit(
   exit: ChainHopParams,
   exitPrivKey: Uint8Array,
   agent: https.Agent,
-): Promise<HopSpec> {
+): Promise<SignedHopSpec> {
   sendChainHopProgress('exit', 'handshake')
   sendProgress('4/5', 'Handshaking exit node through the entry...')
   return handshakeChainHop(exit, exitPrivKey, 'exit', agent)

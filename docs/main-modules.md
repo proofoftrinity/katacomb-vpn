@@ -43,6 +43,12 @@ CLAUDE.md; this is the per-module detail.
   **Nothing in the renderer should call `nodesFetch()` just to read the list** — that's
   the whole paginated refresh; take `useNodesContext().allNodes`, which is already
   populated from cache + `NODES_UPDATE` pushes. Only a user-driven Refresh should fetch.
+- `reply-signature.ts`: checks a dvpnd node's signature over its handshake reply
+  (`checkReplySignature`, `replyDigest`), from dvpnd's spec; pure and unit-tested against
+  dvpnd's digest vector. `chain/authz-query.ts` answers its one chain question (does the
+  node account grant this hot key), and `shared/node-signing.ts` reads the directory's
+  version as a hint for "Signed nodes only". See docs/protocols.md and
+  docs/invariants/node-trust.md.
 - `multihop-config.ts`: pure builder + grader for two-hop chains (`buildMultihopConfig`,
   `selectHopEntry`, `classifyHopEligibility`, `normalizeTlsPin`). Electron-free and
   unit-tested; see [docs/multihop.md](multihop.md) for the invariants it enforces.

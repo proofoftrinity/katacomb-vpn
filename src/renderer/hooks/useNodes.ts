@@ -3,6 +3,7 @@ import type { SentNode, NodeFilter } from '../types'
 import { useNodesContext } from '../contexts/NodesContext'
 import { v2rayConnectionCategory } from '../utils/v2ray-connection'
 import { nodeStatusRank } from '../utils/node-status'
+import { versionSignsReplies } from '../../shared/node-signing'
 
 const DEFAULT_FILTER: NodeFilter = {
   country: '',
@@ -11,6 +12,7 @@ const DEFAULT_FILTER: NodeFilter = {
   healthyOnly: true,
   residentialOnly: false,
   whitelistedOnly: false,
+  signedOnly: false,
   hideDuplicates: true,
   bookmarkedOnly: false,
   v2rayConnection: { vmess: true, 'vmess-tls': true, 'vless-tls': true, 'vless-none': false, unknown: true },
@@ -137,6 +139,7 @@ export function useNodes(
     if (filter.healthyOnly) nodes = nodes.filter((n) => n.isHealthy)
     if (filter.residentialOnly) nodes = nodes.filter((n) => n.isResidential)
     if (filter.whitelistedOnly) nodes = nodes.filter((n) => n.isWhitelisted)
+    if (filter.signedOnly) nodes = nodes.filter((n) => versionSignsReplies(n.version))
     if (filter.hideDuplicates) nodes = nodes.filter((n) => !n.isDuplicate)
     // V2Ray connection sub-filter: keep a V2Ray node only if its category is enabled.
     nodes = nodes.filter((n) => n.type !== 2 || filter.v2rayConnection[v2rayConnectionCategory(n.connection)])

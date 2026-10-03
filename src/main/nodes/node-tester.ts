@@ -2,6 +2,7 @@ import https from 'node:https'
 import http from 'node:http'
 import { net, BrowserWindow } from 'electron'
 import { IPC } from '../../shared/ipc-channels'
+import { REPLY_SIGNING_HEADER, REPLY_SIGNING_SCHEME } from '../protocols/reply-signature'
 
 // dVPN nodes use self-signed TLS certificates, so we need a custom agent
 const insecureAgent = new https.Agent({ rejectUnauthorized: false })
@@ -17,7 +18,7 @@ function nodeFetch(
   url: string,
   timeoutMs: number,
   agent?: https.Agent,
-): Promise<{ status: number; body: string }> {
+): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const isHttps = url.startsWith('https')
     const mod = isHttps ? https : http
@@ -41,7 +42,7 @@ function nodeFetch(
     const req = mod.get(url, options, (res) => {
       let data = ''
       res.on('data', (chunk: Buffer) => { data += chunk.toString() })
-      res.on('end', () => finish(() => resolve({ status: res.statusCode || 0, body: data })))
+      res.on('end', () => finish(() => resolve({ status: res.statusCode || 0, body: data, headers: res.headers })))
     })
     req.on('error', (err) => finish(() => reject(err)))
     deadline = setTimeout(() => { req.destroy(new Error('Timeout')) }, timeoutMs)
@@ -189,6 +190,17 @@ export async function fetchNodeServiceMetadata(remoteUrl: string, agent?: https.
   return metadata
 }
 
+/**
+ * Whether a node says it signs its handshake replies, asked before paying when the user
+ * wants signed nodes only. The answer comes over the same unauthenticated channel as
+ * everything else, so it can only cost a refusal: someone on the path who strips it
+ * makes us refuse a node we could have used, and one who adds it gains nothing, since
+ * the signature on the reply is what is checked.
+ */
+export async function fetchNodeSignsReplies(remoteUrl: string, agent?: https.Agent): Promise<boolean> {
+  return (await fetchNodeRoot(remoteUrl, agent)).signsReplies
+}
+
 /** One entry of a node's advertised `service_metadata`. */
 export interface NodeInboundListing {
   port: string | number
@@ -200,6 +212,8 @@ export interface NodeInboundListing {
 interface NodeRootInfo {
   service_type?: string | number
   service_metadata?: NodeInboundListing[]
+  /** The node said it signs its handshake replies (a header, not the JSON). */
+  signsReplies: boolean
 }
 
 /**
@@ -256,8 +270,8 @@ async function fetchNodeRoot(remoteUrl: string, agent?: https.Agent): Promise<No
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`Node returned HTTP ${response.status}`)
   }
-  const json = JSON.parse(response.body) as { result?: NodeRootInfo }
-  const info = json.result ?? {}
+  const json = JSON.parse(response.body) as { result?: Omit<NodeRootInfo, 'signsReplies'> }
+  const info: NodeRootInfo = { ...json.result, signsReplies: response.headers[REPLY_SIGNING_HEADER] === REPLY_SIGNING_SCHEME }
   // Bounded by time, but also by size, so a long picker session probing hundreds of
   // nodes can't grow this without limit.
   if (rootMemo.size > 200) rootMemo.clear()

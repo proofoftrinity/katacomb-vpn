@@ -116,6 +116,15 @@ export function ShieldIcon(p: IconProps) {
   )
 }
 
+export function KeyIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="5" cy="8" r="2.8" />
+      <path d="M7.8 8H14M11.5 8v2.5M13.5 8v1.8" />
+    </Svg>
+  )
+}
+
 export function LayersIcon(p: IconProps) {
   return (
     <Svg {...p}>

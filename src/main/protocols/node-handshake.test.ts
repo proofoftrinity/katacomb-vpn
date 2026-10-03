@@ -12,7 +12,7 @@ const PEER_DATA = { uuid: '11111111-2222-3333-4444-555555555555' }
 
 /** Capture one POST body and answer like a node. */
 function captureServer(
-  reply: { status: number; body: unknown } = { status: 200, body: { result: { data: 'ok', addrs: [] } } },
+  reply: { status: number; body: unknown; headers?: Record<string, string> } = { status: 200, body: { result: { data: 'ok', addrs: [] } } },
 ): Promise<{ url: string; bodies: string[]; close: () => void }> {
   const bodies: string[] = []
   const server = http.createServer((req, res) => {
@@ -20,7 +20,7 @@ function captureServer(
     req.on('data', (c) => { raw += c })
     req.on('end', () => {
       bodies.push(raw)
-      res.writeHead(reply.status, { 'Content-Type': 'application/json' })
+      res.writeHead(reply.status, { 'Content-Type': 'application/json', ...reply.headers })
       res.end(JSON.stringify(reply.body))
     })
   })
@@ -85,9 +85,24 @@ test('postHandshake returns the node result', async () => {
   const server = await captureServer({ status: 200, body: { result: { data: 'payload', addrs: ['1.2.3.4'] } } })
   try {
     const body = await buildHandshakeBody(SESSION_ID, PEER_DATA, PRIV_KEY)
-    const result = await postHandshake(server.url, body, { timeoutMs: 5000 })
-    assert.deepEqual(result, { data: 'payload', addrs: ['1.2.3.4'] })
+    const reply = await postHandshake(server.url, body, { timeoutMs: 5000 })
+    assert.deepEqual(reply, { result: { data: 'payload', addrs: ['1.2.3.4'] }, signature: undefined })
     assert.deepEqual(JSON.parse(server.bodies[0]), body)
+  } finally {
+    server.close()
+  }
+})
+
+test('postHandshake hands back the reply signature a dvpnd node sends', async () => {
+  const server = await captureServer({
+    status: 200,
+    body: { result: { data: 'payload', addrs: [] } },
+    headers: { 'X-Dvpnd-Signature': 'secp256k1:AAAA;BBBB' },
+  })
+  try {
+    const body = await buildHandshakeBody(SESSION_ID, PEER_DATA, PRIV_KEY)
+    const reply = await postHandshake(server.url, body, { timeoutMs: 5000 })
+    assert.equal(reply.signature, 'secp256k1:AAAA;BBBB')
   } finally {
     server.close()
   }

@@ -313,6 +313,27 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                   />
                 </div>
 
+                {/* Signed nodes only — temporary, while most of the network runs node
+                    software that does not sign its handshake reply. A signature is
+                    checked whenever a node sends one, whatever this says. */}
+                <div className="flex items-center justify-between py-3 px-4 border border-border bg-bg-tertiary rounded-md">
+                  <div>
+                    <span className="text-text-primary text-sm">Signed Nodes Only</span>
+                    <p className="text-text-tertiary text-xs mt-0.5">
+                      {settings.signedNodesOnly
+                        ? 'Connect only to nodes that sign their handshake reply (dvpnd 9.4 and later), so nobody on your network can pose as the node. Few nodes sign yet: the node list, smart connect and the connect button skip the rest.'
+                        : 'Connect to any node. A signed reply is always checked, but most nodes do not sign yet, and with those someone on your network could pose as the node during the handshake.'}
+                    </p>
+                  </div>
+                  <Toggle
+                    checked={settings.signedNodesOnly}
+                    onChange={async (checked) => {
+                      const updated = await window.api.settingsSet({ signedNodesOnly: checked })
+                      setSettings(updated)
+                    }}
+                  />
+                </div>
+
                 {/* Provider mode — reveals the Provider tab for the ACTIVE wallet.
                     Once that wallet has a provider registered on chain the tab
                     appears regardless of this toggle. */}

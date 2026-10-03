@@ -40,9 +40,8 @@ What differs:
   aggregator: `proxy_protocol 1=vless`, `transport_protocol 1=tcp`, `transport_security
   1=none/2=tls/3=reality`, `flow 2=xtls-rprx-vision`. It only ever selects reality/tls
   entries (never `none`), which is what keeps an xray tunnel from being cleartext.
-- The handshake reuses the generic `sdkHandshake(sid, { uuid }, …)` (VLESS peer
-  material is a UUID, same as V2Ray); `performHandshake`'s `nodeType === 4` branch
-  generates the uuid from an SDK `V2Ray` instance purely for that.
+- The handshake is the generic one (VLESS peer material is a UUID, same as V2Ray);
+  `performHandshake`'s `nodeType === 4` branch generates the uuid for it.
 - A separate **`xray`** binary is bundled in `resources/linux/bin/` (Xray-core
   official release, SHA-pinned in `binary-integrity.ts` — vendor + verify checksum +
   update the pin when upgrading). `extraResources` ships everything under that dir.
@@ -213,3 +212,30 @@ kill-switch setting is deliberately ignored. WG/AWG + `mode:'proxy'` throws. Kee
 mode, because routing is untouched and callers must not fall back to cached chain
 data. The mode is runtime-only (never in `SavedSessionConfig`): auto-reconnect replays
 `desiredMode`, a session-tab reconnect is always full-tunnel.
+
+## The signed handshake reply (all protocols)
+
+Every handshake, every protocol, direct or through a chain's entry, is POSTed by
+`node-handshake.ts` (no longer the SDK's `handshake()`, which drops response headers) and
+goes through `signedHandshake` in `chain-service.ts`, which checks the node's signature
+over the reply with `reply-signature.ts`:
+
+- dvpnd 9.4+ sends `X-Dvpnd-Signature: secp256k1:<pubkey>;<r||s>` over
+  `SHA-256("dvpnd/handshake-reply/v1" || BE64(id) || SHA-256(request) || SHA-256(reply data)
+  || addrs joined by "\n")`, and `X-Dvpnd-Reply-Signing: dvpnd/handshake-reply/v1` on every
+  response. The spec is dvpnd's `docs/protocols.md`; the digest vector in
+  `reply-signature.test.ts` is the one dvpnd pins.
+- Signed by the node account (its address bytes = the sentnode address bytes): `node`.
+  Signed by another key: accepted as `hotKey` only if the chain holds the node account's
+  authz grant to it for `MsgUpdateNodeStatusRequest` (`chain/authz-query.ts`); otherwise
+  refused. A signature that does not verify is always refused. Both go through the
+  ordinary refund path.
+- No signature (sentinel-dvpnx, dvpnd before 9.4): `unsigned`, accepted unless the user
+  turned on **Signed nodes only**. Then preflight refuses a node whose root document lacks
+  `X-Dvpnd-Reply-Signing` (not charged), a chain's exit is refused from the directory's
+  version before the entry is bought, smart connect skips nodes whose version is below
+  9.4.0 (`shared/node-signing.ts`, a hint only: sentinel-dvpnx reports 9.0.0 today), and
+  an unsigned reply is refused after the handshake (refunded).
+- The connection bar shows Signed/Unsigned for a fresh handshake; a tunnel restored from a
+  saved config shows neither.
+

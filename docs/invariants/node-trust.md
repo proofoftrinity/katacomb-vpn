@@ -28,3 +28,16 @@ pinning is therefore the only option that exists, and it is deliberately **not
 implemented** (it changes the failure mode of every connect and can't be validated without
 live nodes). So never write UI copy implying that the TLS/Reality wrapping defeats the
 local network; multihop's threat-model block states the limit instead.
+
+**Except where the node signs its reply.** dvpnd nodes from 9.4 sign the handshake reply
+with the key the chain knows the node by (`X-Dvpnd-Signature`; `protocols/reply-signature.ts`
+checks it, written from dvpnd's spec and pinned to its digest vector). The node's address
+IS on chain, so that is something to verify against: a reply whose signature does not hold,
+or that a key the node account never granted signed, is refused and the session refunded,
+always. What the attacker keeps is the downgrade: stripping the header makes a signing node
+look like every other node. "Signed nodes only" (a setting, off by default while most of the
+network does not sign) closes that by refusing unsigned replies, before paying when the node's
+own `X-Dvpnd-Reply-Signing` header is missing and after the handshake otherwise. Every
+handshake goes through `signedHandshake` in chain-service.ts; a new handshake path must too.
+UI copy may say a SIGNED connection came from the node; it must not say so of an unsigned
+one.

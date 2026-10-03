@@ -71,6 +71,14 @@ export interface AppSettings {
   bookmarkedNodes: string[]
   splitTunnelRoutes: string[]
   /**
+   * Connect only to nodes that sign their handshake reply (dvpnd 9.4 and later; see
+   * protocols/reply-signature.ts). A signed reply is checked either way; this refuses
+   * the unsigned ones, before paying when the node says so and after the handshake
+   * (with a refund) when it did not. Off by default while most of the network runs
+   * node software that does not sign.
+   */
+  signedNodesOnly: boolean
+  /**
    * A seed kept on disk after its last derived wallet was deleted, so the user can
    * derive new wallets without retyping the phrase. Holds the id of the wallet it
    * outlived — that entry is gone from the index but its `wallets/<id>.enc` is
@@ -91,6 +99,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoReconnect: false,
   bookmarkedNodes: [],
   splitTunnelRoutes: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'],
+  signedNodesOnly: false,
   retainedSeedId: null,
 }
 

@@ -49,6 +49,8 @@ export interface NodeFilter {
   healthyOnly: boolean
   residentialOnly: boolean
   whitelistedOnly: boolean
+  /** Only nodes whose version says they sign their handshake reply (shared/node-signing.ts). */
+  signedOnly: boolean
   hideDuplicates: boolean
   bookmarkedOnly: boolean
   // Per-connection-category visibility for V2Ray nodes (node-list sub-filter).
@@ -212,6 +214,11 @@ export interface ConnectionStatus {
   nodeCountry?: string
   nodeType?: number
   v2raySummary?: string
+  /**
+   * Who signed the node's handshake reply: the node account, a key it granted, or
+   * nobody. Absent when the tunnel came back from a saved config without a handshake.
+   */
+  handshakeSigner?: 'node' | 'hotKey' | 'unsigned'
   killSwitchFailed?: boolean
   killSwitchTeardownFailed?: boolean
   /**
@@ -336,6 +343,8 @@ export interface AppSettings {
   autoReconnect: boolean
   bookmarkedNodes: string[]
   splitTunnelRoutes: string[]
+  /** Connect only to nodes that sign their handshake reply (main/settings.ts). */
+  signedNodesOnly: boolean
 }
 
 export interface PlanInfo {

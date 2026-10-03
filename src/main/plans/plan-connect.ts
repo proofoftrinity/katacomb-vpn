@@ -22,6 +22,11 @@ export interface PlanNodeCandidate {
   probeFailed: boolean
   /** protocolRuntimeError() came back clean for this node's protocol. */
   runtimeOk: boolean
+  /**
+   * The directory's version says the node signs its handshake replies (dvpnd 9.4+,
+   * shared/node-signing.ts). A hint only; preflight asks the node.
+   */
+  signsReplies: boolean
 }
 
 /**
@@ -43,7 +48,7 @@ const PROXY_CAPABLE_TYPES = new Set([2, 4, 6])
 const CONNECTABLE_TYPES = new Set([1, 2, 3, 4, 5, 6])
 
 /** The exclusion reason for a candidate the auto-pick must not buy, or null. */
-function exclusionReason(c: PlanNodeCandidate, requireProxyCapable: boolean): string | null {
+function exclusionReason(c: PlanNodeCandidate, requireProxyCapable: boolean, requireSigned: boolean): string | null {
   if (c.api === '') return 'not listed in the node directory'
   if (!CONNECTABLE_TYPES.has(c.type)) return 'runs an unknown protocol'
   if (!c.runtimeOk) return 'its protocol cannot run on this machine'
@@ -53,6 +58,7 @@ function exclusionReason(c: PlanNodeCandidate, requireProxyCapable: boolean): st
   if (requireProxyCapable && !PROXY_CAPABLE_TYPES.has(c.type)) {
     return 'cannot run in local proxy mode'
   }
+  if (requireSigned && !c.signsReplies) return 'does not sign its handshake replies ("Signed nodes only" is on)'
   return null
 }
 
@@ -76,12 +82,12 @@ function protocolRank(type: number): number {
  */
 export function rankPlanCandidates(
   candidates: PlanNodeCandidate[],
-  opts: { requireProxyCapable: boolean },
+  opts: { requireProxyCapable: boolean; requireSigned?: boolean },
 ): { ranked: PlanNodeCandidate[]; excluded: { address: string; reason: string }[] } {
   const ranked: PlanNodeCandidate[] = []
   const excluded: { address: string; reason: string }[] = []
   for (const c of candidates) {
-    const reason = exclusionReason(c, opts.requireProxyCapable)
+    const reason = exclusionReason(c, opts.requireProxyCapable, opts.requireSigned === true)
     if (reason) excluded.push({ address: c.address, reason })
     else ranked.push(c)
   }

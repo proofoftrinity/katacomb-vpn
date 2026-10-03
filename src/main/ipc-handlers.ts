@@ -31,7 +31,9 @@ import {
   logout,
   type SessionInfo,
 } from './chain/wallet'
-import { subscribeToNode, performHandshake, handshakeChainEntry, handshakeChainExit, finalizeChain, sendChainHopProgress, sendPlanProgress, chainHopRoleOf, resolveNodeRemoteUrl, loadSessionConfig, listSessionsOwnedByOtherWallets, endSession, V2RayPolicyError } from './chain/chain-service'
+import { subscribeToNode, performHandshake, handshakeChainEntry, handshakeChainExit, finalizeChain, sendChainHopProgress, sendPlanProgress, chainHopRoleOf, chainSigner, resolveNodeRemoteUrl, loadSessionConfig, listSessionsOwnedByOtherWallets, endSession, V2RayPolicyError } from './chain/chain-service'
+import type { ReplySigner } from './protocols/reply-signature'
+import { versionSignsReplies } from '../shared/node-signing'
 import { openChainFlow } from './chain/chain-clients'
 import type { SentinelClient } from '@sentinel-official/sentinel-js-sdk'
 import type https from 'node:https'
@@ -78,7 +80,7 @@ import type { DaemonOp } from './helper/daemon-protocol'
 import { isAllowedBypassCidr, isAllowedDnsResolver } from './config-guard'
 import { enableKillSwitch, disableKillSwitch, isKillSwitchArmed } from './vpn/kill-switch'
 import { getTrafficStats, resetTrafficStats, maxUsageBytes, readTunnelBytes } from './vpn/traffic-stats'
-import { probeNode, getAllCachedResults, fetchNodeServiceType, fetchNodeServiceMetadata, NODE_PROTOCOL_CHECK_TIMEOUT_MS } from './nodes/node-tester'
+import { probeNode, getAllCachedResults, fetchNodeServiceType, fetchNodeServiceMetadata, fetchNodeSignsReplies, NODE_PROTOCOL_CHECK_TIMEOUT_MS } from './nodes/node-tester'
 import { classifyHopEligibility, buildEntryOnlyConfig, type HopMetadataEntry } from './protocols/multihop-config'
 import { SocksHttpsAgent } from './socks-agent'
 import { assertString, assertNumber, assertSentAddress, assertIntRange } from './ipc/validate'
@@ -153,7 +155,7 @@ let activeHysteria2Config: string | null = null
 let activeAmneziaWgConfig: string | null = null
 let activeOpenVpnConfig: string | null = null
 let activeSessionId: string | null = null
-let activeNodeInfo: { address: string; moniker: string; country: string; type: number; v2raySummary?: string } | null = null
+let activeNodeInfo: { address: string; moniker: string; country: string; type: number; v2raySummary?: string; signer?: ReplySigner } | null = null
 // MULTIHOP: the chain's second (exit) session and node, when a two-hop chain is up.
 // `activeSessionId`/`activeNodeInfo` deliberately stay the ENTRY hop, so every existing
 // reader (status, reconnect, usage, extractV2RayRemoteHost's whitelist) keeps its
@@ -202,12 +204,14 @@ interface CachedNodeMeta {
   api: string
   isActive: boolean
   isHealthy: boolean
+  /** The node's reported software version; '' when unknown. */
+  version: string
 }
 let cachedNodes: CachedNodeMeta[] = []
 
 /** The one projection from aggregator rows to cachedNodes, shared by both feed points. */
 function toCachedNodeMeta(nodes: unknown[]): CachedNodeMeta[] {
-  return (nodes as { address?: string; moniker?: string; country?: string; type?: number; api?: string; isActive?: boolean; isHealthy?: boolean }[])
+  return (nodes as { address?: string; moniker?: string; country?: string; type?: number; api?: string; isActive?: boolean; isHealthy?: boolean; version?: string }[])
     .filter((n) => n.address)
     .map((n) => ({
       address: n.address!,
@@ -217,6 +221,7 @@ function toCachedNodeMeta(nodes: unknown[]): CachedNodeMeta[] {
       api: n.api || '',
       isActive: n.isActive === true,
       isHealthy: n.isHealthy === true,
+      version: typeof n.version === 'string' ? n.version : '',
     }))
 }
 // Last successful PLAN_OVERVIEW chain read, served with stale: true while the
@@ -1084,10 +1089,13 @@ function applySession(
   nodeMoniker: string,
   nodeCountry: string,
   nodeType: number,
-  result: { protocol: string; configString: string; v2raySummary?: string },
+  result: { protocol: string; configString: string; v2raySummary?: string; signer?: ReplySigner },
 ): void {
   activeSessionId = sessionId
-  activeNodeInfo = { address: nodeAddress, moniker: nodeMoniker, country: nodeCountry, type: nodeType, v2raySummary: result.v2raySummary }
+  activeNodeInfo = {
+    address: nodeAddress, moniker: nodeMoniker, country: nodeCountry, type: nodeType,
+    v2raySummary: result.v2raySummary, signer: result.signer,
+  }
   // Every protocol now stashes a config STRING. WireGuard and V2Ray used to stash
   // a live SDK object instead, which is why there were two connect paths per
   // protocol (instance and from-config); they are one path now.
@@ -1116,11 +1124,13 @@ function applyChainSession(
   entry: ChainHopInput,
   exit: ChainHopInput,
   configString: string,
+  /** Both hops' replies taken together (chainSigner). */
+  signer: ReplySigner,
 ): void {
   activeSessionId = entry.sessionId
   activeNodeInfo = {
     address: entry.nodeAddress, moniker: entry.nodeMoniker,
-    country: entry.nodeCountry, type: entry.nodeType,
+    country: entry.nodeCountry, type: entry.nodeType, signer,
   }
   activeExitSessionId = exit.sessionId
   activeExitNodeInfo = {
@@ -1232,6 +1242,7 @@ async function preflightConnect(
   }
 
   let reported: string | number
+  let signs = true
   try {
     // nodeFetch now enforces its own deadline across DNS, connect, TLS and body,
     // so a blackholed node can no longer hang past it. This outer bound stays as
@@ -1241,6 +1252,8 @@ async function preflightConnect(
       agent ? NODE_CHECK_VIA_PROXY_TIMEOUT_MS : NODE_PROTOCOL_CHECK_TIMEOUT_MS,
       'node protocol check',
     )
+    // Same root document, memoized, so no second request.
+    if (loadSettings().signedNodesOnly) signs = await fetchNodeSignsReplies(apiField, agent)
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'unknown error'
     throw new Error(`Node is unreachable, not charged (${reason}). Pick another node.`)
@@ -1251,6 +1264,15 @@ async function preflightConnect(
     throw new Error(
       `Node protocol mismatch, not charged. The node reports "${reported}" but the node list says ` +
       `${protocol}. Refresh the node list and pick another node.`
+    )
+  }
+
+  // "Signed nodes only": refused here, before paying, rather than after the handshake
+  // with a refund. The handshake checks the signature itself either way.
+  if (!signs) {
+    throw new Error(
+      'This node does not sign its handshake replies, not charged. "Signed nodes only" is on in Settings: ' +
+      'pick a node that signs (dvpnd 9.4 or later), or turn the setting off.'
     )
   }
 }
@@ -1503,7 +1525,7 @@ async function establishChainOrRefund(params: {
   /** Signers per hop. The same object for both when the chain is on one wallet. */
   entrySigner: ChainSigner
   exitSigner: ChainSigner
-}): Promise<{ protocol: 'xray'; configString: string; entrySessionId: string; exitSessionId: string }> {
+}): Promise<{ protocol: 'xray'; configString: string; entrySessionId: string; exitSessionId: string; signer: ReplySigner }> {
   const { entry, exit, startSession, entrySigner, exitSigner } = params
   // Sessions paid for so far, in creation order, each with the account that can
   // cancel it. Everything in here is refunded on any throw below — including a
@@ -1543,7 +1565,7 @@ async function establishChainOrRefund(params: {
 
     failedRole = null
     const result = await finalizeChain({ entry: entryHop, exit: exitHop, entrySpec, exitSpec })
-    return { ...result, entrySessionId, exitSessionId }
+    return { ...result, entrySessionId, exitSessionId, signer: chainSigner(entrySpec.signer, exitSpec.signer) }
   } catch (err) {
     const refunds = await refundSessions(paid)
     // The handshake tags its own errors with the hop they came from; failedRole only
@@ -2691,7 +2713,7 @@ export function registerIpcHandlers(): void {
     // write here desynced the two and bypassed assertNotConnected.
     const allowed = new Set([
       'rpcEndpoint', 'rpcMode', 'killSwitch', 'lanSharing', 'dnsResolver', 'autoReconnect',
-      'bookmarkedNodes', 'splitTunnelRoutes',
+      'bookmarkedNodes', 'splitTunnelRoutes', 'signedNodesOnly',
     ])
     const filtered: Record<string, unknown> = {}
     for (const key of Object.keys(settings)) {
@@ -2719,6 +2741,9 @@ export function registerIpcHandlers(): void {
     }
     if (filtered.autoReconnect !== undefined && typeof filtered.autoReconnect !== 'boolean') {
       throw new Error('Invalid autoReconnect: expected boolean')
+    }
+    if (filtered.signedNodesOnly !== undefined && typeof filtered.signedNodesOnly !== 'boolean') {
+      throw new Error('Invalid signedNodesOnly: expected boolean')
     }
     if (filtered.bookmarkedNodes !== undefined) {
       if (!Array.isArray(filtered.bookmarkedNodes)) throw new Error('Invalid bookmarkedNodes: expected array')
@@ -2952,6 +2977,20 @@ export function registerIpcHandlers(): void {
     // needed. That is not hypothetical — a v8.3.1 entry did exactly this, and the
     // refund of the pair then failed on its own bug.
     await assertChainEligible(params.entry, 'entry')
+    // "Signed nodes only" for the EXIT, from the directory's version: the one answer
+    // that needs no contact with the exit from this device. The exit's own word is
+    // asked through the entry (preflightConnect in establishChainOrRefund) and its
+    // signature checked at the handshake; this keeps a known non-signer from costing
+    // an entry that would then have to be refunded.
+    if (loadSettings().signedNodesOnly) {
+      const exitVersion = cachedNodes.find((n) => n.address === params.exit.nodeAddress)?.version ?? ''
+      if (!versionSignsReplies(exitVersion)) {
+        throw new Error(
+          'The exit node does not sign its handshake replies, not charged. "Signed nodes only" is on in Settings: ' +
+          'pick an exit that signs (dvpnd 9.4 or later), or turn the setting off.'
+        )
+      }
+    }
 
     const hopCost = (quoteValue: string): number =>
       params.denom === 'udvpn' ? parseInt(quoteValue, 10) * params.amount : 0
@@ -3001,7 +3040,7 @@ export function registerIpcHandlers(): void {
 
     const entryHop: ChainHopInput = { ...toHop(params.entry), sessionId: result.entrySessionId }
     const exitHop: ChainHopInput = { ...toHop(params.exit), sessionId: result.exitSessionId }
-    applyChainSession(entryHop, exitHop, result.configString)
+    applyChainSession(entryHop, exitHop, result.configString, result.signer)
 
     // Same best-effort quota baseline as the single-hop path, for both sessions.
     try {
@@ -3421,6 +3460,9 @@ export function registerIpcHandlers(): void {
       nodeCountry: activeNodeInfo?.country,
       nodeType: activeNodeInfo?.type,
       v2raySummary: activeNodeInfo?.v2raySummary,
+      // Who signed the handshake reply behind this connection; absent when the
+      // tunnel came back from a saved config without a new handshake.
+      handshakeSigner: activeNodeInfo?.signer,
       killSwitchFailed: killSwitchFailed || undefined,
       killSwitchTeardownFailed: killSwitchTeardownFailed || undefined,
       // This launch closed a tunnel a previous run left running. Reported alongside
@@ -3846,11 +3888,13 @@ export function registerIpcHandlers(): void {
           runtimeOk: protocol !== undefined
             && protocolRuntimeError(protocol) === null
             && (!needsRoot || canEscalatePrivileges()),
+          signsReplies: versionSignsReplies(meta?.version ?? ''),
         }
       }
 
       const requireProxyCapable = params.requireProxyCapable === true
-      const provisional = rankPlanCandidates(addresses.map(toCandidate), { requireProxyCapable })
+      const requireSigned = loadSettings().signedNodesOnly
+      const provisional = rankPlanCandidates(addresses.map(toCandidate), { requireProxyCapable, requireSigned })
 
       // Live-probe the provisional top so the pick reflects the network now,
       // not the last batch test. Bounded: probes race a fixed window, and a
@@ -3874,7 +3918,7 @@ export function registerIpcHandlers(): void {
           const p = probeResults.get(c.address)
           return p ? { ...c, latencyMs: p.latencyMs, probeFailed: !p.reachable } : c
         }),
-        { requireProxyCapable },
+        { requireProxyCapable, requireSigned },
       )
       const allExcluded = [...provisional.excluded, ...excluded]
 

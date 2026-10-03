@@ -9,6 +9,7 @@ import {
   CloseIcon,
   HeartIcon,
   HomeIcon,
+  KeyIcon,
   LayersIcon,
   PowerIcon,
   RefreshIcon,
@@ -26,10 +27,11 @@ const V2RAY_CONNECTION_OPTIONS = [
 ] as const
 
 type IconComponent = (props: { className?: string }) => ReactElement
-type StatusKey = 'activeOnly' | 'healthyOnly' | 'residentialOnly' | 'whitelistedOnly' | 'hideDuplicates'
+type StatusKey = 'activeOnly' | 'healthyOnly' | 'residentialOnly' | 'whitelistedOnly' | 'signedOnly' | 'hideDuplicates'
 
 /**
- * The five booleans on the node record, shown as toggle chips so their state is
+ * The booleans on the node record, plus "Signed" (read from its version: dvpnd 9.4
+ * and later sign their handshake reply), shown as toggle chips so their state is
  * visible at a glance and one click away. Bookmarked is the user's own mark rather
  * than the directory's, which is why it is rendered separately, last.
  */
@@ -38,6 +40,7 @@ const STATUS_OPTIONS: readonly [StatusKey, string, IconComponent][] = [
   ['healthyOnly', 'Healthy', HeartIcon],
   ['residentialOnly', 'Residential', HomeIcon],
   ['whitelistedOnly', 'Whitelisted', ShieldIcon],
+  ['signedOnly', 'Signed', KeyIcon],
   ['hideDuplicates', 'Hide duplicates', LayersIcon],
 ]
 

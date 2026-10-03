@@ -1,14 +1,15 @@
-// The node handshake POST, reimplemented so it can be sent through a proxy.
+// The node handshake POST, reimplemented so it can be sent through a proxy and so its
+// response headers can be read.
 //
 // The bundled SDK's `handshake()` is a bare axios POST with a fixed
 // `https.Agent({rejectUnauthorized:false})` and no way to supply another one (checked
 // against the published 2.1.0 dist, and the Go SDK's node client is the same: only
-// WithInsecure/WithTimeout). A multihop chain has to reach the EXIT node through the
-// entry hop, so that one call needs an agent we choose — hence this.
+// WithInsecure/WithTimeout), and it returns the body's `result` alone. A multihop chain
+// has to reach the EXIT node through the entry hop, which needs an agent we choose; and
+// a dvpnd node signs its reply in a header (reply-signature.ts), which the SDK drops.
+// So every handshake, direct or proxied, goes through this.
 //
-// The SDK stays in charge of every DIRECT handshake, across all six protocols, because
-// that path is proven in production. This exists for the proxied one, and
-// `node-handshake.test.ts` pins the two together by capturing what the real SDK puts on
+// `node-handshake.test.ts` pins this to the SDK by capturing what the real SDK puts on
 // the wire and asserting this produces the identical bytes. If the SDK ever changes its
 // message construction, that test fails rather than a node silently rejecting us.
 //
@@ -18,6 +19,13 @@ import https from 'node:https'
 import http from 'node:http'
 import { URL } from 'node:url'
 import { Secp256k1, sha256 } from '@cosmjs/crypto'
+
+/**
+ * The header a dvpnd node signs its reply in (checked by reply-signature.ts), as Node
+ * names it: lowercase. Not imported from there: the native test runner cannot resolve
+ * a sibling module's extensionless import.
+ */
+const REPLY_SIGNATURE_HEADER = 'x-dvpnd-signature'
 
 /** The exact JSON body a dvpnx node expects at `POST /`. */
 export interface HandshakeBody {
@@ -70,8 +78,16 @@ export interface HandshakeResult {
   addrs?: unknown
 }
 
+/** The node's `result`, and its signature over it when it sent one. */
+export interface HandshakeReply {
+  result: HandshakeResult
+  /** The X-Dvpnd-Signature header; undefined from a node that does not sign. */
+  signature: string | undefined
+}
+
 /**
- * POST a handshake and return the node's `result`, through `agent` when one is given.
+ * POST a handshake and return the node's `result` with its reply signature, through
+ * `agent` when one is given.
  *
  * Errors are shaped like the axios ones the rest of the connect path already handles, so
  * `describeNodeApiError` and `describeHandshakeError` keep working unchanged: a non-2xx
@@ -82,7 +98,7 @@ export function postHandshake(
   remoteUrl: string,
   body: HandshakeBody,
   opts: { agent?: https.Agent; timeoutMs: number },
-): Promise<HandshakeResult> {
+): Promise<HandshakeReply> {
   const trimmed = remoteUrl.replace(/\/$/, '').trim()
   const target = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
   const payload = Buffer.from(JSON.stringify(body), 'utf8')
@@ -132,7 +148,8 @@ export function postHandshake(
             reject(new Error('Node returned an invalid handshake response'))
             return
           }
-          resolve(parsed.result)
+          const signature = res.headers[REPLY_SIGNATURE_HEADER]
+          resolve({ result: parsed.result, signature: typeof signature === 'string' ? signature : undefined })
         })
       },
     )

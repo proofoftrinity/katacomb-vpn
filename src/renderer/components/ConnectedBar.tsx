@@ -29,6 +29,22 @@ export default function ConnectedBar() {
               {status.nodeType === 2 ? (status.v2raySummary || protocolMeta(2).short) : protocolMeta(status.nodeType).short}
             </span>
           )}
+          {status.handshakeSigner && (
+            <span
+              className={`px-1.5 py-0.5 border text-xs rounded-sm ${
+                status.handshakeSigner === 'unsigned' ? 'border-border text-text-tertiary' : 'border-info text-info'
+              }`}
+              title={
+                status.handshakeSigner === 'node'
+                  ? 'The node signed its handshake reply with the key the chain knows it by, so the keys and addresses this connection uses came from that node.'
+                  : status.handshakeSigner === 'hotKey'
+                    ? 'The node signed its handshake reply with a key its account authorised on chain, so the keys and addresses this connection uses came from that node.'
+                    : 'The node did not sign its handshake reply (only dvpnd 9.4 and later do), so someone on your network could have posed as it during the handshake. Settings → Signed Nodes Only refuses such nodes.'
+              }
+            >
+              {status.handshakeSigner === 'unsigned' ? 'Unsigned' : 'Signed'}
+            </span>
+          )}
           {status.killSwitchFailed && (
             <span
               className="px-1.5 py-0.5 border border-danger text-danger text-xs rounded-sm"
