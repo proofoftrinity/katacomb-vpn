@@ -14,9 +14,18 @@ import { NODE_STATUS_MSG_TYPE } from '../protocols/reply-signature'
 const CONNECT_TIMEOUT_MS = 10_000
 
 /**
+ * The chain's answer when no grant exists: asked for one message type, it fails the
+ * query instead of returning an empty list. Observed on mainnet (cosmos-sdk 0.47):
+ * "Query failed with (6): authorization not found for <type> type: authorization not
+ * found: unknown request".
+ */
+const NO_GRANT = /authorization not found/
+
+/**
  * True when `granter` (the node account, sent1…) holds an unexpired grant to `grantee`
- * for MsgUpdateNodeStatusRequest. Throws when the chain cannot be asked: an unanswered
- * question is not a grant, and the caller refuses the reply rather than guess.
+ * for MsgUpdateNodeStatusRequest, false when it holds none. Throws when the chain
+ * cannot be asked: an unanswered question is not a grant, and the caller refuses the
+ * reply rather than guess.
  */
 export async function hasNodeStatusGrant(granter: string, grantee: string): Promise<boolean> {
   let comet: CometClient | null = null
@@ -31,6 +40,9 @@ export async function hasNodeStatusGrant(granter: string, grantee: string): Prom
     )
     const now = Date.now()
     return grants.some((g) => !g.expiration || Number(g.expiration.seconds) * 1000 > now)
+  } catch (err) {
+    if (err instanceof Error && NO_GRANT.test(err.message)) return false
+    throw err
   } finally {
     comet?.disconnect()
   }
