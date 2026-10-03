@@ -23,10 +23,10 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
 - **Map**: rotatable globe with per-country node counts, plus a country sidebar.
 - **Nodes**: virtualized table over the whole network (thousands of nodes). Search by
   moniker, address, country, city or version (`9.2`, `8.3.1`); filter by protocol,
-  active/healthy, residential/whitelisted, bookmarks; hide duplicates; sort on any
-  column, and by version from the `ver` button in the Type header. Every row shows the
-  node's address with a copy button. Latency probes (single or batch) and a download
-  speed test.
+  active/healthy, residential/whitelisted, signed, bookmarks; hide duplicates; sort on
+  any column, and by version from the `ver` button in the Type header. Every row shows
+  the node's address with a copy button. Latency probes (single or batch) and a
+  download speed test.
 - **Multi-hop**: build a two-node chain, with the same picker, filters and latency
   probes as the Nodes tab. Candidates are graded for eligibility before you can pick
   them; what a chain does and does not buy you is under *Connecting* below.
@@ -246,7 +246,8 @@ The order matters, because step 2 costs money:
    Nothing has been spent yet, so a mismatch here is free.
 2. **Pay**: a session transaction on-chain, priced per GB or per hour in `udvpn`.
 3. **Handshake**: exchange key material with the node's API; its answer becomes a
-   WireGuard/OpenVPN config or a proxy-core JSON config.
+   WireGuard/OpenVPN config or a proxy-core JSON config. If the node signed its answer,
+   the signature is checked against the node's key on chain.
 4. **Validate**: everything the node sent goes through `config-guard` before a byte of
    it is written to disk or handed to root.
 5. **Bring up**: the daemon (or `pkexec`) raises the interface, then the kill switch,
@@ -280,6 +281,12 @@ root, and a single `PostUp = …` line in a WireGuard config is a root shell. So
   renderer are rejected.
 - Split-tunnel routes are sanitized: a node cannot hand back `0.0.0.0/1` and quietly
   exclude your traffic from the tunnel.
+- The handshake runs over a self-signed certificate, so on its own it authenticates
+  nothing: an attacker on your network could answer it with their own keys. dvpnd 9.4
+  and later sign the reply with the key the chain knows the node by (or a key the node's
+  account authorised on chain), and that signature is checked; one that does not hold
+  is refused and the session refunded. Most nodes do not sign yet, so unsigned replies
+  are accepted unless *Signed Nodes Only* is on in Settings.
 - Transactions carry **no memo**. A memo is public and permanent, and one naming this
   client would label every purchase and cancel an account ever made. Nothing here reads
   one back, so none is sent.
