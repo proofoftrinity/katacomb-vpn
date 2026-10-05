@@ -27,9 +27,11 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
   any column, and by version from the `ver` button in the Type header. Every row shows
   the node's address with a copy button. Latency probes (single or batch) and a
   download speed test.
-- **Multi-hop**: build a two-node chain, with the same picker, filters and latency
-  probes as the Nodes tab. Candidates are graded for eligibility before you can pick
-  them; what a chain does and does not buy you is under *Connecting* below.
+- **Multi-hop**: build a two-node chain, with the same filters and latency probes as the
+  Nodes tab. The route is one bar (you, entry, exit, internet) with a small map of the two
+  hops; every row offers Entry and Exit, *Pick for me* fills both, and only nodes new
+  enough to be checked (9.0.0+) are listed. Candidates are graded for eligibility before
+  you can pick them; what a chain does and does not buy you is under *Connecting* below.
 - **Plans**: discover provider plans, subscribe, then start sessions on any node in the
   plan. Includes a subscription manager for cancelling and for the auto-renewal policy.
 - **Sessions**: every active session with usage, price and remaining allowance;
@@ -55,8 +57,9 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
 - **Multi-hop**: chain two V2Ray/XRAY nodes, so the entry node sees your IP but not
   where you go and the exit sees where you go but not your IP. Candidates are checked
   against each node's own advertised inbounds *before* anything is paid for, the two
-  ends are filtered by different rules, and the two hops can be paid from two different
-  wallets so neither node can find the other on chain. Read the honest limits below.
+  ends are filtered by different rules, the two hops must be in different countries and
+  on different networks, and the exit is paid from a second wallet so neither node can
+  find the other on chain. Read the honest limits below.
 - **Setup when a connection needs it**: nothing is asked at launch. A connection that
   needs something this computer lacks (the VPN helper, WireGuard tools, OpenVPN, a
   `resolvconf`) stops before anything is paid and installs it in one click with apt, dnf
@@ -300,9 +303,13 @@ because the first hop is the one your own ISP can see. It does **not** make you
 anonymous. Two operators working together can still correlate the circuit on traffic
 volume and timing, since the same bytes cross both hops at the same moments. That is a
 hard ceiling, not something this client can close. And a session's paying account is
-public on chain, so paying for both hops from one wallet lets either node look up the
-other; paying each hop from a different wallet removes that, but only if the second
-wallet was funded independently, since a transfer between them is public too.
+public on chain, so paying for both hops from one wallet would let either node look up
+the other: the app requires a second wallet for the exit, and refuses one it can see was
+funded from the first, since a transfer between them is public too. It can only see a
+direct transfer; two wallets funded from the same third account are still linked. The
+two hops must also be in different countries and on different networks, with no
+override, because one hosting network or one country's courts could otherwise see both
+ends.
 
 More detail, including the invariants that must not regress, is in
 [CLAUDE.md](CLAUDE.md).

@@ -1,53 +1,73 @@
-# Katacomb VPN 1.13.0
+# Katacomb VPN 1.14.0
 
 A desktop client for the Sentinel decentralized VPN network. Pick a node, pay for a
 session on-chain, and tunnel through WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY or
 Hysteria2.
 
-1.13.0 is a security release. Newer node software signs its handshake reply, and the
-app now checks that signature on every connection. A new setting, Signed Nodes Only,
-refuses the nodes that do not sign.
+1.14.0 makes multi-hop private by default. A chain's two hops must now be in different
+countries and on different networks, and the exit is paid from a second wallet, with no
+way to override either. The connect windows, the Multi-hop picker and the connection bar
+are redesigned.
 
 ## Highlights
 
-- **The handshake reply is checked against the chain.** The handshake reply carries the
-  keys, certificate pin and addresses your tunnel then uses. Until now nothing could be
-  checked against, so anyone on your network path could answer the handshake in a
-  node's place. dvpnd from 9.4 signs that reply with the key the chain knows the node
-  by, and Katacomb now checks the signature on every connection, for every protocol and
-  for both hops of a chain.
-- **What happens to each reply:**
-  - Signed by the node: accepted.
-  - Signed by another key: accepted only if the node's account has authorised that key
-    on chain (an authz grant, which operators use to run a node on a separate "hot"
-    key).
-  - A signature that does not check out, or a key the account never authorised:
-    refused, and the session is refunded like any other failed handshake.
-  - No signature (sentinel-dvpnx, and dvpnd before 9.4): accepted as before, unless you
-    turn on Signed Nodes Only.
-- **Signed Nodes Only** (Settings, VPN Security, off by default) refuses nodes that do
-  not sign, before you pay wherever it can. The connect button asks the node first. A
-  chain's exit is checked against the node list before the entry is bought. Smart
-  connect skips nodes older than 9.4. A node that gets past those checks and then sends
-  an unsigned reply is refused after the handshake, with a refund.
-- **Almost no node signs yet.** On 3 October 2026, one active node out of 1,839 reported
-  dvpnd 9.4, and it is a Hysteria2 node. With Signed Nodes Only on you can connect to
-  that node and nothing else, and you cannot build a chain, because chains need V2Ray
-  or XRAY nodes. Leave the setting off until operators upgrade; the signature is
-  checked whenever a node sends one either way.
-- **Signed or Unsigned in the connection bar.** After a handshake the bar shows whether
-  the node signed it; hover over it for what that means. For a chain it shows Signed
-  only if both hops signed. A tunnel brought back from a saved config, with no new
-  handshake, shows neither.
-- **A "Signed" filter on the Nodes tab** lists the nodes whose reported version is 9.4
-  or later. It goes by the version in the node list, so treat it as a guide: the
-  signature itself is what gets checked when you connect.
-- **Nothing else changes.** The packaging is the same as in 1.12.0.
+- **A chain's two hops must be apart.** The entry and the exit must be in different
+  countries, on different networks (ASNs) and in different address blocks, and must not
+  share a domain. The old "build it anyway" option is gone: one hosting company, or one
+  country's courts, could otherwise see both ends of your chain. A node the node list
+  gives no country or network for cannot be used in a chain. When this was measured,
+  about one pair in five failed the rule.
+- **A chain needs a second wallet.** A session records the account that paid for it, and
+  that record is public, so with one wallet either node could look up the other hop. The
+  exit is now always paid from a second wallet. If you have only one, the review shows
+  how to set one up: derive an account or add a wallet in Settings, then fund it from
+  somewhere that never touched your main wallet. The app never moves funds between your
+  wallets, because that transfer would be public too.
+  - A transfer between the two wallets now stops the purchase instead of only warning.
+    If your RPC endpoint cannot check (some keep no transaction index), the review says
+    so in amber and lets you continue; it never reports that as clean.
+  - Each wallet is checked against its own hop: the entry against your active wallet,
+    the exit against the second one. The review used to compare the total with your
+    active wallet alone.
+- **One review window for every connection.** Connecting from Nodes, Plans or Multi-hop
+  now shows the same layout: the route as a picture (your device, the node or nodes, the
+  internet, and what each one sees), the checks with a fix beside each, one line per
+  payment naming the wallet that pays it, the limits, and a footer that always names
+  what is stopping Pay. The route stays on screen while it connects and if it fails.
+  - A single-hop connection now says plainly that the node sees both your IP and the
+    sites you visit, with a link to Multi-hop.
+  - A chain's review states before you pay that the exit closes about 2 hours after you
+    buy it, and warns if you are buying more hours than that.
+- **A new Multi-hop picker.** The route is one bar at the top: you, the entry, the exit,
+  the internet. Every node row has Entry and Exit buttons, so a node goes straight into
+  either hop. A row that cannot be used next to your other hop says why ("same country",
+  "same network"), Swap exchanges the two hops when both nodes can serve either role,
+  and Pick for me fills both in one click. A small map shows where the two hops are; it
+  never shows where you are, which the app does not look up. The bar replaces four rows
+  of controls, so the table has more room.
+- **Nodes too old to check are no longer listed on the Multi-hop tab.** Nodes older than
+  9.0.0 publish nothing the app can check before you pay, so they could never be picked,
+  and they were about a quarter of the list. Searching for one tells you why it is not
+  there. They are still on the Nodes tab.
+- **Signed Nodes Only is gone; a node that signs must sign.** If the node list reports a
+  node at dvpnd 9.4 or later, an unsigned handshake reply from it is refused, before you
+  pay where the node can be asked first and with a refund otherwise, so nobody can strip
+  its signature and pose as it. Other nodes are accepted unsigned, as before. If you had
+  the setting on, those nodes are no longer refused; the Signed filter on the Nodes tab
+  still lists only the nodes that sign. Today 3 of about 1,800 active nodes report 9.4,
+  and none of them is a V2Ray or XRAY node.
+- **A connection capsule in the header.** While connected, the header shows the node (or
+  both hops of a chain), the protocol, a teal key when the node's signature was verified,
+  and your exit IP; click it for the details. Disconnect is a labelled button beside it.
+  In the node list, a grey key marks nodes whose reported version signs: grey is what the
+  node list claims, teal is what this app checked.
+- **Sessions cards start with the route**, so each one shows where its traffic enters and
+  where it leaves.
+- **Nothing else changes.** The packaging is the same as in 1.13.0.
 
-## Fixes in 1.13.0
+## Fixes in 1.14.0
 
-- Hot-key reply: a missing grant is "no grant", not a chain fault
-- Handshake: check a dvpnd node's signature; "Signed nodes only"
+<!-- regenerated by release.sh from v1.13.0..HEAD at cut time; leave the heading -->
 
 ## Known limitations
 
@@ -69,9 +89,11 @@ refuses the nodes that do not sign.
 - **A node that does not sign its handshake reply can be impersonated**, and today that
   is nearly every node. The TLS and Reality wrapping does not authenticate the node, and
   there is nothing on chain to check its certificate against, so an attacker on your
-  local network can answer the handshake in its place. Signed Nodes Only refuses such
-  nodes, at the cost of leaving almost none to pick from until operators run dvpnd 9.4
-  or later.
+  local network can answer the handshake in its place. A node reported at dvpnd 9.4 or
+  later is required to sign, which closes this for it, but almost no node runs that
+  version yet.
+- **The wallet link check sees direct transfers only.** Two wallets funded from the same
+  third account of yours are still linked on chain, and the review cannot tell.
 
 ## Platform support
 
