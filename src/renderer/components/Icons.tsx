@@ -1,5 +1,5 @@
 // The renderer's icon set: hand-drawn 16x16 strokes, one function per glyph, in the
-// same idiom the older inline SVGs use (DisconnectButton, IpDisplay). They exist
+// same idiom the older inline SVGs use (IpDisplay). They exist
 // because Unicode glyphs are not portable across the app's targets: the obvious
 // "duplicate" glyph (U+29C9) is absent from DejaVu Sans, so it rendered as a box on a
 // minimal Debian install. An SVG path looks the same everywhere. Ship only icons with

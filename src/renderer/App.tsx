@@ -11,7 +11,6 @@ import NodeTable from './components/nodes/NodeTable'
 import MultihopView from './components/multihop/MultihopView'
 import WalletPanel from './components/wallet/WalletPanel'
 import ConnectedBar from './components/ConnectedBar'
-import IpDisplay from './components/IpDisplay'
 import DisconnectButton from './components/DisconnectButton'
 import StatusBar from './components/StatusBar'
 import RpcBanner from './components/RpcBanner'
@@ -348,19 +347,18 @@ function AppInner() {
 
   return (
     <div className="h-full flex flex-col">
-      <header className="flex items-center justify-between px-5 py-3 border-b border-border bg-bg-secondary shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2.5">
+      <header className="flex items-center justify-between gap-4 px-5 py-3 border-b border-border bg-bg-secondary shrink-0">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="flex items-center gap-2.5 shrink-0">
             <AppLogo size={30} className="shrink-0" />
             <h1 className="text-accent font-semibold text-base">
               Katacomb VPN
             </h1>
           </div>
           <ConnectedBar />
-          <IpDisplay connected={isConnected} sessionId={connStatus.sessionId} />
           <DisconnectButton />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <WalletPanel address={wallet.address} name={wallet.name} chainFrozen={chainFrozen} />
           <button
             onClick={() => openSettings()}

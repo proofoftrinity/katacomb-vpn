@@ -15,6 +15,18 @@ from `src/main/`; `src/shared/` is the only overlap.
   Debian). The protocol marks in `ProtocolIcon.tsx` are ORIGINAL glyphs, not the
   projects' logos: WireGuard's trademark policy forbids its logo in third-party
   application graphics without written permission and OpenVPN Inc. has a similar policy.
+- **The key glyph means two different things on purpose.** In the node rows
+  (`NodeIdentityCell`) a grey key is `versionSignsReplies(node.version)`: the
+  directory's version string, the same predicate the Signed filter chip uses, so a
+  hint. On the connected capsule (`ConnectedBar`) a teal key means the handshake reply
+  carried a signature this app verified (`handshakeSigner` is `node` or `hotKey`). Grey
+  is the claim, teal the proof; don't unify the colours. An unsigned connection shows no
+  key, and the capsule's details panel says why that matters.
+- **The header's exit IP has one owner**, `useExitIp`, called once in `ConnectedBar`:
+  the idle view (`IpDisplay`, blurred real IP), the capsule's IP slot and its details
+  panel all read it. A second caller would fetch on its own and could show a different
+  address than the capsule. `IpDisplay` unmounts while a tunnel is up, which is what
+  puts the blur back after every disconnect.
 - **The node list is NOT chain data** — it comes from `api.sentnodes.com` over plain
   HTTPS, so a bad `rpcEndpoint` never explains an empty node table (and picking a
   faster RPC never fixes one). `NodesContext` must stay *active*, not passive: it

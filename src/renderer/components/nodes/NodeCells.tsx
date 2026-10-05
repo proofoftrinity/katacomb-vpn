@@ -2,16 +2,17 @@ import type { MouseEvent } from 'react'
 import type { SentNode, NodeProbeResult } from '../../types'
 import CopyButton from '../CopyButton'
 import ProtocolIcon from '../ProtocolIcon'
-import { ActivityIcon, HomeIcon, LayersIcon, ShieldIcon } from '../Icons'
+import { ActivityIcon, HomeIcon, KeyIcon, LayersIcon, ShieldIcon } from '../Icons'
 import { protocolMeta } from '../../utils/protocols'
 import { v2rayConnectionBadge, isCleartextConnection } from '../../utils/v2ray-connection'
 import { nodeStatusMeta, type NodeState } from '../../utils/node-status'
+import { versionSignsReplies } from '../../../shared/node-signing'
 
 /**
  * The cells the Nodes and Multi-hop tables share, so the two tables cannot drift:
  * each carries a rule (the directory-claim tooltips, whitelisted-is-never-green, the
- * cleartext-red V2Ray badge, the four latency states, the status pill) that must read
- * identically in both. Plain markup with no rule (the Location cell) stays inline in
+ * signed key's neutral grey, the cleartext-red V2Ray badge, the four latency states,
+ * the status pill) that must read identically in both. Plain markup with no rule (the Location cell) stays inline in
  * each table.
  *
  * Widths are declared once here and used by both the header buttons and the cells.
@@ -75,6 +76,15 @@ export function NodeIdentityCell({ node, onActivate }: { node: SentNode; onActiv
         {node.isWhitelisted && (
           <span className="shrink-0 text-text-secondary" title="Whitelisted: the node directory lists this node on its own whitelist. That is the directory's own label, not a check this app performs.">
             <ShieldIcon className="w-3.5 h-3.5" />
+          </span>
+        )}
+        {/* Neutral for the same reason, and on purpose a different colour from the
+            teal key the connection bar shows: here it is only the directory's version
+            string (versionSignsReplies, the predicate the Signed filter uses), there
+            it is a signature this app verified. Grey is the claim, teal the proof. */}
+        {versionSignsReplies(node.version) && (
+          <span className="shrink-0 text-text-secondary" title={`Signs its handshake: the node directory reports version ${node.version}, and dvpnd 9.4 and later sign their handshake reply. That is the directory's version string, not a check this app performs. The signature itself is checked when you connect.`}>
+            <KeyIcon className="w-3.5 h-3.5" />
           </span>
         )}
         {node.isDuplicate && (
