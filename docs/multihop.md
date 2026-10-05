@@ -14,7 +14,56 @@ xray-core is a strict superset of what the builder emits, so it lands in
   no private picker), commit in `multihop/ChainReviewModal.tsx`; the draft and its grades
   live above the tab in `ChainDraftContext`. `utils/chain-node.ts` (pure, unit-tested) owns
   the rule that decides which rows can be clicked: **selectable only on POSITIVE evidence**,
-  so ungraded, unreachable and pre-9.0.0 nodes stay visible but refuse the click.
+  so ungraded and unreachable nodes stay visible but refuse the click. **Pre-9.0.0 nodes
+  are not listed at all** (`isChainable` requires `isCheckable`, since 2026-10-05). They
+  used to stay listed, greyed out, so the table explained itself while they were most of
+  the network; by then they were 234 of 868 (27%), never pickable, and sorted in among the
+  usable rows. Only they are hidden, because only they are known up front and never
+  change: hiding the ungraded, the unreachable or the pair-refused would make rows vanish
+  as answers arrive or as a hop is picked (the Verified chip does that on request). A
+  search that matches only hidden old nodes says so (`isTooOldToChain`, with the search
+  rule shared from `useNodes` as `matchesSearch` so the count cannot disagree with it).
+  **The picker is one route bar** (redesigned 2026-10-05: it replaced a title, a two-box
+  rail, the pick row and a "Choosing the entry node" line, which together left about three
+  table rows at 960x600): You → entry pill → exit pill → Internet in RouteStrip's discs and
+  links, with the pair's verdict ("apart", or the `pairConflict` badge in red) and the swap
+  on the middle link, then a map, the pair price, Pick for me and Review. **Every row
+  offers both roles** as Entry and Exit chips (`hopChipState`, unit-tested): a chip is
+  usable exactly when the row would be selectable for that role, so the shortcut never
+  loosens the rule. A chip the pair rule refuses is shown as its reason in red words
+  ("same country"), never a struck-through chip: the rows that cannot show chips already
+  said it in words, so next to an Australian entry one Australian row said "same country"
+  and the next showed a bare struck "Exit" beside a green "Entry", which read as
+  pickable. That green chip could only REPLACE the entry, and its title now says so
+  ("Replaces … as your entry"). A row click still fills the highlighted hop, which also drives the
+  Use as sort and the Verified chip. **Swap moves a node only into a role it is verified
+  for** (`swapBlocker`); the pair needs no recheck because `pairConflict` is symmetric.
+  **The map draws no "you"**, because the app never looks up the user's location. It
+  places each hop at the centroid of its country's largest polygon (French Guiana drags a
+  plain centroid of France into the Atlantic) and falls back to a point table for the
+  countries the 110m file has no polygon for, Singapore and Hong Kong among them.
+  "Pick for me" (`pickChainPair`, same module) fills both slots from the rows the
+  filters show: graded for each role, priced for the billing type, no pair conflict,
+  measured latency first, then price, then address. It runs on the click, not live: it
+  walks every entry against every exit, and grades stream in a chunk at a time.
+  **The review modal** (redesigned 2026-10-05) answers three questions in order: where the
+  traffic goes (`RouteStrip.tsx`, which stays on screen through the build, the result and
+  a failure, and heads the Sessions card in compact form), how private the pair is
+  (four checks, each carrying its own fix), and what it costs (one line per hop, against
+  the wallet that pays it). Pay sits in a footer that never scrolls away and always names
+  the first `chainBuyBlocker` (`chain-node.ts`, unit-tested, the order is the test). The
+  "I understand" box is kept, every time, by decision. The single-hop windows were rebuilt
+  the same way from the same pieces (`ConnectReview.tsx`; see docs/renderer.md).
+- **The two ends must be apart, with no override** (decided 2026-10-05). `pairConflict`
+  (`utils/chain-diversity.ts`) refuses a pair that shares a country, an ASN, a /24 or an
+  endpoint domain, and a node with no country or ASN on record (positive evidence again:
+  0 of 650 healthy v9 nodes lacked either). One hosting network watches both ends whoever
+  rents the machines, and one country's courts reach both, so the old warning with a
+  "they are different operators, build anyway" box is gone. The picker refuses such rows
+  in both directions (the other hop is passed into `chainRowState`/`chainRowRank`, and
+  rank 0 still equals selectable); the modal and the rail's Review button are backstops.
+  Measured cost that day: 9.6% of V2Ray/xray pairs share a country, 10.7% an ASN (AS16509,
+  Amazon, alone hosts 390 nodes), roughly one pair in five combined.
 - **Only the ENTRY is dialled directly.** `extractV2RayRemoteHost` picks the outbound
   **without** `proxySettings`, and that one IP is the only bypass route and the only
   kill-switch whitelist. Whitelisting the exit strands the tunnel. Verify a live chain
@@ -40,21 +89,34 @@ xray-core is a strict superset of what the builder emits, so it lands in
   account, so parallel broadcasts collide on the account sequence number and the chain
   rejects the loser. `Promise.all` here cost a live refund — entry cancelled, exit left
   ACTIVE. Same constraint as the two purchases.
-- **Per-hop wallets** (`exitWalletId`): a Session carries `accAddress`, and
-  `SessionsForAccount` is public, so one wallet lets EITHER node find the other hop.
-  Paying from two accounts removes that. The exit hop's purchase, handshake AND cancel
-  must all sign as the owning account. `loadWalletCredentials` derives a wallet without
-  making it active (`switchWallet` mutates shared state) and its privKey is tracked by
-  nothing — zero it in a `finally`. The app never creates or funds the second wallet: an
-  in-app transfer between them is itself a public link. A subaccount is a normal
-  `WalletEntry`, so it already appears in the picker.
+- **Per-hop wallets** (`exitWalletId`), **REQUIRED since 2026-10-05**: a Session carries
+  `accAddress`, and `SessionsForAccount` is public, so one wallet lets EITHER node find the
+  other hop. `CONNECTION_SUBSCRIBE_CHAIN` refuses a request without a second wallet, by id
+  AND by derived address, before anything is checked or spent; the modal has no
+  one-account option and shows a three-step setup guide (derive an account or add a
+  wallet, fund it from a source that never touched the active one) with a button to
+  Settings, Wallets. Reconnect is unaffected: it replays a chain already bought. The exit
+  hop's purchase, handshake AND cancel must all sign as the owning account.
+  `loadWalletCredentials` derives a wallet without making it active (`switchWallet`
+  mutates shared state) and its privKey is tracked by nothing — zero it in a `finally`.
+  The app never funds the second wallet: an in-app transfer between them is itself a
+  public link. A subaccount is a normal `WalletEntry`, so it already appears in the picker.
+  **Each payer is checked against its own hop** in the modal too (`WALLET_BALANCE_OF`,
+  read-only, null = unknown, which never blocks), matching main's two
+  `assertSufficientFunds*` calls. The modal used to check the TOTAL against the active
+  wallet, which falsely blocked a pair whose second wallet covered the exit and never
+  noticed one that could not. A short exit wallet does NOT get the `InsufficientFunds`
+  pane: that offers the active wallet's address, and topping the exit wallet up from the
+  active one is the transfer that undoes it.
 - **…and the funding trail is checked, not just warned about.** `findTransferBetween`
   (WALLET_LINK_CHECK) asks the chain for a transfer in either direction between the two
-  accounts and the modal shows it, because topping the second wallet up from the first
-  is both the obvious way to fund one and the thing that undoes the whole feature —
+  accounts, and a transfer **blocks Pay**, because topping the second wallet up from the
+  first is both the obvious way to fund one and the thing that undoes the whole feature —
   confirmed on the maintainer's own wallets, which were linked by a 1000 P2P transfer.
   `checked: false` (pruned RPC, no tx index) must NEVER render as clean: a silent pass
-  is the exact false assurance the check exists to prevent.
+  is the exact false assurance the check exists to prevent. It does not block either,
+  deliberately: it is the endpoint lacking an index, not a finding, and blocking would
+  lock out everyone on such an RPC. It stays amber and says it could not check.
 - **A foreign-owned session is invisible by default.** `sessionsForAccount(active)`
   cannot see the exit hop, so `SavedSessionConfig.walletId` +
   `listSessionsOwnedByOtherWallets` + `getSessionsForAddress` exist to merge it back in;
@@ -100,6 +162,8 @@ xray-core is a strict superset of what the builder emits, so it lands in
   `evaluateQuota` scores duration and bytes, NOT `inactiveAt`, so it cannot see this
   coming — only `checkTunnelStalled` catches it, after the fact. Anything that wants to
   warn before a chain dies has to read `inactiveAt` on the worse hop, not the quota.
+  The review modal says it BEFORE payment (since 2026-10-05): a "Ends about 2 h after
+  buying" limit, and an amber note when more than 2 hours are being bought.
 - **Progress is per hop AND per phase.** A chain runs the purchase sequence TWICE, so the
   shared 1/5..3/5 steps replay from the start halfway through and read as a restart.
   `sendChainHopProgress` emits `hop:<role>:<phase>` (buy | handshake) and the modal maps

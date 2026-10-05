@@ -34,10 +34,16 @@ with the key the chain knows the node by (`X-Dvpnd-Signature`; `protocols/reply-
 checks it, written from dvpnd's spec and pinned to its digest vector). The node's address
 IS on chain, so that is something to verify against: a reply whose signature does not hold,
 or that a key the node account never granted signed, is refused and the session refunded,
-always. What the attacker keeps is the downgrade: stripping the header makes a signing node
-look like every other node. "Signed nodes only" (a setting, off by default while most of the
-network does not sign) closes that by refusing unsigned replies, before paying when the node's
-own `X-Dvpnd-Reply-Signing` header is missing and after the handshake otherwise. Every
-handshake goes through `signedHandshake` in chain-service.ts; a new handshake path must too.
+always. What the attacker would keep is the downgrade: stripping the header makes a signing
+node look like every other node. So the requirement follows the node: when the directory
+(api.sentnodes.com, verified TLS, never the node itself) lists a node at dvpnd 9.4 or later,
+an unsigned reply is refused, before paying when the node's own `X-Dvpnd-Reply-Signing`
+header is missing and after the handshake (refunded) otherwise (`directorySaysSigns` in
+ipc-handlers.ts). A node the directory lists below 9.4, or not at all, is not required to
+sign; nothing says it can. There was a "Signed nodes only" setting instead until
+2026-10-05: with it off, a 9.4 node's reply was accepted unsigned, so its signature
+protected nothing; the Signed filter chip now does the setting's other job of hiding
+non-signers. Every handshake goes through `signedHandshake` in chain-service.ts, and every
+caller passes `requireSigned`; a new handshake path must do both.
 UI copy may say a SIGNED connection came from the node; it must not say so of an unsigned
 one.

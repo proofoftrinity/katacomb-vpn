@@ -285,8 +285,10 @@ root, and a single `PostUp = …` line in a WireGuard config is a root shell. So
   nothing: an attacker on your network could answer it with their own keys. dvpnd 9.4
   and later sign the reply with the key the chain knows the node by (or a key the node's
   account authorised on chain), and that signature is checked; one that does not hold
-  is refused and the session refunded. Most nodes do not sign yet, so unsigned replies
-  are accepted unless *Signed Nodes Only* is on in Settings.
+  is refused and the session refunded. A node listed as dvpnd 9.4 or later must sign:
+  an unsigned reply from it is refused, so nobody can strip the signature and pose as
+  it. Most nodes do not sign yet, and their unsigned replies are accepted; the *Signed*
+  filter in the node list shows only the nodes that sign.
 - Transactions carry **no memo**. A memo is public and permanent, and one naming this
   client would label every purchase and cancel an account ever made. Nothing here reads
   one back, so none is sent.

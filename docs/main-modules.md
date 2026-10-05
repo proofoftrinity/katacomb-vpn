@@ -47,7 +47,8 @@ CLAUDE.md; this is the per-module detail.
   (`checkReplySignature`, `replyDigest`), from dvpnd's spec; pure and unit-tested against
   dvpnd's digest vector. `chain/authz-query.ts` answers its one chain question (does the
   node account grant this hot key), and `shared/node-signing.ts` reads the directory's
-  version as a hint for "Signed nodes only". See docs/protocols.md and
+  version: main requires a signature from a node listed at 9.4+, and the renderer's
+  Signed filter uses the same predicate. See docs/protocols.md and
   docs/invariants/node-trust.md.
 - `multihop-config.ts`: pure builder + grader for two-hop chains (`buildMultihopConfig`,
   `selectHopEntry`, `classifyHopEligibility`, `normalizeTlsPin`). Electron-free and

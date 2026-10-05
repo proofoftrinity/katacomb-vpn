@@ -9,20 +9,28 @@ import type { SentNode } from '../types'
 // heuristics over what the node list does carry (ASN, address, country) plus the
 // endpoint hostname.
 //
-// They are ADVISORY. Each one can be true of two genuinely independent operators
-// (a big host serves many customers from one ASN), so the UI states the specific
-// observation and lets the user decide, rather than silently filtering nodes out.
+// They are a HARD rule, with no override (decided 2026-10-05). Each can be true of
+// two genuinely independent operators (a big host serves many customers from one
+// ASN), but that is not a reason to allow the pair: one hosting network can watch
+// both ends of a chain whoever rents the two machines, and one country's courts can
+// reach both. Users who know none of this should get the private pair by default,
+// so the picker refuses such a pair rather than warning about it. Measured on the
+// node list that day, the rule removes about one pair in five (9.6% same country,
+// 10.7% same ASN, AS16509 alone hosting 390 nodes).
 // Note also what none of this can detect: one operator renting from several ASNs.
 //
 // Pure + unit-tested (native runner), like node-status.ts.
 
-export type DiversitySeverity = 'operator' | 'jurisdiction'
-
 export interface DiversityIssue {
   key: 'asn' | 'subnet' | 'domain' | 'country'
-  severity: DiversitySeverity
   /** States the observation, not a conclusion — see above. */
   label: string
+}
+
+/** Why two nodes cannot be the two ends of one chain: the picker's badge and title. */
+export interface PairConflict {
+  badge: 'same country' | 'same network' | 'location unknown'
+  title: string
 }
 
 /** host[:port] → host, with any scheme and trailing path removed. */
@@ -61,7 +69,8 @@ export function ipv4Slash24(host: string | null): string | null {
  * Deliberately not a public-suffix lookup: two unrelated hosts named `a.example.co.uk`
  * and `b.other.co.uk` share `co.uk` and would be reported. That is why the issue is
  * worded as "these two endpoints share the domain X" rather than "same operator" —
- * it states what was observed and lets the user judge it.
+ * it states what was observed, which is also why the pair is refused rather than
+ * the operator accused.
  */
 export function sharedDomain(a: string | null, b: string | null): string | null {
   if (a === null || b === null || a === b) return null
@@ -87,7 +96,6 @@ export function chainDiversityIssues(entry: SentNode, exit: SentNode): Diversity
   if (asn(entry) !== '' && asn(entry) === asn(exit)) {
     issues.push({
       key: 'asn',
-      severity: 'operator',
       label: `Both hops are in AS${asn(entry)}. The same network operator announces both.`,
     })
   }
@@ -98,7 +106,6 @@ export function chainDiversityIssues(entry: SentNode, exit: SentNode): Diversity
   if (entrySubnet !== null && entrySubnet === ipv4Slash24(exitHost)) {
     issues.push({
       key: 'subnet',
-      severity: 'operator',
       label: `Both hops are in ${entrySubnet}, almost certainly the same machine or rack.`,
     })
   }
@@ -107,7 +114,6 @@ export function chainDiversityIssues(entry: SentNode, exit: SentNode): Diversity
   if (domain !== null) {
     issues.push({
       key: 'domain',
-      severity: 'operator',
       label: `Both endpoints are hosts under ${domain}.`,
     })
   }
@@ -116,7 +122,6 @@ export function chainDiversityIssues(entry: SentNode, exit: SentNode): Diversity
   if (country(entry) !== '' && country(entry) === country(exit)) {
     issues.push({
       key: 'country',
-      severity: 'jurisdiction',
       label: `Both hops are in ${country(entry)}. One legal request can reach both.`,
     })
   }
@@ -124,7 +129,28 @@ export function chainDiversityIssues(entry: SentNode, exit: SentNode): Diversity
   return issues
 }
 
-/** True when something suggests one operator holds both hops (not merely one country). */
-export function hasOperatorOverlap(issues: DiversityIssue[]): boolean {
-  return issues.some((i) => i.severity === 'operator')
+/**
+ * Whether `node` may be the other end of a chain from `other`: null when it may, or
+ * why not. Symmetric, so it serves whichever hop is being picked.
+ *
+ * Positive evidence only, like every other chain rule: a node the list gives no
+ * country or no ASN for cannot be shown to differ from the other hop, so it is
+ * refused too. (Measured 2026-10-05: none of the 650 healthy v9 chainable nodes
+ * lacked either, so this costs nothing today; it exists so a gap in the directory
+ * fails closed.)
+ */
+export function pairConflict(node: SentNode, other: SentNode): PairConflict | null {
+  const known = (n: SentNode) => n.country.trim() !== '' && (n.asn || '').trim() !== ''
+  if (!known(node) || !known(other)) {
+    return {
+      badge: 'location unknown',
+      title: 'The node list gives no country or network for one of these nodes, so it cannot be shown to be apart from the other hop.',
+    }
+  }
+  const issues = chainDiversityIssues(node, other)
+  if (issues.length === 0) return null
+  return {
+    badge: issues.some((i) => i.key !== 'country') ? 'same network' : 'same country',
+    title: issues.map((i) => i.label).join(' '),
+  }
 }

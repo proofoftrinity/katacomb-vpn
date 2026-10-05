@@ -11,6 +11,8 @@ interface ChainDraftValue {
   setActiveSlot: (role: ChainRole) => void
   /** Fill a hop, or empty it with null. Moves the active slot to whatever is next. */
   setSlot: (role: ChainRole, node: SentNode | null) => void
+  /** Trade the two hops' places. The caller checks `swapBlocker` first. */
+  swap: () => void
   billing: BillingType
   setBilling: (t: BillingType) => void
   amount: number
@@ -56,6 +58,14 @@ export function ChainDraftProvider({ children }: { children: ReactNode }) {
     if (otherNode === null) setActiveSlot(other)
   }, [entry, exit])
 
+  const swap = useCallback(() => {
+    setEntry(exit)
+    setExit(entry)
+    // A hop that moved out of a slot leaves it empty: that is the one to fill next.
+    if (exit === null) setActiveSlot('entry')
+    else if (entry === null) setActiveSlot('exit')
+  }, [entry, exit])
+
   const clear = useCallback(() => {
     setEntry(null)
     setExit(null)
@@ -64,10 +74,10 @@ export function ChainDraftProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
-      entry, exit, activeSlot, setActiveSlot, setSlot,
+      entry, exit, activeSlot, setActiveSlot, setSlot, swap,
       billing, setBilling, amount, setAmount, clear, eligibility,
     }),
-    [entry, exit, activeSlot, setSlot, billing, amount, clear, eligibility],
+    [entry, exit, activeSlot, setSlot, swap, billing, amount, clear, eligibility],
   )
 
   return <ChainDraftContext.Provider value={value}>{children}</ChainDraftContext.Provider>

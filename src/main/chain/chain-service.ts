@@ -511,7 +511,7 @@ function findFreePort(): Promise<number> {
  * POST the handshake and check the node's signature over the reply. Every handshake,
  * direct or through a chain's entry, comes through here, so the check cannot be
  * skipped by a new caller. A signature that does not hold throws, and so does an
- * unsigned reply while the user wants signed nodes only; either way the caller's
+ * unsigned reply from a node that must sign; either way the caller's
  * establish…OrRefund cancels the session, as for any failed handshake.
  */
 async function signedHandshake(params: {
@@ -520,9 +520,16 @@ async function signedHandshake(params: {
   peerRequest: unknown
   privKey: Uint8Array
   remoteUrl: string
+  /**
+   * Refuse an unsigned reply: the node directory lists this node as dvpnd 9.4 or later,
+   * so a reply without a signature is the downgrade an on-path attacker would send
+   * (docs/invariants/node-trust.md). The caller decides, because the directory is
+   * main's node cache in ipc-handlers.ts.
+   */
+  requireSigned: boolean
   agent?: https.Agent
 }): Promise<{ result: { data?: unknown; addrs: string[] }; signer: ReplySigner }> {
-  const { sessionId, nodeAddress, peerRequest, privKey, remoteUrl, agent } = params
+  const { sessionId, nodeAddress, peerRequest, privKey, remoteUrl, requireSigned, agent } = params
   const body = await buildHandshakeBody(sessionId, peerRequest, privKey)
   const reply = await postHandshake(remoteUrl, body, { agent, timeoutMs: HANDSHAKE_TIMEOUT_MS })
   const signer = await checkReplySignature({
@@ -533,9 +540,10 @@ async function signedHandshake(params: {
     nodeAddress,
     hasGrant: hasNodeStatusGrant,
   })
-  if (signer === 'unsigned' && loadSettings().signedNodesOnly) {
+  if (signer === 'unsigned' && requireSigned) {
     throw new ReplySignatureError(
-      'This node does not sign its handshake reply, and "Signed nodes only" is on in Settings.',
+      'This node is listed as dvpnd 9.4 or later, which signs its handshake reply, but the reply ' +
+      'came unsigned. Something between you and the node may be answering in its place.',
     )
   }
   console.log(`[session] handshake reply ${signer === 'node' ? 'signed by the node' : signer === 'hotKey' ? 'signed by a key the node granted' : 'not signed'}`)
@@ -550,6 +558,8 @@ export async function performHandshake(params: {
   nodeType: number
   remoteUrl: string
   privKey: Uint8Array
+  /** Refuse an unsigned reply (see signedHandshake). */
+  requireSigned: boolean
   nodeMoniker?: string
   nodeCountry?: string
 }): Promise<{
@@ -559,7 +569,7 @@ export async function performHandshake(params: {
   /** Who signed the node's reply (see reply-signature.ts). */
   signer: ReplySigner
 }> {
-  const { sessionId, nodeAddress, nodeType, remoteUrl, privKey, nodeMoniker, nodeCountry } = params
+  const { sessionId, nodeAddress, nodeType, remoteUrl, privKey, requireSigned, nodeMoniker, nodeCountry } = params
 
   sendProgress('4/5', 'Performing handshake with node...')
 
@@ -567,7 +577,7 @@ export async function performHandshake(params: {
     // WireGuard
     const wg = generateWireguardKeypair()
     const { result, signer } = await withTimeout(
-      signedHandshake({ sessionId, nodeAddress, peerRequest: { public_key: wg.publicKey }, privKey, remoteUrl }),
+      signedHandshake({ sessionId, nodeAddress, peerRequest: { public_key: wg.publicKey }, privKey, remoteUrl, requireSigned }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -596,7 +606,7 @@ export async function performHandshake(params: {
     // so an all-cleartext node fails into the refund path.
     const xrayUuid = generateProxyUuid()
     const { result, signer } = await withTimeout(
-      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid: uuidToBytes(xrayUuid) }, privKey, remoteUrl }),
+      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid: uuidToBytes(xrayUuid) }, privKey, remoteUrl, requireSigned }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -630,7 +640,7 @@ export async function performHandshake(params: {
     // reuse that exact string as the config `auth` (it must match what the node registered).
     const uuid = randomUUID()
     const { result, signer } = await withTimeout(
-      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid }, privKey, remoteUrl }),
+      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid }, privKey, remoteUrl, requireSigned }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -672,7 +682,7 @@ export async function performHandshake(params: {
       ? { public_key: wg.publicKey }
       : { public_key: wg.publicKey, awg_version: awgVersion }
     const { result, signer } = await withTimeout(
-      signedHandshake({ sessionId, nodeAddress, peerRequest: peerRequest, privKey, remoteUrl }),
+      signedHandshake({ sessionId, nodeAddress, peerRequest: peerRequest, privKey, remoteUrl, requireSigned }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -705,7 +715,7 @@ export async function performHandshake(params: {
     // uuid is only the peer's identifier.
     const uuid = randomUUID()
     const { result, signer } = await withTimeout(
-      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid: Array.from(Buffer.from(uuid.replace(/-/g, ''), 'hex')) }, privKey, remoteUrl }),
+      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid: Array.from(Buffer.from(uuid.replace(/-/g, ''), 'hex')) }, privKey, remoteUrl, requireSigned }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -728,7 +738,7 @@ export async function performHandshake(params: {
     // array form (see uuidToBytes); the config carries the same uuid as a string.
     const v2rayUuid = generateProxyUuid()
     const { result, signer } = await withTimeout(
-      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid: uuidToBytes(v2rayUuid) }, privKey, remoteUrl }),
+      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid: uuidToBytes(v2rayUuid) }, privKey, remoteUrl, requireSigned }),
       HANDSHAKE_TIMEOUT_MS,
       'node handshake',
     )
@@ -851,6 +861,8 @@ async function handshakeChainHop(
   hop: ChainHopParams,
   privKey: Uint8Array,
   role: 'entry' | 'exit',
+  /** Refuse an unsigned reply (see signedHandshake). */
+  requireSigned: boolean,
   /**
    * Route this hop's handshake through a proxy instead of dialling it directly. Set for
    * the EXIT hop, whose request must appear to come from the entry node rather than from
@@ -864,7 +876,7 @@ async function handshakeChainHop(
     const peerRequest = { uuid: uuidToBytes(hopUuid) }
     const { result, signer } = await withTimeout(
       signedHandshake({
-        sessionId: hop.sessionId, nodeAddress: hop.nodeAddress, peerRequest, privKey, remoteUrl: hop.remoteUrl, agent,
+        sessionId: hop.sessionId, nodeAddress: hop.nodeAddress, peerRequest, privKey, remoteUrl: hop.remoteUrl, requireSigned, agent,
       }),
       agent ? PROXIED_HANDSHAKE_TIMEOUT_MS : HANDSHAKE_TIMEOUT_MS,
       `${role} node handshake`,
@@ -969,10 +981,10 @@ async function withPrivatelyResolvedAddrs(addrs: string[]): Promise<string[]> {
  * cancelling whatever has been paid for if any phase throws, and nothing is persisted
  * until `finalizeChain`, so a half-built chain leaves no stale config behind.
  */
-export async function handshakeChainEntry(entry: ChainHopParams, privKey: Uint8Array): Promise<SignedHopSpec> {
+export async function handshakeChainEntry(entry: ChainHopParams, privKey: Uint8Array, requireSigned: boolean): Promise<SignedHopSpec> {
   sendChainHopProgress('entry', 'handshake')
   sendProgress('4/5', 'Handshaking entry node...')
-  return handshakeChainHop(entry, privKey, 'entry')
+  return handshakeChainHop(entry, privKey, 'entry', requireSigned)
 }
 
 /**
@@ -987,11 +999,12 @@ export async function handshakeChainEntry(entry: ChainHopParams, privKey: Uint8A
 export async function handshakeChainExit(
   exit: ChainHopParams,
   exitPrivKey: Uint8Array,
+  requireSigned: boolean,
   agent: https.Agent,
 ): Promise<SignedHopSpec> {
   sendChainHopProgress('exit', 'handshake')
   sendProgress('4/5', 'Handshaking exit node through the entry...')
-  return handshakeChainHop(exit, exitPrivKey, 'exit', agent)
+  return handshakeChainHop(exit, exitPrivKey, 'exit', requireSigned, agent)
 }
 
 /**

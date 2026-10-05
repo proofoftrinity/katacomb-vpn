@@ -69,3 +69,46 @@ export function isCleartextConnection(conn: unknown): boolean {
 export function v2rayConnectionBadge(conn: unknown): string | null {
   return CATEGORY_BADGE[v2rayConnectionCategory(conn)]
 }
+
+/**
+ * What the pre-connect review says about a V2Ray (2) or XRAY (4) node's encryption,
+ * from the node list's claim. The other protocols this client runs always encrypt,
+ * so the review names them itself.
+ *
+ * Reality is checked FIRST, by its own name. It is XRAY's TLS replacement, and
+ * v2rayConnectionCategory (written for V2Ray, which has no Reality) files anything
+ * that is not literally `tls` under VLess-none: asked directly, it would call every
+ * Reality node cleartext. 22 of the 23 XRAY nodes in the list publish a connection.
+ */
+export function v2rayEncryption(conn: unknown): { ok: boolean; text: string; detail: string } {
+  if (!isNodeConnection(conn)) {
+    return {
+      ok: false,
+      text: 'Encryption is only known at connect time',
+      detail: 'The node list does not say how this node wraps its traffic. It tells this app when you connect, and a node offering only VLess without TLS is refused then, with the session refunded.',
+    }
+  }
+  if (conn.security.toLowerCase() === 'reality') {
+    return {
+      ok: true,
+      text: `Encrypted: ${conn.proxy.toLowerCase() === 'vmess' ? 'VMess' : 'VLess'}+Reality`,
+      detail: 'Reality wraps this hop in TLS that looks like an ordinary website to anyone watching.',
+    }
+  }
+  switch (v2rayConnectionCategory(conn)) {
+    case 'vless-none':
+      return {
+        ok: false,
+        text: 'Not encrypted: VLess without TLS',
+        detail: 'The node list says this node offers VLess without TLS, which has no cipher of its own. If that is all it offers, this app refuses it at the handshake and the session is refunded.',
+      }
+    case 'vmess':
+      return {
+        ok: true,
+        text: 'Encrypted: VMess',
+        detail: 'VMess encrypts with its own cipher. Without TLS it can still be recognised as a proxy by anyone watching.',
+      }
+    default:
+      return { ok: true, text: `Encrypted: ${v2rayConnectionBadge(conn)}`, detail: 'This hop is wrapped in TLS.' }
+  }
+}

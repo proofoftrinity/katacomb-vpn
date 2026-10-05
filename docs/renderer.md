@@ -15,6 +15,18 @@ from `src/main/`; `src/shared/` is the only overlap.
   Debian). The protocol marks in `ProtocolIcon.tsx` are ORIGINAL glyphs, not the
   projects' logos: WireGuard's trademark policy forbids its logo in third-party
   application graphics without written permission and OpenVPN Inc. has a similar policy.
+- **The key glyph means two different things on purpose.** In the node rows
+  (`NodeIdentityCell`) a grey key is `versionSignsReplies(node.version)`: the
+  directory's version string, the same predicate the Signed filter chip uses, so a
+  hint. On the connected capsule (`ConnectedBar`) a teal key means the handshake reply
+  carried a signature this app verified (`handshakeSigner` is `node` or `hotKey`). Grey
+  is the claim, teal the proof; don't unify the colours. An unsigned connection shows no
+  key, and the capsule's details panel says why that matters.
+- **The header's exit IP has one owner**, `useExitIp`, called once in `ConnectedBar`:
+  the idle view (`IpDisplay`, blurred real IP), the capsule's IP slot and its details
+  panel all read it. A second caller would fetch on its own and could show a different
+  address than the capsule. `IpDisplay` unmounts while a tunnel is up, which is what
+  puts the blur back after every disconnect.
 - **The node list is NOT chain data** — it comes from `api.sentnodes.com` over plain
   HTTPS, so a bad `rpcEndpoint` never explains an empty node table (and picking a
   faster RPC never fixes one). `NodesContext` must stay *active*, not passive: it
@@ -162,10 +174,52 @@ from `src/main/`; `src/shared/` is the only overlap.
   full stops. Code comments and commit messages are unaffected. Note this includes
   strings built in pure helpers (`chain-diversity.ts` labels, `connect-decisions.ts`
   messages) and `throw new Error(...)` text that surfaces in the UI.
-- `chain-diversity.ts` (pure, unit-tested): advisory operator-diversity checks for a
-  chain — same ASN, same /24, shared endpoint domain, same country. ADVISORY with an
-  explicit override, because each can be true of two genuinely independent operators;
-  each issue states the observation, not a verdict.
+- `chain-diversity.ts` (pure, unit-tested): the diversity checks for a chain — same ASN,
+  same /24, shared endpoint domain, same country. Since 2026-10-05 every one of them
+  REFUSES the pair (`pairConflict`), with no override; see docs/multihop.md for why. Each
+  issue still states the observation, not a verdict about the operator.
+- **A pure helper under `utils/` imports no sibling module, only types.** The native test
+  runner cannot resolve an extensionless relative import, so `chain-node.ts` takes the
+  pair rule as a parameter (`conflict`, i.e. `pairConflict`) instead of importing it.
+- **A component class in `global.css` must appear in the source spelled in full.**
+  Tailwind keeps an `@layer components` class only if it finds the literal name, so
+  `route-disc-${state}` would build fine and render unstyled in production.
+  `RouteStrip.tsx` maps each state to its full class string for that reason, and so do
+  the Multi-hop route bar's `LINK` and `CHIP_CLASS` maps in `MultihopView.tsx`. The bar
+  reuses RouteStrip's `.route-disc`/`.route-link` classes on purpose, so the picker, the
+  review window and the Sessions cards draw one picture; its own parts are the
+  `.hop-pill*`, `.role-chip-usable` and `.route-map-*` classes beside them.
+- **The three connect windows are one design, built from `ConnectReview.tsx`.** Nodes
+  (`ConnectionModal`), Plans (`PlanConnectModal`) and Multi-hop (`ChainReviewModal`)
+  answer the same questions in the same order: the route (`RouteStrip.tsx`, one hop or
+  two, which stays on screen through the build and the result and heads every Sessions
+  card in compact form), the checks (each row carries its own fix), the cost (one
+  receipt line per payment, against the wallet that pays it), the limits, folded
+  options, and a footer that never scrolls away and always names what stops Pay. Change
+  a shared piece there, not in one window. A single hop's strip says the node sees your
+  IP AND the sites, which is the case for a chain, and its "sees both ends" limit links
+  to the Multi-hop tab (amber, not red: single hop is the everyday product). Single hop
+  has no "I understand" box, by decision. The other-VPN confirm at Pay replaces the Pay
+  button rather than the whole form. Steps are in plain words ("Buying the session on
+  chain"), not main's ("Broadcasting subscription tx"); `ProgressSteps` is gone.
+- **Encryption claims go through `v2rayEncryption`, never `v2rayConnectionCategory`
+  alone.** The category helper predates XRAY and files every non-`tls` security under
+  VLess-none, so asked directly it calls a Reality node unencrypted. 22 of the 23 XRAY
+  nodes in the list publish a connection, all affected.
+- **Signing in the reviews follows the node (`signingCheck`, `keysLimit`).** main requires
+  a signature from every node the directory lists at dvpnd 9.4+, so such a node gets a
+  green "Signs its handshake replies" and no keys limit: a connection to it either
+  carries a verified signature or does not come up. Any other node gets no signing row
+  (most nodes do not sign yet; an amber row would be on nearly every one) and the
+  "Keys are self-signed" limit. A chain needs both hops to sign to drop the limit. There
+  is no "Signed nodes only" setting any more: with it off, main used to accept an
+  unsigned reply even from a 9.4 node, the review said "Signature not required" under a
+  green check, and the user asked why a node that signs anyway was not trusted
+  (2026-10-05). Hiding non-signers is the Signed filter chip's job.
+- **A modal's honesty paragraphs can sit behind chips when they sit mid-row.** `InfoTip`
+  must be at a row's right end (it has no positioning logic), so each connect window's
+  limits are toggle chips that open one shared panel below them (`LimitsSection`). The
+  figures a decision turns on (the 20x, the 2 h) stay on the chips themselves.
 - BIP-39 validation lives in `src/shared/mnemonic.ts` (`checkMnemonic`, pure + unit-tested):
   word list, word count and **checksum**, re-run on every keystroke so the Import button
   only enables on a phrase that will actually import. It uses `@scure/bip39` — the package

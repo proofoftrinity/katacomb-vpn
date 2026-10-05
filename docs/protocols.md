@@ -230,12 +230,14 @@ over the reply with `reply-signature.ts`:
   authz grant to it for `MsgUpdateNodeStatusRequest` (`chain/authz-query.ts`); otherwise
   refused. A signature that does not verify is always refused. Both go through the
   ordinary refund path.
-- No signature (sentinel-dvpnx, dvpnd before 9.4): `unsigned`, accepted unless the user
-  turned on **Signed nodes only**. Then preflight refuses a node whose root document lacks
-  `X-Dvpnd-Reply-Signing` (not charged), a chain's exit is refused from the directory's
-  version before the entry is bought, smart connect skips nodes whose version is below
-  9.4.0 (`shared/node-signing.ts`, a hint only: sentinel-dvpnx reports 9.0.0 today), and
-  an unsigned reply is refused after the handshake (refunded).
+- No signature: `unsigned`. Refused when the directory lists the node at dvpnd 9.4.0 or
+  later (`shared/node-signing.ts`, read by `directorySaysSigns` in ipc-handlers.ts), since
+  that is the downgrade an on-path attacker sends: preflight refuses one whose root
+  document lacks `X-Dvpnd-Reply-Signing` (not charged; for a chain's exit, asked through
+  the entry), and an unsigned reply is refused after the handshake (refunded). A
+  reconnect's renewal handshake is held to the same rule and falls back to the saved
+  config. Accepted from any other node (sentinel-dvpnx reports 9.0.0 today). There is no
+  setting: the "Signed" filter chip hides the nodes that do not sign.
 - The connection bar shows Signed/Unsigned for a fresh handshake; a tunnel restored from a
   saved config shows neither.
 

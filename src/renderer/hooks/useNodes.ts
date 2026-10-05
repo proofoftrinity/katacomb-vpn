@@ -99,6 +99,23 @@ function compareNodes(
   return dir === 'asc' ? cmp : -cmp
 }
 
+/**
+ * The search box's rule. `q` is already trimmed and lowercased. Shared with the
+ * Multi-hop tab, which counts the too-old nodes a search matched: a count that used a
+ * rule of its own could say "2 nodes match" about nodes this would not find.
+ *
+ * Address too, and the bech32 address is already lowercase: pasting one from the
+ * Sessions tab or a block explorer finds the node. Version too: bech32 has no '.', so a
+ * dotted query (9.2, 8.3.1) matches versions and not addresses.
+ */
+export function matchesSearch(n: SentNode, q: string): boolean {
+  return n.moniker.toLowerCase().includes(q) ||
+    n.address.includes(q) ||
+    n.country.toLowerCase().includes(q) ||
+    n.city.toLowerCase().includes(q) ||
+    n.version.includes(q)
+}
+
 const EMPTY_LATENCY_MAP: Map<string, number | null> = new Map()
 const EMPTY_RANK_MAP: Map<string, number> = new Map()
 
@@ -145,17 +162,8 @@ export function useNodes(
     nodes = nodes.filter((n) => n.type !== 2 || filter.v2rayConnection[v2rayConnectionCategory(n.connection)])
     if (filter.bookmarkedOnly) nodes = nodes.filter((n) => bookmarks.has(n.address))
     if (filter.search) {
-      // Address too, and the bech32 address is already lowercase: pasting one from
-      // the Sessions tab or a block explorer finds the node. Version too: bech32 has
-      // no '.', so a dotted query (9.2, 8.3.1) matches versions and not addresses.
       const q = filter.search.trim().toLowerCase()
-      nodes = nodes.filter((n) =>
-        n.moniker.toLowerCase().includes(q) ||
-        n.address.includes(q) ||
-        n.country.toLowerCase().includes(q) ||
-        n.city.toLowerCase().includes(q) ||
-        n.version.includes(q),
-      )
+      nodes = nodes.filter((n) => matchesSearch(n, q))
     }
 
     return nodes.slice().sort((a, b) => compareNodes(a, b, sortKey, sortDir, latencyMap, eligibilityRank))

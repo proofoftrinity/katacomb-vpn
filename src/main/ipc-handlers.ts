@@ -21,6 +21,7 @@ import {
   previewDerivations,
   getAddress,
   getBalance,
+  getBalanceForAddress,
   getActiveSessions,
   getSessionsForAddress,
   getActiveWalletId,
@@ -1195,6 +1196,7 @@ const SMART_LATENCY_FRESH_MS = 10 * 60 * 1000
  * Throws with an actionable message; never silently downgrades.
  */
 async function preflightConnect(
+  nodeAddress: string,
   nodeType: number,
   apiField: string,
   /**
@@ -1241,6 +1243,9 @@ async function preflightConnect(
     }
   }
 
+  // A node listed as signing must say so in its own root document, or the handshake
+  // will be refused after paying. Asked before paying instead.
+  const requireSigned = directorySaysSigns(nodeAddress)
   let reported: string | number
   let signs = true
   try {
@@ -1253,7 +1258,7 @@ async function preflightConnect(
       'node protocol check',
     )
     // Same root document, memoized, so no second request.
-    if (loadSettings().signedNodesOnly) signs = await fetchNodeSignsReplies(apiField, agent)
+    if (requireSigned) signs = await fetchNodeSignsReplies(apiField, agent)
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'unknown error'
     throw new Error(`Node is unreachable, not charged (${reason}). Pick another node.`)
@@ -1267,12 +1272,12 @@ async function preflightConnect(
     )
   }
 
-  // "Signed nodes only": refused here, before paying, rather than after the handshake
-  // with a refund. The handshake checks the signature itself either way.
+  // Refused here, before paying, rather than after the handshake with a refund. The
+  // handshake checks the signature itself either way.
   if (!signs) {
     throw new Error(
-      'This node does not sign its handshake replies, not charged. "Signed nodes only" is on in Settings: ' +
-      'pick a node that signs (dvpnd 9.4 or later), or turn the setting off.'
+      'This node is listed as dvpnd 9.4 or later but does not say it signs its handshake replies, not charged. ' +
+      'Something on your network may be answering for it, or the node lists the wrong version. Pick another node.'
     )
   }
 }
@@ -1391,7 +1396,9 @@ async function establishSessionOrRefund(params: {
     // A fresh keypair per attempt is fine: 404 means the node registered nothing.
     for (let attempt = 0; ; attempt++) {
       try {
-        return await performHandshake({ sessionId, nodeAddress, nodeType, remoteUrl, privKey, nodeMoniker, nodeCountry })
+        return await performHandshake({
+          sessionId, nodeAddress, nodeType, remoteUrl, privKey, requireSigned: directorySaysSigns(nodeAddress), nodeMoniker, nodeCountry,
+        })
       } catch (err) {
         if (!shouldRetrySessionHandshake(describeNodeApiError(err).status, attempt)) throw err
         console.log(`[connect] node cannot see session #${sessionId} yet (chain lag), retrying in ${HANDSHAKE_RETRY_DELAY_MS}ms`)
@@ -1542,7 +1549,7 @@ async function establishChainOrRefund(params: {
 
     const entryUrl = await resolveNodeRemoteUrl(entry.nodeAddress, entry.apiField)
     const entryHop = { ...entry, sessionId: entrySessionId, remoteUrl: entryUrl, walletId: entrySigner.walletId }
-    const entrySpec = await handshakeChainEntry(entryHop, entrySigner.privKey)
+    const entrySpec = await handshakeChainEntry(entryHop, entrySigner.privKey, directorySaysSigns(entry.nodeAddress))
 
     // From here on the exit hears only from the entry node.
     failedRole = null
@@ -1552,7 +1559,7 @@ async function establishChainOrRefund(params: {
 
     failedRole = 'exit'
     // Same two pre-purchase checks the single-hop path makes, asked through the entry.
-    await preflightConnect(exit.nodeType, exit.apiField, false, agent)
+    await preflightConnect(exit.nodeAddress, exit.nodeType, exit.apiField, false, agent)
     await assertChainEligible(exit, 'exit', agent)
 
     sendChainHopProgress('exit', 'buy')
@@ -1561,7 +1568,7 @@ async function establishChainOrRefund(params: {
 
     const exitUrl = await resolveNodeRemoteUrl(exit.nodeAddress, exit.apiField)
     const exitHop = { ...exit, sessionId: exitSessionId, remoteUrl: exitUrl, walletId: exitSigner.walletId }
-    const exitSpec = await handshakeChainExit(exitHop, exitSigner.privKey, agent)
+    const exitSpec = await handshakeChainExit(exitHop, exitSigner.privKey, directorySaysSigns(exit.nodeAddress), agent)
 
     failedRole = null
     const result = await finalizeChain({ entry: entryHop, exit: exitHop, entrySpec, exitSpec })
@@ -2363,6 +2370,17 @@ function getNodeMeta(nodeAddress: string): { moniker: string; country: string; t
   return { moniker: node?.moniker || '', country: node?.country || '', type: node?.type ?? 0 }
 }
 
+/**
+ * The node directory lists this node as dvpnd 9.4 or later, so it signs its handshake
+ * reply and an unsigned one is refused (docs/invariants/node-trust.md). The version
+ * comes from api.sentnodes.com over verified TLS, never from the node, so an attacker
+ * answering for the node cannot lower it. A node the cache does not list is not
+ * required to sign: there is nothing to say it can.
+ */
+function directorySaysSigns(nodeAddress: string): boolean {
+  return versionSignsReplies(cachedNodes.find((n) => n.address === nodeAddress)?.version ?? '')
+}
+
 
 /** Only accept IPC from our own renderer frame (dev server origin or file://). */
 function isTrustedSender(event: Electron.IpcMainInvokeEvent): boolean {
@@ -2551,6 +2569,22 @@ export function registerIpcHandlers(): void {
     return findTransferBetween(active, other)
   })
 
+  // Multihop: the balance of the wallet that will pay for the exit hop, so the review
+  // checks each hop against its own payer the way the purchase below does. Read-only.
+  // null means unknown, never zero, exactly as WALLET_GET_BALANCE: skipped while a
+  // tunnel is up (a chain cannot be bought then anyway) and on any read failure.
+  handle(IPC.WALLET_BALANCE_OF, async (_event, walletId: string) => {
+    assertString(walletId, 'walletId')
+    const address = listWallets().find((w) => w.id === walletId)?.address
+    if (!address || isVpnActive()) return null
+    try {
+      return await getBalanceForAddress(address)
+    } catch {
+      reportRpcFailure()
+      return null
+    }
+  })
+
   handle(IPC.WALLET_SWITCH, async (_event, walletId: string) => {
     assertString(walletId, 'walletId')
     assertNotConnected('switching wallets')
@@ -2713,7 +2747,7 @@ export function registerIpcHandlers(): void {
     // write here desynced the two and bypassed assertNotConnected.
     const allowed = new Set([
       'rpcEndpoint', 'rpcMode', 'killSwitch', 'lanSharing', 'dnsResolver', 'autoReconnect',
-      'bookmarkedNodes', 'splitTunnelRoutes', 'signedNodesOnly',
+      'bookmarkedNodes', 'splitTunnelRoutes',
     ])
     const filtered: Record<string, unknown> = {}
     for (const key of Object.keys(settings)) {
@@ -2741,9 +2775,6 @@ export function registerIpcHandlers(): void {
     }
     if (filtered.autoReconnect !== undefined && typeof filtered.autoReconnect !== 'boolean') {
       throw new Error('Invalid autoReconnect: expected boolean')
-    }
-    if (filtered.signedNodesOnly !== undefined && typeof filtered.signedNodesOnly !== 'boolean') {
-      throw new Error('Invalid signedNodesOnly: expected boolean')
     }
     if (filtered.bookmarkedNodes !== undefined) {
       if (!Array.isArray(filtered.bookmarkedNodes)) throw new Error('Invalid bookmarkedNodes: expected array')
@@ -2831,7 +2862,7 @@ export function registerIpcHandlers(): void {
     const flowPromise = openChainFlow(wallet)
     try {
       await Promise.all([
-        preflightConnect(params.nodeType, params.apiField, params.proxyMode !== true),
+        preflightConnect(params.nodeAddress, params.nodeType, params.apiField, params.proxyMode !== true),
         // The deposit is only priced in udvpn for the udvpn denom; for any other the
         // cost is unknown here, so check the gas reserve alone and let the chain judge.
         flowPromise.then((f) => assertSufficientFunds(
@@ -2925,13 +2956,22 @@ export function registerIpcHandlers(): void {
     type: 'gigabytes' | 'hours'
     amount: number
     denom: string
-    /** Pay for the exit hop from this wallet instead of the active one. */
-    exitWalletId?: string
+    /** The wallet that pays for the exit hop. Required, and never the active one. */
+    exitWalletId: string
     /** Local-proxy mode, which needs no root. Absent = full tunnel, the stricter preflight. */
     proxyMode?: boolean
   }) => {
     if (params.type !== 'gigabytes' && params.type !== 'hours') throw new Error('Invalid type')
-    if (params.exitWalletId !== undefined) assertString(params.exitWalletId, 'exitWalletId')
+    assertString(params.exitWalletId, 'exitWalletId')
+    // Two wallets are required (decided 2026-10-05). Paid from one account, either node
+    // can read the address off its own session and find the other hop with a public
+    // query, which undoes the one thing a chain is bought for. The review modal makes
+    // the second wallet mandatory; this is the rule held where the money moves, before
+    // anything is checked or spent. Reconnect does not pass through here: it replays a
+    // chain already bought and deliberately re-applies no policy.
+    if (params.exitWalletId === getActiveWalletId()) {
+      throw new Error('The exit hop must be paid from a second wallet, not the active one. Nothing was charged.')
+    }
     assertNumber(params.amount, 'amount', 1, 1000)
     assertString(params.denom, 'denom')
 
@@ -2969,7 +3009,7 @@ export function registerIpcHandlers(): void {
     // is that a bad exit is discovered after the entry is paid for rather than before;
     // the picker already refuses an exit without positive evidence, so what remains is
     // a backstop against a node that changed since it was graded.
-    await preflightConnect(params.entry.nodeType, params.entry.apiField, params.proxyMode !== true)
+    await preflightConnect(params.entry.nodeAddress, params.entry.nodeType, params.entry.apiField, params.proxyMode !== true)
     // ...and the CHAIN policy too, which preflightConnect knows nothing about: it
     // checks that a node runs the protocol the directory claims, not that the node can
     // be an end of a chain. Without this a node that cannot be wrapped in TLS is bought
@@ -2977,20 +3017,6 @@ export function registerIpcHandlers(): void {
     // needed. That is not hypothetical — a v8.3.1 entry did exactly this, and the
     // refund of the pair then failed on its own bug.
     await assertChainEligible(params.entry, 'entry')
-    // "Signed nodes only" for the EXIT, from the directory's version: the one answer
-    // that needs no contact with the exit from this device. The exit's own word is
-    // asked through the entry (preflightConnect in establishChainOrRefund) and its
-    // signature checked at the handshake; this keeps a known non-signer from costing
-    // an entry that would then have to be refunded.
-    if (loadSettings().signedNodesOnly) {
-      const exitVersion = cachedNodes.find((n) => n.address === params.exit.nodeAddress)?.version ?? ''
-      if (!versionSignsReplies(exitVersion)) {
-        throw new Error(
-          'The exit node does not sign its handshake replies, not charged. "Signed nodes only" is on in Settings: ' +
-          'pick an exit that signs (dvpnd 9.4 or later), or turn the setting off.'
-        )
-      }
-    }
 
     const hopCost = (quoteValue: string): number =>
       params.denom === 'udvpn' ? parseInt(quoteValue, 10) * params.amount : 0
@@ -3002,23 +3028,21 @@ export function registerIpcHandlers(): void {
     // one the user already has — the app never creates or funds one, because an
     // in-app transfer between them is itself a public on-chain link and would put
     // the pairing straight back.
-    let exitSigner: ChainSigner = activeSigner
-    if (params.exitWalletId && params.exitWalletId !== getActiveWalletId()) {
-      const creds = await loadWalletCredentials(params.exitWalletId)
-      exitSigner = { ...creds, walletId: params.exitWalletId }
+    const creds = await loadWalletCredentials(params.exitWalletId)
+    // The id check above misses one account stored twice. The key is a fresh copy
+    // derived for this call, so wiping it here touches nothing the active wallet uses.
+    if (creds.address === address) {
+      creds.privKey.fill(0)
+      throw new Error('The exit hop must be paid from a second wallet, not the active one. Nothing was charged.')
     }
-    const separateWallets = exitSigner !== activeSigner
+    const exitSigner: ChainSigner = { ...creds, walletId: params.exitWalletId }
 
     try {
       // Each account pays only for its own hop, so they are checked separately —
       // summing them against one balance would pass a wallet that cannot afford the
       // hop it is actually buying.
-      if (separateWallets) {
-        await assertSufficientFunds(hopCost(params.entry.quoteValue))
-        await assertSufficientFundsFor(exitSigner.address, hopCost(params.exit.quoteValue))
-      } else {
-        await assertSufficientFunds(hopCost(params.entry.quoteValue) + hopCost(params.exit.quoteValue))
-      }
+      await assertSufficientFunds(hopCost(params.entry.quoteValue))
+      await assertSufficientFundsFor(exitSigner.address, hopCost(params.exit.quoteValue))
 
     const toHop = (h: typeof params.entry) => ({
       nodeAddress: h.nodeAddress, nodeType: h.nodeType, apiField: h.apiField,
@@ -3074,8 +3098,9 @@ export function registerIpcHandlers(): void {
     } finally {
       // The second wallet's key is derived here and tracked by nothing, so unlike the
       // active wallet's (which setPrivKey owns) there is no other code that will ever
-      // wipe it. Zero it on every path, including the refund path.
-      if (separateWallets) exitSigner.privKey.fill(0)
+      // wipe it. Zero it on every path, including the refund path. Safe to do
+      // unconditionally only because the guard above makes it never the active key.
+      exitSigner.privKey.fill(0)
     }
   })
 
@@ -3206,6 +3231,8 @@ export function registerIpcHandlers(): void {
           // endpoint has to come from (there is no renderer-supplied apiField here).
           remoteUrl: await resolveNodeRemoteUrl(saved.nodeAddress, ''),
           privKey,
+          // Refused like any failed renewal: the saved config below is used instead.
+          requireSigned: directorySaysSigns(saved.nodeAddress),
           nodeMoniker: saved.nodeMoniker,
           nodeCountry: saved.nodeCountry,
         })
@@ -3620,7 +3647,7 @@ export function registerIpcHandlers(): void {
     let remoteUrl: string
     try {
       ;[, , remoteUrl] = await Promise.all([
-        preflightConnect(params.nodeType, params.apiField, params.proxyMode !== true),
+        preflightConnect(params.nodeAddress, params.nodeType, params.apiField, params.proxyMode !== true),
         flowPromise.then((f) => assertSufficientFunds(cachedPlanCost(params.planId, params.denom), f.query)),
         flowPromise.then((f) => resolveNodeRemoteUrl(params.nodeAddress, params.apiField, f.query)),
       ])
@@ -3738,7 +3765,7 @@ export function registerIpcHandlers(): void {
     let remoteUrl: string
     try {
       ;[, , remoteUrl] = await Promise.all([
-        preflightConnect(params.nodeType, params.apiField, params.proxyMode !== true),
+        preflightConnect(params.nodeAddress, params.nodeType, params.apiField, params.proxyMode !== true),
         // Reusing a prepaid allocation — gas only, no new subscription is bought.
         flowPromise.then((f) => assertSufficientFunds(0, f.query)),
         flowPromise.then((f) => resolveNodeRemoteUrl(params.nodeAddress, params.apiField, f.query)),
@@ -3888,13 +3915,11 @@ export function registerIpcHandlers(): void {
           runtimeOk: protocol !== undefined
             && protocolRuntimeError(protocol) === null
             && (!needsRoot || canEscalatePrivileges()),
-          signsReplies: versionSignsReplies(meta?.version ?? ''),
         }
       }
 
       const requireProxyCapable = params.requireProxyCapable === true
-      const requireSigned = loadSettings().signedNodesOnly
-      const provisional = rankPlanCandidates(addresses.map(toCandidate), { requireProxyCapable, requireSigned })
+      const provisional = rankPlanCandidates(addresses.map(toCandidate), { requireProxyCapable })
 
       // Live-probe the provisional top so the pick reflects the network now,
       // not the last batch test. Bounded: probes race a fixed window, and a
@@ -3918,7 +3943,7 @@ export function registerIpcHandlers(): void {
           const p = probeResults.get(c.address)
           return p ? { ...c, latencyMs: p.latencyMs, probeFailed: !p.reachable } : c
         }),
-        { requireProxyCapable, requireSigned },
+        { requireProxyCapable },
       )
       const allExcluded = [...provisional.excluded, ...excluded]
 
@@ -3948,7 +3973,7 @@ export function registerIpcHandlers(): void {
         // Pre-payment checks for THIS node; failures here cost nothing.
         sendPlanProgress('rank', `Checking ${attemptLabel}`)
         try {
-          await preflightConnect(candidate.type, candidate.api, params.requireProxyCapable !== true)
+          await preflightConnect(candidate.address, candidate.type, candidate.api, params.requireProxyCapable !== true)
         } catch (err) {
           if (recordAndDecide('preflight', err)) continue
           break
