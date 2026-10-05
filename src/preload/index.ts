@@ -77,6 +77,7 @@ contextBridge.exposeInMainWorld('api', {
   nodeChainEligibility: (nodes: Array<{ nodeAddress: string; remoteUrl: string; nodeType: number }>) =>
     ipcRenderer.invoke(IPC.NODE_CHAIN_ELIGIBILITY, nodes),
   walletLinkCheck: (walletId: string) => ipcRenderer.invoke(IPC.WALLET_LINK_CHECK, walletId),
+  walletBalanceOf: (walletId: string) => ipcRenderer.invoke(IPC.WALLET_BALANCE_OF, walletId),
 
   onNodeTestProgress: (callback: (progress: { done: number; total: number; result: unknown }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, progress: { done: number; total: number; result: unknown }) => {

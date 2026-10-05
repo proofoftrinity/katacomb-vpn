@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import Spinner from '../Spinner'
 import type { NodeFilter } from '../../types'
 import { PROTOCOL_FILTER_OPTIONS, type ProtocolType } from '../../utils/protocols'
@@ -70,12 +70,17 @@ interface Props {
    * narrows it to the two that can be chained.
    */
   protocolOptions?: readonly { value: ProtocolType; label: string }[]
+  /**
+   * The page's own controls, after the chips: the Multi-hop tab's "Verified" chip and
+   * its grading count. The Nodes tab passes nothing.
+   */
+  extra?: ReactNode
 }
 
 // Same active-control vocabulary as the tab underline and the count pills: an accent
 // outline on a subtle fill, never a filled accent (six filled chips would out-shout
-// the table).
-function Chip({
+// the table). Exported for the controls a page puts in `extra`, so they match.
+export function Chip({
   on,
   label,
   Icon,
@@ -111,6 +116,7 @@ export default function NodeFilters({
   onTestBatch,
   onCancelBatch,
   protocolOptions = PROTOCOL_FILTER_OPTIONS,
+  extra,
 }: Props) {
   const [connOpen, setConnOpen] = useState(false)
   const connRef = useRef<HTMLDivElement | null>(null)
@@ -228,6 +234,8 @@ export default function NodeFilters({
             <CloseIcon className="w-3 h-3" />
           </button>
         )}
+
+        {extra}
 
         {/* One group with ml-auto rather than a flex-1 spacer: a zero-basis spacer
             never wraps, so below ~1440px the count and actions dropped to a second line

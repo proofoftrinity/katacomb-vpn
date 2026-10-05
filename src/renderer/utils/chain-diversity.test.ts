@@ -5,7 +5,7 @@ import {
   endpointHost,
   ipv4Slash24,
   sharedDomain,
-  hasOperatorOverlap,
+  pairConflict,
 } from './chain-diversity.ts'
 import type { SentNode } from '../types'
 
@@ -52,7 +52,6 @@ test('two hops on one operator report ASN, subnet and country', () => {
     node({ api: '190.15.196.200:1', asn: '271898', country: 'Argentina' }),
   )
   assert.deepEqual(issues.map((i) => i.key), ['asn', 'subnet', 'country'])
-  assert.equal(hasOperatorOverlap(issues), true)
 })
 
 test('two independent hops raise nothing', () => {
@@ -61,16 +60,14 @@ test('two independent hops raise nothing', () => {
     node({ api: '45.87.173.26:4876', asn: '208556', country: 'Turkey' }),
   )
   assert.deepEqual(issues, [])
-  assert.equal(hasOperatorOverlap(issues), false)
 })
 
-test('a shared country alone is a jurisdiction note, not an operator overlap', () => {
+test('a shared country alone is reported on its own', () => {
   const issues = chainDiversityIssues(
     node({ api: '1.1.1.1:1', asn: '111', country: 'Germany' }),
     node({ api: '2.2.2.2:1', asn: '222', country: 'Germany' }),
   )
   assert.deepEqual(issues.map((i) => i.key), ['country'])
-  assert.equal(hasOperatorOverlap(issues), false, 'two German operators are still two operators')
 })
 
 test('a blank ASN or country is not treated as a match', () => {
@@ -81,4 +78,59 @@ test('a blank ASN or country is not treated as a match', () => {
     node({ api: '2.2.2.2:1', asn: '', country: '' }),
   )
   assert.deepEqual(issues, [])
+})
+
+// The hard rule built on the observations above. Every one of them refuses the pair:
+// a shared country (one court reaches both) as much as a shared network (one host
+// watches both), with no override.
+
+test('pairConflict allows two hops apart in country and network', () => {
+  assert.equal(pairConflict(
+    node({ api: '91.149.243.171:9966', asn: '211252', country: 'Spain' }),
+    node({ api: '45.87.173.26:4876', asn: '208556', country: 'Turkey' }),
+  ), null)
+})
+
+test('pairConflict refuses a shared country, even on two networks', () => {
+  const c = pairConflict(
+    node({ api: '1.1.1.1:1', asn: '111', country: 'Germany' }),
+    node({ api: '2.2.2.2:1', asn: '222', country: 'Germany' }),
+  )
+  assert.equal(c?.badge, 'same country')
+  assert.equal(c?.title, 'Both hops are in Germany. One legal request can reach both.')
+})
+
+test('pairConflict refuses each network overlap, in different countries', () => {
+  const sameAsn = pairConflict(
+    node({ api: '1.1.1.1:1', asn: '16509', country: 'Japan' }),
+    node({ api: '2.2.2.2:1', asn: '16509', country: 'Brazil' }),
+  )
+  assert.equal(sameAsn?.badge, 'same network')
+  const sameSubnet = pairConflict(
+    node({ api: '190.15.196.10:1', asn: '111', country: 'Japan' }),
+    node({ api: '190.15.196.200:1', asn: '222', country: 'Brazil' }),
+  )
+  assert.equal(sameSubnet?.badge, 'same network')
+  const sameDomain = pairConflict(
+    node({ api: 'nlv2.pytonode.my.id:1', asn: '111', country: 'Netherlands' }),
+    node({ api: 'hk2.pytonode.my.id:1', asn: '222', country: 'Hong Kong' }),
+  )
+  assert.equal(sameDomain?.badge, 'same network')
+})
+
+test('pairConflict calls a network overlap that, even in one country too', () => {
+  const c = pairConflict(
+    node({ api: '190.15.196.10:1', asn: '271898', country: 'Argentina' }),
+    node({ api: '190.15.196.200:1', asn: '271898', country: 'Argentina' }),
+  )
+  assert.equal(c?.badge, 'same network')
+  // Every observation is in the title, not just the first.
+  assert.match(c?.title ?? '', /AS271898.*190\.15\.196\.0\/24.*Argentina/)
+})
+
+test('pairConflict refuses a node it cannot place', () => {
+  // Positive evidence only: a blank field cannot be shown to differ, so it does not pass.
+  const placed = node({ api: '1.1.1.1:1', asn: '111', country: 'Spain' })
+  assert.equal(pairConflict(node({ api: '2.2.2.2:1', asn: '', country: 'Turkey' }), placed)?.badge, 'location unknown')
+  assert.equal(pairConflict(placed, node({ api: '2.2.2.2:1', asn: '222', country: ' ' }))?.badge, 'location unknown')
 })

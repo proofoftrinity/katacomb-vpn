@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isNodeConnection, isCleartextConnection, v2rayConnectionBadge, v2rayConnectionCategory } from './v2ray-connection.ts'
+import { isNodeConnection, isCleartextConnection, v2rayConnectionBadge, v2rayConnectionCategory, v2rayEncryption } from './v2ray-connection.ts'
 
 test('isNodeConnection narrows only full {proxy,transport,security} objects', () => {
   assert.equal(isNodeConnection({ proxy: 'vmess', transport: 'grpc', security: 'tls' }), true)
@@ -49,4 +49,24 @@ test('v2rayConnectionBadge matches config-guard badge strings', () => {
   assert.equal(v2rayConnectionBadge({ proxy: 'vless', transport: 'tcp', security: 'none' }), 'VLess ⚠')
   assert.equal(v2rayConnectionBadge(null), null)
   assert.equal(v2rayConnectionBadge({ proto: 'udp' }), null)
+})
+
+test('v2rayEncryption reads Reality as encrypted, never as VLess-none', () => {
+  // The category helper alone files reality under vless-none (it predates XRAY).
+  const reality = { proxy: 'vless', transport: 'tcp', security: 'reality' }
+  assert.equal(v2rayConnectionCategory(reality), 'vless-none')
+  assert.deepEqual(
+    { ok: v2rayEncryption(reality).ok, text: v2rayEncryption(reality).text },
+    { ok: true, text: 'Encrypted: VLess+Reality' },
+  )
+})
+
+test('v2rayEncryption flags only VLess without TLS, and an unknown claim', () => {
+  assert.equal(v2rayEncryption({ proxy: 'vless', transport: 'tcp', security: 'none' }).ok, false)
+  assert.equal(v2rayEncryption({ proxy: 'vless', transport: 'tcp', security: 'none' }).text, 'Not encrypted: VLess without TLS')
+  assert.equal(v2rayEncryption(null).ok, false)
+  assert.equal(v2rayEncryption({ proto: 'udp' }).ok, false)
+  assert.equal(v2rayEncryption({ proxy: 'vmess', transport: 'grpc', security: 'none' }).text, 'Encrypted: VMess')
+  assert.equal(v2rayEncryption({ proxy: 'vmess', transport: 'grpc', security: 'tls' }).text, 'Encrypted: VMess+TLS')
+  assert.equal(v2rayEncryption({ proxy: 'vless', transport: 'ws', security: 'tls' }).text, 'Encrypted: VLess+TLS')
 })

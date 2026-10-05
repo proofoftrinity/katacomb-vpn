@@ -8,6 +8,7 @@ import Spinner from './Spinner'
 import { displayConnectError, setupItemsRequired } from '../utils/connect-errors'
 import SystemSetup from './SystemSetup'
 import ChainUnreachable from './ChainUnreachable'
+import RouteStrip from './RouteStrip'
 import { useConfirm } from './ConfirmModal'
 import type { SessionInfo } from '../types'
 
@@ -468,11 +469,19 @@ export default function ActiveSessions({
                 {/* Row 1: Session ID + Status + Actions */}
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-3">
-                    {isChain ? (
-                      <span className={`text-sm font-semibold ${isConnectedSession ? 'text-success' : 'text-accent'}`}>
-                        Multi-hop chain
-                      </span>
-                    ) : (
+                    {/* The route heads every card: where the traffic enters and where
+                        it leaves, in the order it travels. The same strip the connect
+                        windows draw, lit green while this session is the tunnel. A
+                        single hop keeps its session id beside it; a chain lists both
+                        ids on its hop lines below. */}
+                    <RouteStrip
+                      compact
+                      hops={isChain
+                        ? [{ country: session.nodeCountry }, { country: exitRow!.session.nodeCountry }]
+                        : [{ country: session.nodeCountry }]}
+                      stage={{ kind: isConnectedSession ? 'active' : 'review' }}
+                    />
+                    {!isChain && (
                       <span className={`text-sm font-semibold font-mono ${isConnectedSession ? 'text-success' : 'text-accent'}`}>
                         #{session.id}
                       </span>
@@ -524,7 +533,7 @@ export default function ActiveSessions({
                             }
                           >
                             {/* Not "Connect chain" / "End both": the card is headed
-                                "Multi-hop chain" and lists both hops right below, so the
+                                by the chain's route and lists both hops right below, so the
                                 qualifier repeated what the row already said. What the
                                 labels used to carry is still carried, and more precisely
                                 — the title here, and for End a confirm that names the

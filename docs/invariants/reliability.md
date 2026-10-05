@@ -28,7 +28,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   second tunnel over the first, leaving the old session active on chain with nothing
   watching its quota (live 2026-08-25: a plan session orphaned by a Nodes-tab
   subscribe that presented the normal pay form while connected). The renderer's
-  connect surfaces grey out behind a "You are connected" banner (`ConnectionModal`'s
+  connect surfaces disable Pay and name the live connection in their footer (`ConnectionModal`'s
   `connectedElsewhere`, `PlanConnectModal`'s `tunnelUp`, `ChainReviewModal`'s
   `alreadyConnected`, Sessions' Reconnect) — but that is UX; the handlers are the
   enforcement. Third-party VPNs (`detectOtherVpn`: non-sntl wireguard/tun links)

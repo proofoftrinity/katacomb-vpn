@@ -98,13 +98,13 @@ export interface SubscribeChainParams {
   amount: number
   denom: string
   /**
-   * Pay for the EXIT hop from this wallet instead of the active one. Two accounts
-   * mean neither node can find the other half of the chain by reading its session's
-   * `accAddress` and querying SessionsForAccount. The wallet must already exist and
-   * already hold funds — the app never creates or funds one, because a transfer
-   * between them is itself a public on-chain link.
+   * The wallet that pays for the EXIT hop, never the active one: main refuses a chain
+   * without it. Two accounts mean neither node can find the other half of the chain
+   * by reading its session's `accAddress` and querying SessionsForAccount. The wallet
+   * must already exist and already hold funds — the app never funds one, because a
+   * transfer between them is itself a public on-chain link.
    */
-  exitWalletId?: string
+  exitWalletId: string
   /** Local-proxy mode, which needs no root; main's preflight skips the helper check. */
   proxyMode?: boolean
 }
@@ -343,8 +343,6 @@ export interface AppSettings {
   autoReconnect: boolean
   bookmarkedNodes: string[]
   splitTunnelRoutes: string[]
-  /** Connect only to nodes that sign their handshake reply (main/settings.ts). */
-  signedNodesOnly: boolean
 }
 
 export interface PlanInfo {
@@ -601,6 +599,12 @@ export interface ElectronAPI {
    * the chain could not answer (pruned RPC, unreachable) — never treat that as clean.
    */
   walletLinkCheck: (walletId: string) => Promise<{ checked: boolean; linked: boolean }>
+  /**
+   * The balance of a wallet that is not the active one, for checking a chain's exit
+   * hop against the account that pays for it. null when it cannot be read: unknown,
+   * never zero, same as walletGetBalance.
+   */
+  walletBalanceOf: (walletId: string) => Promise<{ denom: string; amount: string }[] | null>
   walletSwitch: (walletId: string) => Promise<{ address: string | null }>
   /** `keepSeed` applies only to the last wallet — see WalletStoreStatus.retainedSeedId. */
   walletDelete: (walletId: string, keepSeed?: boolean) => Promise<void>

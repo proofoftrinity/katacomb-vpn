@@ -102,6 +102,102 @@
     background-color: var(--color-warning);
     animation: pulse-subtle 1.5s ease-in-out infinite;
   }
+
+  /* The multi-hop route strip (multihop/RouteStrip.tsx): one picture of a chain
+     through review, purchase and result. "plan" is a route not bought yet, a link
+     flows while its hop is being set up, and a node pulses while it is busy. Both
+     motions stop under reduced motion, below. */
+  .route-disc {
+    @apply relative grid place-items-center rounded-full border-2 bg-bg-tertiary text-text-secondary;
+    border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+    transition: border-color 300ms, opacity 300ms;
+  }
+  .route-disc-waiting {
+    opacity: 0.4;
+    border-color: color-mix(in srgb, var(--color-text-tertiary) 45%, transparent);
+  }
+  .route-disc-busy {
+    border-color: var(--color-accent);
+    animation: route-pulse 1.4s ease-out infinite;
+  }
+  .route-disc-done { border-color: var(--color-accent); }
+  .route-disc-ok { border-color: var(--color-success); }
+  .route-disc-failed { border-color: var(--color-danger); }
+
+  .route-link {
+    @apply relative rounded-full;
+    height: 2px;
+    background: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  }
+  .route-link-dim { background: color-mix(in srgb, var(--color-text-tertiary) 45%, transparent); }
+  .route-link-lit { background: var(--color-accent); }
+  .route-link-ok { background: var(--color-success); }
+  .route-link-flow {
+    background: repeating-linear-gradient(90deg, var(--color-accent) 0 8px, transparent 8px 14px);
+    background-size: 28px 2px;
+    animation: route-flow 0.7s linear infinite;
+  }
+  .route-link-failed {
+    background: repeating-linear-gradient(90deg, var(--color-danger) 0 4px, transparent 4px 8px);
+  }
+
+  /* The Multi-hop route bar (multihop/MultihopView.tsx) reuses the discs and links
+     above; these are its own parts. A hop pill is dashed while empty, filled once
+     picked, and ringed while it is the hop a row click fills. The empty outline is
+     route-link-dim's grey, so an unpicked hop and its unlit links read as one. */
+  .hop-pill {
+    @apply rounded-md border;
+    border-color: color-mix(in srgb, var(--color-text-tertiary) 45%, transparent);
+    transition: border-color 200ms, box-shadow 200ms;
+  }
+  .hop-pill-empty { border-style: dashed; }
+  .hop-pill-empty:hover { border-color: var(--color-text-tertiary); }
+  .hop-pill-full { background: var(--color-bg-primary); }
+  .hop-pill-active {
+    background: var(--color-bg-primary);
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+  }
+  /* A row's "Entry"/"Exit" chip that can be clicked: green, but quieter than a pick. */
+  .role-chip-usable { border-color: color-mix(in srgb, var(--color-success) 45%, transparent); }
+
+  /* The route bar's map: land is a step above the frame, the two hop countries take
+     the accent, the arc is dashed like a link being set up, red if the pair clashes. */
+  .route-map-land {
+    fill: color-mix(in srgb, var(--color-text-tertiary) 30%, var(--color-bg-primary));
+    stroke: var(--color-bg-primary);
+    stroke-width: 0.4;
+  }
+  .route-map-hot {
+    fill: color-mix(in srgb, var(--color-accent) 60%, var(--color-bg-primary));
+    stroke: var(--color-bg-primary);
+    stroke-width: 0.4;
+  }
+  .route-map-arc {
+    fill: none;
+    stroke: var(--color-accent);
+    stroke-width: 1.8;
+    stroke-dasharray: 3 2.5;
+    stroke-linecap: round;
+  }
+  .route-map-arc-clash { stroke: var(--color-danger); }
+  .route-map-entry { fill: var(--color-bg-primary); stroke: var(--color-accent); stroke-width: 1.6; }
+  .route-map-exit { fill: var(--color-accent); }
+}
+
+@keyframes route-flow {
+  to { background-position: 28px 0; }
+}
+
+@keyframes route-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 45%, transparent); }
+  100% { box-shadow: 0 0 0 10px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-disc-busy { animation: none; }
+  .hop-pill { transition: none; }
+  .route-link-flow { animation: none; background: var(--color-accent); }
 }
 
 @keyframes pulse-subtle {

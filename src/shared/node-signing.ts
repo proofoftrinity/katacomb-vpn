@@ -1,11 +1,12 @@
 // Which nodes sign their handshake replies, as far as the node directory can tell.
 //
 // dvpnd signs from 9.4.0 (X-Dvpnd-Signature, checked by
-// src/main/protocols/reply-signature.ts). The directory's version string is a HINT,
-// not proof: sentinel-dvpnx reports 9.0.0 today and nothing stops it reporting a
-// higher number one day. It only narrows what is offered when the user turns on
-// "Signed nodes only"; before paying, the connect path asks the node itself (its
-// X-Dvpnd-Reply-Signing header), and the signature on the reply is what is checked.
+// src/main/protocols/reply-signature.ts). The directory's version string is a CLAIM
+// about the node, made by its operator: sentinel-dvpnx reports 9.0.0 today and nothing
+// stops it reporting a higher number one day. Main holds a node to it: a node listed
+// at 9.4+ must say it signs before paying (its X-Dvpnd-Reply-Signing header) and must
+// sign the reply, or the connect is refused. The renderer uses it for the Signed filter
+// and the review's rows. A node that claims 9.4 and does not sign only refuses itself.
 
 const FIRST_SIGNING_VERSION = [9, 4, 0] as const
 

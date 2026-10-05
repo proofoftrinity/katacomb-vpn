@@ -149,3 +149,56 @@ export function ChevronIcon({ direction, ...p }: IconProps & { direction: 'up' |
     </Svg>
   )
 }
+
+export function AlertIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M8 2.2l6.2 11H1.8z" />
+      <path d="M8 6.6v2.8" />
+      <circle cx="8" cy="11.4" r="0.55" fill="currentColor" />
+    </Svg>
+  )
+}
+
+export function LaptopIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="3" y="3.5" width="10" height="7" rx="1" />
+      <path d="M1.5 13h13" />
+    </Svg>
+  )
+}
+
+export function GlobeIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M2 8h12M8 2c2 2.1 2 9.9 0 12M8 2c-2 2.1-2 9.9 0 12" />
+    </Svg>
+  )
+}
+
+export function SparkleIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M7.5 1.5l1.3 3.7 3.7 1.3-3.7 1.3-1.3 3.7-1.3-3.7L2.5 6.5l3.7-1.3z" />
+      <path d="M12.5 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" />
+    </Svg>
+  )
+}
+
+export function SwapIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M3 5.5h9.5L10 3M13 10.5H3.5L6 13" />
+    </Svg>
+  )
+}
+
+export function ArrowRightIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M3 8h10M9 4l4 4-4 4" />
+    </Svg>
+  )
+}

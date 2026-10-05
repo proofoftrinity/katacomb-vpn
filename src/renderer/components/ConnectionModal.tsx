@@ -3,17 +3,22 @@ import type { SentNode, NodeProbeResult, PlanInfo } from '../types'
 import { useConnectFlow } from '../hooks/useConnectFlow'
 import { usePlansContext } from '../contexts/PlansContext'
 import ConnectErrorActions from './ConnectErrorActions'
-import ProgressSteps from './ProgressSteps'
-import Spinner from './Spinner'
 import CopyButton from './CopyButton'
 import ProtocolIcon from './ProtocolIcon'
+import RouteStrip, { singleHopStep, type RouteStage } from './RouteStrip'
+import {
+  AmountStepper, ChecksSection, FooterReason, LimitsSection, ModeField, OptionsSection,
+  Receipt, ReceiptLine, ReviewModal, SectionHead, Segmented, StepList, VpnConfirm,
+  dnsCheck, encryptionCheck, keysLimit, modeSummary, otherVpnCheck, seesBothLimit, signingCheck, useActiveWalletName, useOtherVpns, useReviewSettings,
+  type CheckSpec, type Limit,
+} from './ConnectReview'
 import { useNavigation } from '../contexts/NavigationContext'
 import { useConnection } from '../hooks/useConnection'
-import { v2rayConnectionBadge, isCleartextConnection } from '../utils/v2ray-connection'
 import { protocolMeta, isProtocolSupported, isProxyCapable } from '../utils/protocols'
 import { nodeStatusMeta, isNodeConnectable } from '../utils/node-status'
+import { versionSignsReplies } from '../../shared/node-signing'
 import { useBalance } from '../hooks/useBalance'
-import { checkFunds, formatP2p, insufficientFundsMessage } from '../../shared/funds'
+import { checkFunds, formatP2p, formatP2pCeil, insufficientFundsMessage } from '../../shared/funds'
 import InsufficientFunds from './InsufficientFunds'
 import { SOCKS_DISPLAY_ADDR } from '../../shared/socks'
 
@@ -28,6 +33,12 @@ function getUdvpnPrice(prices: { denom: string; value: string }[]): { raw: strin
   return { raw: p.value, display: formatP2p(parseInt(p.value, 10)) }
 }
 
+/**
+ * Connect to one node from the Nodes tab: the single-hop counterpart of the chain
+ * review, built from the same pieces (ConnectReview) so the two read as one product.
+ * Route strip first (with what a single node sees, which is both ends), then the
+ * checks, the cost and the limits, and a footer that always names what stops Pay.
+ */
 export default function ConnectionModal({ node, onClose }: Props) {
   const nodeStatus = nodeStatusMeta(node)
   const connectable = isNodeConnectable(node)
@@ -37,7 +48,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
   // An INACTIVE node is not overridable: the chain itself rejects those sessions.
   const canOverrideHealth = nodeStatus.state === 'unhealthy'
   const [healthAcknowledged, setHealthAcknowledged] = useState(false)
-  const { goToPlansForNode } = useNavigation()
+  const { goToPlansForNode, setMainTab } = useNavigation()
   // Live connection status — when the tunnel is already up to THIS node we show a
   // "Connected" panel + Disconnect instead of the subscribe form (which would create
   // a redundant second session). `reconnecting` counts so we don't flash the form
@@ -47,9 +58,9 @@ export default function ConnectionModal({ node, onClose }: Props) {
     status.nodeAddress === node.address &&
     (status.state === 'connected' || status.state === 'reconnecting')
   // Connected, but not to THIS node: another node, a plan session, a chain or a
-  // local proxy. The subscribe form is replaced by a disconnect-first notice,
-  // because a second session would orphan the live one (main refuses it too, via
-  // assertNotConnected; this is the half that explains instead of erroring).
+  // local proxy. Pay is disabled with a disconnect-first reason, because a second
+  // session would orphan the live one (main refuses it too, via assertNotConnected;
+  // this is the half that explains instead of erroring).
   const connectedElsewhere =
     (status.state === 'connected' || status.state === 'reconnecting') && !onThisNode
   // Plans compatible with THIS node. null = still loading.
@@ -58,10 +69,10 @@ export default function ConnectionModal({ node, onClose }: Props) {
   const { overview: { allocations } } = usePlansContext()
   const [subType, setSubType] = useState<'gigabytes' | 'hours'>('gigabytes')
   const [amount, setAmount] = useState(1)
-  const { udvpn, display: balance, refresh: refreshBalance, refreshing: refreshingBalance } = useBalance()
+  const { udvpn, refresh: refreshBalance, refreshing: refreshingBalance } = useBalance()
   // The purchase-then-tunnel state machine, shared with the Plans tab's modal.
   const {
-    connecting, currentStep, error, tunnelConnected, sessionId, paidProtocol, disconnecting,
+    connecting, currentStep, stepDetail, error, tunnelConnected, sessionId, paidProtocol, disconnecting,
     start, retryPurchase, retryTunnel, disconnect: disconnectFlow, reset,
   } = useConnectFlow()
   // Full tunnel vs. local SOCKS proxy. Only the child-proxy protocols expose a
@@ -70,29 +81,20 @@ export default function ConnectionModal({ node, onClose }: Props) {
   const [vpnWarning, setVpnWarning] = useState<{ type: string; name: string; iface?: string }[] | null>(null)
   const [probeResult, setProbeResult] = useState<NodeProbeResult | null>(null)
   const [probing, setProbing] = useState(false)
-  // Third-party VPNs (Mullvad, a manual wg link, ...) detected when the modal
-  // OPENS, so the user is told before choosing anything, not only after the pay
-  // button. Interface-based detection can false-positive (Tailscale is a tun
-  // link too), so this only informs; the click-time confirm stays the gate.
-  const [otherVpns, setOtherVpns] = useState<{ type: string; name: string; iface?: string }[]>([])
-
-  useEffect(() => {
-    let cancelled = false
-    window.api.connectionCheckVpn()
-      .then((found) => { if (!cancelled) setOtherVpns(found) })
-      .catch(() => { /* informational only */ })
-    return () => { cancelled = true }
-  }, [])
+  const walletName = useActiveWalletName()
+  const settings = useReviewSettings()
+  const otherVpns = useOtherVpns()
 
   // v2ray(2)/xray(4)/hysteria2(6) run a local SOCKS5 listener, so they can be used
   // as a plain proxy. WireGuard/AmneziaWG are the routing change — no proxy mode.
   const proxyCapable = isProxyCapable(node.type)
+  const effectiveMode = proxyCapable ? mode : 'tunnel'
+  const protocol = protocolMeta(node.type)
 
   const gbPrice = getUdvpnPrice(node.gigabytePrices)
   const hrPrice = getUdvpnPrice(node.hourlyPrices)
   const selectedPrice = subType === 'gigabytes' ? gbPrice : hrPrice
   const costUdvpn = selectedPrice ? parseInt(selectedPrice.raw, 10) * amount : 0
-  const totalCost = selectedPrice ? formatP2p(costUdvpn) : '—'
 
   useEffect(() => {
     let cancelled = false
@@ -194,11 +196,16 @@ export default function ConnectionModal({ node, onClose }: Props) {
         quoteValue: selectedPrice.raw,
         ...(proxyCapable && mode === 'proxy' ? { proxyMode: true } : {}),
       })
-    }, { mode: proxyCapable && mode === 'proxy' ? 'proxy' : 'tunnel' })
+    }, { mode: effectiveMode })
   }
 
   function handleSeePlansForNode() {
     goToPlansForNode(node.address)
+    onClose()
+  }
+
+  function handleOpenMultihop() {
+    setMainTab('multihop')
     onClose()
   }
 
@@ -208,449 +215,344 @@ export default function ConnectionModal({ node, onClose }: Props) {
     if (await disconnectFlow()) onClose()
   }
 
+  const reviewing = !onThisNode && !connecting && !error && !tunnelConnected
+
   const title = onThisNode
     ? 'Connected to this node'
     : tunnelConnected
-      ? 'VPN Active'
+      ? 'Connected'
       : connecting
-        ? 'Connecting...'
-        : 'Connect to Node'
+        ? 'Connecting'
+        : error
+          ? (paidProtocol ? 'The tunnel did not come up' : 'Not connected')
+          : 'Review this node'
+
+  // A failure is drawn on the route only at the bring-up, once the session is paid:
+  // before that the error pane says what happened and nothing on the route is owed.
+  const stage: RouteStage = onThisNode || tunnelConnected
+    ? { kind: 'active' }
+    : connecting
+      ? { kind: 'building', step: singleHopStep(currentStep) }
+      : error && paidProtocol
+        ? { kind: 'failed' }
+        : { kind: 'review' }
+
+  // ---- checks ----
+  const probeLine = probeResult?.reachable
+    ? `This app's own probe: ${probeResult.latencyMs} ms, reachable.`
+    : probeResult
+      ? `This app's own probe got no answer${probeResult.error ? `: ${probeResult.error}` : ''}.`
+      : null
+  const probeTip = "This is this app's own probe of the node's API port. A node can answer it and still fail to build a tunnel; a failed handshake is cancelled and refunded automatically."
+  const healthCheck: CheckSpec = !isProtocolSupported(node.type) ? {
+    id: 'health',
+    tone: 'danger',
+    text: `This app can't connect to ${protocol.label} nodes yet`,
+    tip: 'The node is listed so you can filter and compare, nothing more.',
+  } : nodeStatus.state === 'inactive' ? {
+    id: 'health',
+    tone: 'danger',
+    text: 'Not active on chain',
+    tipLabel: 'Why an inactive node cannot be tried',
+    tip: 'The chain itself refuses a session with a node that is not registered as active, so there is nothing to override.',
+  } : nodeStatus.state === 'unhealthy' ? {
+    id: 'health',
+    tone: 'warning',
+    text: 'Failed the last network health check',
+    tipLabel: 'About the health check',
+    tip: 'That check runs elsewhere, by the node list, and can be hours out of date. The node may well be working, so connecting is only off until you say to try.',
+    body: (
+      <>
+        <p>{nodeStatus.detail}{probeLine ? ` ${probeLine}` : ''}</p>
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={healthAcknowledged}
+            onChange={(e) => setHealthAcknowledged(e.target.checked)}
+            className="accent-accent mt-0.5"
+          />
+          <span>Try it anyway. If the handshake fails, the session is cancelled and refunded automatically.</span>
+        </label>
+      </>
+    ),
+  } : probing ? {
+    id: 'health',
+    tone: 'busy',
+    text: 'Active on chain. Measuring latency…',
+  } : probeResult?.reachable ? {
+    id: 'health',
+    tone: 'success',
+    text: `Active and reachable, ${probeResult.latencyMs} ms`,
+    tipLabel: 'What was measured',
+    tip: probeTip,
+  } : {
+    id: 'health',
+    tone: 'warning',
+    text: "Active, but it didn't answer this app's probe",
+    tipLabel: 'What was measured',
+    tip: probeTip,
+    body: probeResult?.error ? <p>{probeResult.error}</p> : undefined,
+  }
+
+  const checks: CheckSpec[] = [
+    healthCheck,
+    ...(isProtocolSupported(node.type) ? [encryptionCheck(node)] : []),
+    ...[signingCheck(node), dnsCheck(settings, effectiveMode, 'this node'), otherVpnCheck(otherVpns)]
+      .filter((c): c is CheckSpec => c !== null),
+  ]
+
+  const limits: Limit[] = [
+    seesBothLimit(handleOpenMultihop),
+    ...[keysLimit({ subject: 'node', signs: versionSignsReplies(node.version) })].filter((l): l is Limit => l !== null),
+    // Measured on #56152782 (docs/invariants/reliability.md): two tunnel windows of
+    // 646 s with a 657 s gap between them settled as 1306 s. n=1, so it says so.
+    ...(!matchingAllocation && subType === 'hours' ? [{
+      key: 'hourly',
+      tone: 'warning' as const,
+      label: 'Time runs between uses',
+      text: 'A node bills time from the start of the session to its last activity, including the gaps while you are disconnected. Measured on one session so far. For on-and-off use, paying per GB is the fairer deal.',
+    }] : []),
+  ]
+
+  // ---- the footer's one reason ----
+  const blocker: { text: string; tone: 'danger' | 'muted' } | null =
+    connectedElsewhere
+      ? { text: `You are connected${status.nodeMoniker ? ` to ${status.nodeMoniker}` : ''}. Disconnect first to start a new session.`, tone: 'danger' }
+      : !isProtocolSupported(node.type)
+        ? { text: `${protocol.label} isn't supported by this client yet. This node is shown for filtering only.`, tone: 'danger' }
+        : nodeStatus.state === 'inactive'
+          ? { text: 'Connecting is disabled because this node is not active on chain.', tone: 'danger' }
+          : !connectable && !(canOverrideHealth && healthAcknowledged)
+            ? { text: 'Tick "Try it anyway" above to connect to a node that failed its health check.', tone: 'muted' }
+            : !matchingAllocation && !selectedPrice
+              ? { text: `This node has no P2P price for ${subType === 'gigabytes' ? 'data' : 'time'}. Switch the billing.`, tone: 'danger' }
+              : cantAfford && funds
+                ? { text: `Not enough P2P: short by ${formatP2pCeil(funds.shortfall)}, fees included.`, tone: 'danger' }
+                : null
+
+  const footer = reviewing ? (
+    vpnWarning ? (
+      <VpnConfirm vpns={vpnWarning} onContinue={() => void handleSubscribe()} onCancel={() => setVpnWarning(null)} disabled={cantAfford} />
+    ) : (
+      <>
+        {blocker && <FooterReason text={blocker.text} tone={blocker.tone} />}
+        <button
+          onClick={handleSubscribe}
+          disabled={blocker !== null}
+          className="btn btn-primary w-full disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          {matchingAllocation
+            ? `Connect via plan #${matchingAllocation.planId}`
+            : `Pay ${selectedPrice ? formatP2p(costUdvpn) : '0.00'} P2P and connect`}
+        </button>
+      </>
+    )
+  ) : onThisNode && !connecting && !tunnelConnected ? (
+    <div className="flex gap-2">
+      <button
+        onClick={handleDisconnect}
+        disabled={disconnecting}
+        className="btn btn-danger flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+      </button>
+      <button
+        onClick={onClose}
+        disabled={disconnecting}
+        className="btn btn-secondary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        Close
+      </button>
+    </div>
+  ) : tunnelConnected && sessionId ? (
+    <button onClick={onClose} className="btn btn-primary w-full">Done</button>
+  ) : undefined
+
+  const steps = [
+    { id: '1/5', label: 'Preparing' },
+    { id: '2/5', label: matchingAllocation ? 'Starting a session on your plan' : 'Buying the session on chain' },
+    { id: '3/5', label: 'Confirming the session' },
+    { id: '4/5', label: 'Handshaking with the node' },
+    { id: '5/5', label: 'Starting the tunnel' },
+  ]
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={connecting ? undefined : onClose}>
-      <div
-        className="bg-bg-secondary border border-border w-full max-w-lg mx-4 p-6 space-y-4 max-h-[90vh] overflow-y-auto rounded-lg shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-text-primary text-base font-semibold">
-              {title}
-            </h2>
-            {/* Names this as one half of a pair, in the same sentence shape the
-                Multi-hop tab uses for the other half, so the two define each other
-                rather than reading as unrelated features. */}
-            <p className="text-text-tertiary text-xs mt-0.5">
-              Single hop: your device → this node → the internet.
-            </p>
-          </div>
-          {!connecting && (
-            <button
-              onClick={onClose}
-              className="text-text-secondary hover:text-text-primary text-lg transition-colors"
-            >
-              ×
-            </button>
-          )}
-        </div>
+    <ReviewModal title={title} closable={!connecting} onClose={onClose} footer={footer}>
+      <RouteStrip
+        hops={[node]}
+        stage={stage}
+        info={reviewing ? {
+          label: 'What this node can see',
+          text: 'Your device connects straight to this node, so it sees your IP address. Your traffic also leaves for the internet from it, so it sees which sites you visit. HTTPS keeps what you send from it, not where you send it.',
+        } : undefined}
+      />
 
-        {/* Node details */}
-        <div className="space-y-2 text-sm border-b border-border pb-4">
-          <div className="flex justify-between">
-            <span className="text-text-secondary">Moniker</span>
-            <span className="text-text-primary">{node.moniker}</span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="text-text-secondary shrink-0">Address</span>
-            {/* Full address, not truncated: it is the node's on-chain identity and the
-                only way to tell two nodes of the same operator apart. */}
-            <span className="flex items-start justify-end gap-2 min-w-0">
-              <span className="text-text-primary font-mono text-xs break-all text-right select-text">{node.address}</span>
-              <CopyButton value={node.address} label="Copy address" className="mt-0.5" />
-            </span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="text-text-secondary shrink-0">Endpoint</span>
-            {/* host:port the node advertises. Usually already an IPv4 literal; when it
-                is a hostname the tunnel pins it to an IP at connect time. */}
-            <span className="flex items-start justify-end gap-2 min-w-0">
-              <span className="text-text-primary font-mono text-xs break-all text-right select-text">{node.api}</span>
-              <CopyButton value={node.api} label="Copy endpoint" className="mt-0.5" />
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-text-secondary">Location</span>
-            <span className="text-text-primary">
-              {node.country}{node.city ? `, ${node.city}` : ''}
-              {node.asn ? <span className="text-text-tertiary font-mono text-xs ml-2">AS{node.asn}</span> : null}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-text-secondary">Type</span>
-            <span className={`flex items-center gap-1.5 ${protocolMeta(node.type).color}`}>
-              <ProtocolIcon type={node.type} />
-              {protocolMeta(node.type).label}
-            </span>
-          </div>
-          {node.type === 2 && (
-            <div className="flex justify-between">
-              <span className="text-text-secondary">Connection</span>
-              {node.connection ? (
-                <span className={`font-mono text-xs ${isCleartextConnection(node.connection) ? 'text-danger' : 'text-text-primary'}`}>
-                  {node.connection.proxy} / {node.connection.transport} / {node.connection.security}
-                  {' '}({v2rayConnectionBadge(node.connection)})
-                </span>
-              ) : (
-                <span className="text-text-tertiary">unknown (advertised at connect time)</span>
-              )}
-            </div>
-          )}
-          {node.type === 2 && isCleartextConnection(node.connection) && (
-            <div className="text-danger text-xs">
-              Unencrypted at the proxy layer: VLess without TLS.
-            </div>
-          )}
-          <div className="flex justify-between">
-            <span className="text-text-secondary">Status</span>
-            <span className="flex items-center gap-2">
-              <span className={`status-dot ${nodeStatus.dotClass}`} />
-              <span className={nodeStatus.textClass}>{nodeStatus.label}</span>
-            </span>
-          </div>
-          {nodeStatus.state !== 'active' && (
-            <div className="text-text-tertiary text-xs">
-              {nodeStatus.detail}
-              {nodeStatus.state === 'unhealthy' && (
-                <> Reported by the node list, not measured here. The latency below is this
-                client's own probe of the node's API port, so a node can answer that and still
-                fail to build a tunnel.</>
-              )}
-            </div>
-          )}
-          <div className="flex justify-between">
-            <span className="text-text-secondary">Latency</span>
-            {probing ? (
-              <span className="flex items-center gap-2 text-text-tertiary">
-                <Spinner className="text-accent" /> Measuring…
-              </span>
-            ) : probeResult ? (
-              <span className={`font-mono ${probeResult.reachable ? 'text-success' : 'text-danger'}`}>
-                {probeResult.reachable
-                  ? `${probeResult.latencyMs}ms, reachable`
-                  : `Unreachable${probeResult.error ? `: ${probeResult.error}` : ''}`}
-              </span>
-            ) : (
-              <span className="text-text-tertiary">—</span>
-            )}
-          </div>
-        </div>
+      {reviewing && (
+        <>
+          <ChecksSection title="Checks" checks={checks} />
 
-        {/* Already connected somewhere else: same banner shape and wording as the
-            Plans tab's connect modal. */}
-        {connectedElsewhere && !tunnelConnected && !connecting && (
-          <div className="bg-warning-subtle border border-warning p-3 rounded-md text-sm text-warning">
-            You are connected{status.nodeMoniker ? ` to ${status.nodeMoniker}` : ''}. Disconnect first to start a new session.
-          </div>
-        )}
-
-        {/* VPN conflict warning */}
-        {vpnWarning && !connecting && (
-          <div className="space-y-3">
-            <div className="bg-warning-subtle border border-warning p-3 rounded-md">
-              <p className="text-warning text-sm font-medium mb-2">
-                Another VPN is active
-              </p>
-              <ul className="text-text-secondary text-sm space-y-1">
-                {vpnWarning.map((v, i) => (
-                  <li key={i}>
-                    {v.name}{v.iface ? ` (${v.iface})` : ''}
-                    {v.type === 'wireguard' && (
-                      <span className="text-danger ml-2">(will be disconnected)</span>
-                    )}
-                    {v.type !== 'wireguard' && (
-                      <span className="text-warning ml-2">(may cause routing conflicts)</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleSubscribe()}
-                disabled={cantAfford}
-                className="btn btn-primary flex-1 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                Continue Anyway
-              </button>
-              <button
-                onClick={() => setVpnWarning(null)}
-                className="btn btn-secondary flex-1"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Already connected to this node — show status + Disconnect instead of the
-            subscribe form (subscribing again would create a redundant session). */}
-        {onThisNode && !connecting && !tunnelConnected && (
-          <div className="space-y-3">
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-text-secondary">Session ID</span>
-                <span className="text-success font-mono">{status.sessionId ?? '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-secondary">Protocol</span>
-                <span className="text-text-primary">{protocolMeta(node.type).label}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 text-sm">
-              <span className="status-dot status-dot-active" />
-              <span className="text-success font-medium">VPN tunnel active</span>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={handleDisconnect}
-                disabled={disconnecting}
-                className="btn btn-danger flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {disconnecting ? 'Disconnecting…' : 'Disconnect'}
-              </button>
-              <button
-                onClick={onClose}
-                disabled={disconnecting}
-                className="btn btn-secondary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Subscription form */}
-        {!onThisNode && !connectedElsewhere && !tunnelConnected && !connecting && !error && !vpnWarning && (
-          <>
-            {/* Detected at open: informational, above the form it concerns. The
-                pay button keeps its explicit confirm, which repeats this list. */}
-            {otherVpns.length > 0 && (
-              <div className="bg-warning-subtle border border-warning p-3 rounded-md text-sm">
-                <span className="text-warning font-medium">Another VPN is active: </span>
-                <span className="text-text-secondary">
-                  {otherVpns.map((v) => v.name).join(', ')}. Connecting here may cause routing conflicts.
-                </span>
-              </div>
-            )}
+          <section className="space-y-2.5">
             {matchingAllocation ? (
-              <div className="bg-success/10 border border-success/40 rounded-md px-4 py-3 text-sm space-y-1">
-                <div className="text-success font-medium">
-                  Connecting via plan #{matchingAllocation.planId} · no new charge
-                </div>
-                <div className="text-text-secondary text-xs">
-                  Reusing your existing allocation <span className="font-mono text-text-primary">#{matchingAllocation.subscriptionId}</span>.
-                  Bytes will be deducted from this plan.
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex gap-4">
-                  {(['gigabytes', 'hours'] as const).map((t) => (
-                    <label key={t} className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="radio"
-                        name="subType"
-                        checked={subType === t}
-                        onChange={() => setSubType(t)}
-                        className="accent-[var(--color-accent)]"
-                      />
-                      <span className={subType === t ? 'text-text-primary' : 'text-text-secondary'}>
-                        Pay by {t === 'gigabytes' ? 'Gigabytes' : 'Hours'}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min={1}
-                    max={1000}
-                    value={amount}
-                    onChange={(e) => setAmount(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="bg-bg-tertiary border border-border text-text-primary text-sm font-mono px-3 py-1.5 w-20 rounded-sm focus:outline-none focus:border-border-focus"
+              <>
+                <SectionHead title="Cost" />
+                <Receipt>
+                  <ReceiptLine
+                    country={node.country}
+                    label={`Plan #${matchingAllocation.planId}`}
+                    payer={`subscription #${matchingAllocation.subscriptionId}`}
+                    detail="No new charge. Bytes come out of this plan."
+                    amount="network fee only"
+                    funds={funds}
                   />
-                  <span className="text-text-secondary text-sm">
-                    {subType === 'gigabytes' ? 'GB' : 'hours'}
-                  </span>
-                  <span className="text-text-secondary text-sm font-mono">
-                    × {selectedPrice?.display || '—'} P2P
-                  </span>
-                  <span className="text-text-secondary text-sm">=</span>
-                  <span className="text-accent text-sm font-mono font-semibold">
-                    {totalCost} P2P
-                  </span>
-                </div>
-
-                {balance !== null && (
-                  <div className="text-sm text-text-secondary">
-                    Wallet balance: <span className="text-success font-mono">{balance} P2P</span>
-                  </div>
+                </Receipt>
+              </>
+            ) : (
+              <>
+                <SectionHead title="Cost">
+                  <Segmented
+                    label="Billing"
+                    value={subType}
+                    options={[['gigabytes', 'Per GB'], ['hours', 'Per hour']]}
+                    onChange={setSubType}
+                  />
+                </SectionHead>
+                <AmountStepper
+                  label="How much"
+                  amount={amount}
+                  onChange={setAmount}
+                  unit={subType === 'gigabytes' ? 'GB' : amount === 1 ? 'hour' : 'hours'}
+                  presets={subType === 'gigabytes' ? [1, 5, 10] : [1, 2, 5]}
+                />
+                <Receipt>
+                  <ReceiptLine
+                    country={node.country}
+                    label={node.moniker || 'This node'}
+                    payer={walletName}
+                    detail={selectedPrice
+                      ? `${selectedPrice.display} per ${subType === 'gigabytes' ? 'GB' : 'hr'} × ${amount}`
+                      : <span className="text-warning">no P2P price for {subType === 'gigabytes' ? 'data' : 'time'}</span>}
+                    amount={selectedPrice ? `${formatP2p(costUdvpn)} P2P` : null}
+                    funds={funds}
+                  />
+                </Receipt>
+                {compatiblePlans && compatiblePlans.length > 0 && (
+                  <p className="text-xs text-text-tertiary">
+                    This node is part of {compatiblePlans.length} plan{compatiblePlans.length === 1 ? '' : 's'}.{' '}
+                    <button type="button" onClick={handleSeePlansForNode} className="text-accent hover:underline">
+                      See Plans tab
+                    </button>
+                  </p>
                 )}
-              </div>
+              </>
             )}
-
-            {cantAfford && (
+            {cantAfford && funds && (
               <InsufficientFunds
                 message={insufficientFundsMessage(funds)}
                 onRefresh={refreshBalance}
                 refreshing={refreshingBalance}
               />
             )}
+          </section>
 
-            {proxyCapable && (
-              <div className="space-y-1.5">
-                <div className="text-xs text-text-secondary">Connection mode</div>
-                <div className="flex gap-4 text-sm">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="connect-mode"
-                      checked={mode === 'tunnel'}
-                      onChange={() => setMode('tunnel')}
-                      className="accent-accent"
-                    />
-                    <span className="text-text-primary">Full tunnel</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="connect-mode"
-                      checked={mode === 'proxy'}
-                      onChange={() => setMode('proxy')}
-                      className="accent-accent"
-                    />
-                    <span className="text-text-primary">Local proxy</span>
-                  </label>
-                </div>
-                <p className="text-text-tertiary text-xs">
-                  {mode === 'tunnel'
-                    ? 'Routes your whole device through the node (needs admin rights).'
-                    : `Runs a SOCKS5 proxy on ${SOCKS_DISPLAY_ADDR}. No admin password, but only apps you point at it are tunneled. No kill switch.`}
-                </p>
-              </div>
-            )}
+          <LimitsSection title="Limits" limits={limits} />
 
-            {/* Gate above the action it unlocks. */}
-            {isProtocolSupported(node.type) && !connectable && canOverrideHealth && (
-              <div className="bg-warning-subtle border border-warning p-3 rounded-md space-y-2">
-                <p className="text-warning text-xs">
-                  This node last failed the network health check, so connecting is disabled by
-                  default. That check runs elsewhere and can be hours out of date. The node may
-                  well be working.
-                </p>
-                <label className="flex items-start gap-2 cursor-pointer text-xs text-text-secondary">
-                  <input
-                    type="checkbox"
-                    checked={healthAcknowledged}
-                    onChange={(e) => setHealthAcknowledged(e.target.checked)}
-                    className="accent-accent mt-0.5"
-                  />
-                  <span>
-                    Try it anyway. If the handshake fails, the session is cancelled and refunded
-                    automatically.
-                  </span>
-                </label>
-              </div>
-            )}
+          <OptionsSection summary={proxyCapable ? `${modeSummary(mode)} · node details` : 'Node details'}>
+            {proxyCapable && <ModeField mode={mode} onChange={setMode} />}
+            <div className="space-y-1.5">
+              <div className="text-xs text-text-secondary">Node details</div>
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
+                {/* Full address, not truncated: it is the node's on-chain identity and
+                    the only way to tell two nodes of the same operator apart. */}
+                <dt className="text-text-tertiary">Address</dt>
+                <dd className="flex items-start gap-2 min-w-0">
+                  <span className="text-text-secondary font-mono break-all select-text">{node.address}</span>
+                  <CopyButton value={node.address} label="Copy address" />
+                </dd>
+                {/* host:port the node advertises. Usually already an IPv4 literal; when
+                    it is a hostname the tunnel pins it to an IP at connect time. */}
+                <dt className="text-text-tertiary">Endpoint</dt>
+                <dd className="flex items-start gap-2 min-w-0">
+                  <span className="text-text-secondary font-mono break-all select-text">{node.api}</span>
+                  <CopyButton value={node.api} label="Copy endpoint" />
+                </dd>
+                <dt className="text-text-tertiary">Location</dt>
+                <dd className="text-text-secondary">
+                  {node.country}{node.city ? `, ${node.city}` : ''}
+                  {node.asn ? <span className="font-mono ml-2">AS{node.asn}</span> : null}
+                </dd>
+                <dt className="text-text-tertiary">Protocol</dt>
+                <dd className={`flex items-center gap-1.5 ${protocol.color}`}>
+                  <ProtocolIcon type={node.type} />
+                  {protocol.label}
+                  {(node.type === 2 || node.type === 4) && node.connection && 'proxy' in node.connection && (
+                    <span className="font-mono text-text-tertiary">
+                      {node.connection.proxy} / {node.connection.transport} / {node.connection.security}
+                    </span>
+                  )}
+                </dd>
+                {node.version && (
+                  <>
+                    <dt className="text-text-tertiary">Version</dt>
+                    <dd className="text-text-secondary font-mono">{node.version}</dd>
+                  </>
+                )}
+              </dl>
+            </div>
+          </OptionsSection>
+        </>
+      )}
 
-            <button
-              onClick={handleSubscribe}
-              disabled={
-                !(connectable || (canOverrideHealth && healthAcknowledged)) ||
-                !isProtocolSupported(node.type) ||
-                (!matchingAllocation && !selectedPrice) ||
-                cantAfford
-              }
-              className="btn btn-primary w-full disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              {matchingAllocation ? 'Connect via Plan' : 'Subscribe & Connect'}
-            </button>
+      {onThisNode && !connecting && !tunnelConnected && (
+        <div className="space-y-1.5 text-sm">
+          <p className="text-text-primary">This is the node your connection runs through now.</p>
+          <p className="text-text-tertiary text-xs font-mono">
+            Session #{status.sessionId ?? '?'} · {protocol.label}
+          </p>
+        </div>
+      )}
 
-            {!isProtocolSupported(node.type) && (
-              <div className="text-xs text-warning text-center pt-1">
-                {protocolMeta(node.type).label} isn't supported by this client yet. This node is shown for filtering only.
-              </div>
-            )}
-
-            {isProtocolSupported(node.type) && !connectable && !canOverrideHealth && (
-              <div className="text-xs text-warning text-center pt-1">
-                Connecting is disabled because this node is not active on-chain.
-              </div>
-            )}
-
-            {!matchingAllocation && compatiblePlans && compatiblePlans.length > 0 && (
-              <div className="text-xs text-text-tertiary text-center pt-1">
-                This node is part of {compatiblePlans.length} plan{compatiblePlans.length === 1 ? '' : 's'} ·{' '}
-                <button
-                  type="button"
-                  onClick={handleSeePlansForNode}
-                  className="text-accent hover:underline"
-                >
-                  See Plans tab
-                </button>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Progress steps */}
-        {connecting && (
-          <ProgressSteps currentStep={currentStep} error={error} />
-        )}
-
-        {/* Error with retry */}
-        {error && !connecting && (
-          <ConnectErrorActions
-            error={error}
-            paidSessionId={paidProtocol ? sessionId : null}
-            onRetryTunnel={() => retryTunnel()}
-            onRetryPurchase={() => void retryPurchase()}
-            onStartOver={reset}
-            onRetryWithoutDns={paidProtocol ? () => retryTunnel(true) : undefined}
+      {connecting && (
+        <div className="space-y-4">
+          <StepList
+            stages={steps}
+            current={Math.max(0, steps.findIndex((s) => s.id === currentStep))}
+            detail={stepDetail}
           />
-        )}
+          <p className="text-text-tertiary text-xs">
+            Leave this open. If the handshake fails, the session is cancelled and refunded automatically.
+          </p>
+        </div>
+      )}
 
-        {/* Connected state */}
-        {tunnelConnected && sessionId && (
-          <div className="space-y-3">
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-text-secondary">Session ID</span>
-                <span className="text-success font-mono">{sessionId}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-secondary">Protocol</span>
-                <span className="text-text-primary">{protocolMeta(node.type).label}</span>
-              </div>
-            </div>
+      {error && !connecting && (
+        <ConnectErrorActions
+          error={error}
+          paidSessionId={paidProtocol ? sessionId : null}
+          onRetryTunnel={() => retryTunnel()}
+          onRetryPurchase={() => void retryPurchase()}
+          onStartOver={reset}
+          onRetryWithoutDns={paidProtocol ? () => retryTunnel(true) : undefined}
+        />
+      )}
 
-            <div className="flex items-center gap-2 text-sm">
-              <span className="status-dot status-dot-active" />
-              <span className="text-success font-medium">
-                {proxyCapable && mode === 'proxy' ? 'Local proxy active' : 'VPN tunnel active'}
-              </span>
-            </div>
-
-            {proxyCapable && mode === 'proxy' ? (
-              <p className="text-text-tertiary text-sm">
-                SOCKS5 proxy at <span className="font-mono text-text-secondary">{SOCKS_DISPLAY_ADDR}</span>. Only apps
-                configured to use it are tunneled. The rest of your traffic still goes out directly.
-              </p>
-            ) : node.type === 1 ? (
-              <p className="text-text-tertiary text-sm">
-                WireGuard interface is up. Your traffic is now routed through this node.
-              </p>
-            ) : null}
-
-            <button onClick={onClose} className="btn btn-primary w-full">
-              Done
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+      {tunnelConnected && sessionId && (
+        <div className="space-y-1.5">
+          <p className="text-text-primary">
+            Sites now see you in {node.city ? `${node.city}, ` : ''}{node.country}.
+          </p>
+          <p className="text-text-tertiary text-xs font-mono">Session #{sessionId} · {protocol.label}</p>
+          {effectiveMode === 'proxy' ? (
+            <p className="text-text-tertiary text-xs">
+              SOCKS5 proxy at <span className="font-mono text-text-secondary">{SOCKS_DISPLAY_ADDR}</span>. Only apps
+              configured to use it are tunneled. The rest of your traffic still goes out directly.
+            </p>
+          ) : node.type === 1 ? (
+            <p className="text-text-tertiary text-xs">
+              WireGuard interface is up. Your traffic is now routed through this node.
+            </p>
+          ) : null}
+        </div>
+      )}
+    </ReviewModal>
   )
 }

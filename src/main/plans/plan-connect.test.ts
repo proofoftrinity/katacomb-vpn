@@ -22,7 +22,6 @@ function candidate(overrides: Partial<PlanNodeCandidate> = {}): PlanNodeCandidat
     latencyMs: null,
     probeFailed: false,
     runtimeOk: true,
-    signsReplies: false,
     ...overrides,
   }
 }
@@ -207,18 +206,4 @@ test('smartConnectFailureSummary: says nothing was charged when no attempt got p
   const summary = smartConnectFailureSummary([])
   assert.ok(summary.length > 0)
   assert.ok(!summary.includes('—'))
-})
-
-test('rankPlanCandidates: with signed nodes only, a node that does not sign is excluded with a reason', () => {
-  const { ranked, excluded } = rankPlanCandidates(
-    [candidate({ address: 'sentnode1signs', signsReplies: true }), candidate({ address: 'sentnode1plain' })],
-    { requireProxyCapable: false, requireSigned: true },
-  )
-  assert.deepEqual(ranked.map((c) => c.address), ['sentnode1signs'])
-  assert.equal(excluded[0].address, 'sentnode1plain')
-  assert.match(excluded[0].reason, /sign/)
-
-  // Off (the default), signing does not matter.
-  const open = rankPlanCandidates([candidate({ address: 'sentnode1plain' })], { requireProxyCapable: false })
-  assert.equal(open.ranked.length, 1)
 })
