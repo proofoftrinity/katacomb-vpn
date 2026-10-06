@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, backoffDelayMs, serviceTypeToNodeType, isDnsProvisionError, stripDnsLines, replaceDnsLines, evaluateQuota, isTunnelOneWay, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, isChildProxyCarryingTraffic, shouldRetrySessionHandshake, HANDSHAKE_RETRY_MAX_RETRIES, ONE_WAY_TX_FLOOR_BYTES, ONE_WAY_SILENCE_MS, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs } from './connect-decisions.ts'
+import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, backoffDelayMs, serviceTypeToNodeType, isDnsProvisionError, stripDnsLines, replaceDnsLines, evaluateQuota, isTunnelOneWay, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, isChildProxyCarryingTraffic, shouldRetrySessionHandshake, HANDSHAKE_RETRY_MAX_RETRIES, ONE_WAY_TX_FLOOR_BYTES, ONE_WAY_SILENCE_MS, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs, chainDeadlineStep, CHAIN_DEADLINE_WARN_MS, CHAIN_DEADLINE_SLACK_MS } from './connect-decisions.ts'
 
 // --- isChildProxyCarryingTraffic (the spawn-to-tun-up window) ---
 
@@ -392,6 +392,40 @@ test('evaluateQuota: a node metering slightly past the cap still reads as expire
 test('isTunnelOneWay: traffic leaving with no reply, for long enough, is a dead tunnel', () => {
   assert.equal(isTunnelOneWay(ONE_WAY_TX_FLOOR_BYTES, ONE_WAY_SILENCE_MS), true)
   assert.equal(isTunnelOneWay(5 * 1024 * 1024, 10 * 60_000), true)
+})
+
+// --- chainDeadlineStep (the exit hop the chain closes on a fixed deadline) ---
+
+const DEADLINE = 1_000_000_000
+const step = (nowMs: number, warned = false, recheckAtMs = 0) =>
+  chainDeadlineStep({ nowMs, deadlineMs: DEADLINE, warned, recheckAtMs })
+
+test('chainDeadlineStep: nothing to do while the deadline is far off', () => {
+  assert.equal(step(DEADLINE - CHAIN_DEADLINE_WARN_MS - 1), 'none')
+})
+
+test('chainDeadlineStep: warns once inside the last ten minutes', () => {
+  assert.equal(step(DEADLINE - CHAIN_DEADLINE_WARN_MS), 'warn')
+  assert.equal(step(DEADLINE - 60_000), 'warn')
+  assert.equal(step(DEADLINE - 60_000, true), 'none')
+})
+
+test('chainDeadlineStep: does not test the tunnel until the EndBlocker has had its slack', () => {
+  // A test right at the deadline usually finds the exit still serving, passes, and
+  // tells us nothing.
+  assert.equal(step(DEADLINE, true), 'none')
+  assert.equal(step(DEADLINE + CHAIN_DEADLINE_SLACK_MS - 1, true), 'none')
+  assert.equal(step(DEADLINE + CHAIN_DEADLINE_SLACK_MS, true), 'check')
+})
+
+test('chainDeadlineStep: connecting after the deadline goes straight to the test, no warning', () => {
+  assert.equal(step(DEADLINE + CHAIN_DEADLINE_SLACK_MS + 5_000), 'check')
+})
+
+test('chainDeadlineStep: a test that passed holds the next one off', () => {
+  const now = DEADLINE + 10 * 60_000
+  assert.equal(step(now, true, now + 1), 'none')
+  assert.equal(step(now, true, now), 'check')
 })
 
 // --- prunableUsageIds ---

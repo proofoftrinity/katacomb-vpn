@@ -39,9 +39,14 @@ import AppLogo from './components/AppLogo'
 function SessionExpiredBanner({ expired }: { expired: ConnectionStatus['expired'] }) {
   const [dismissed, setDismissed] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  const { setMainTab } = useNavigation()
   if (!expired || dismissed) return null
 
   const node = expired.nodeMoniker || 'the node'
+  // Every wording that sends the user to the Sessions tab also takes them there. Only
+  // a single-hop expiry does not: that session is spent and there is nothing to do there.
+  const pointsAtSessions = expired.reason === 'stalled' || expired.reason === 'dropped' ||
+    expired.reason === 'hop-closed' || expired.chainRole !== undefined
 
   return (
     <div
@@ -53,7 +58,24 @@ function SessionExpiredBanner({ expired }: { expired: ConnectionStatus['expired'
     >
       <span aria-hidden>⚠</span>
       <span className="flex-1">
-        {expired.reason === 'dropped' ? (
+        {expired.reason === 'hop-closed' ? (
+          <>
+            {/* The exit hop never reports usage, so the chain closes it on a deadline
+                fixed at purchase. Name it as the cause: the entry is fine, and the user
+                was otherwise left to guess which of two nodes failed. */}
+            Your chain stopped: the blockchain closed its exit hop,{' '}
+            <span className="font-medium">{node}</span>, at the end of its time. The entry hop
+            is still open.
+          </>
+        ) : expired.chain && (expired.reason === 'dropped' || expired.reason === 'stalled') ? (
+          <>
+            {/* Not the single-hop "your session is still open, reconnect": a chain that
+                stalled has often lost a hop, and reconnecting rebuilds it through a hop
+                that is gone. The Sessions card knows which hops are still open. */}
+            Your two-hop chain {expired.reason === 'stalled' ? 'stopped carrying traffic' : 'closed unexpectedly'} and
+            was disconnected. The Sessions tab shows which hops are still open.
+          </>
+        ) : expired.reason === 'dropped' ? (
           <>
             {/* Deliberately names no culprit. The interface going away is explained by a
                 local failure (a crash, a resume, something else deleting it) just as well
@@ -81,6 +103,14 @@ function SessionExpiredBanner({ expired }: { expired: ConnectionStatus['expired'
         )}
         {expired.trafficBlocked && ' The kill switch is still blocking all traffic.'}
       </span>
+      {pointsAtSessions && (
+        <button
+          onClick={() => setMainTab('sessions')}
+          className="btn btn-secondary text-xs px-2 py-0.5"
+        >
+          Open Sessions
+        </button>
+      )}
       {expired.trafficBlocked && (
         <button
           onClick={async () => {

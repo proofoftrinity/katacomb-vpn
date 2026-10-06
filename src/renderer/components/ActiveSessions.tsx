@@ -10,6 +10,7 @@ import SystemSetup from './SystemSetup'
 import ChainUnreachable from './ChainUnreachable'
 import RouteStrip from './RouteStrip'
 import { useConfirm } from './ConfirmModal'
+import { useNavigation } from '../contexts/NavigationContext'
 import type { SessionInfo } from '../types'
 
 interface Props {
@@ -99,6 +100,7 @@ export default function ActiveSessions({
   const { overview: { allocations } } = usePlansContext()
   const reconnect = useReconnect()
   const { requestConfirm, confirmDialog } = useConfirm()
+  const { setMainTab } = useNavigation()
   // The session the last reconnect tried. When main refused it for setup, that
   // card's Reconnect is held until every row the pane lists is Ready.
   const [setupSessionId, setSetupSessionId] = useState<string | null>(null)
@@ -201,12 +203,25 @@ export default function ActiveSessions({
     groups.push({ entry: rowIsEntry ? row : peer, exit: rowIsEntry ? peer : row })
   }
 
-  // Whether a card shows "Ended". Decided once, so the Show ended filter can never
-  // hide a card that would have offered Reconnect or End.
-  const isCardEnded = (entry: Row, exit: Row | null) =>
-    entry.session.status !== 'active' || (exit !== null && exit.session.status !== 'active')
-  const endedCards = groups.filter((g) => isCardEnded(g.entry, g.exit)).length
-  const shownGroups = showEnded ? groups : groups.filter((g) => !isCardEnded(g.entry, g.exit))
+  // What a card is. Decided once, so the Show ended filter can never hide a card that
+  // would have offered an action.
+  //   open:   every hop active.
+  //   broken: a chain that has lost a hop while another is still open, including a
+  //           lone hop whose partner has already left the list. It carries no traffic
+  //           (one hop alone cannot), but the open hop still holds a deposit and can
+  //           be ended, so it stays visible. This is the normal way a chain dies: the
+  //           exit never reports usage, so the chain closes it about two hours after
+  //           purchase while the entry lives on (docs/multihop.md).
+  //   ended:  no hop active; nothing to do but wait for it to settle.
+  const cardState = (entry: Row, exit: Row | null): 'open' | 'broken' | 'ended' => {
+    const hops = exit ? [entry, exit] : [entry]
+    const active = hops.filter((h) => h.session.status === 'active').length
+    if (active === 0) return 'ended'
+    if (active < hops.length || (!exit && entry.session.chainPeerSessionId)) return 'broken'
+    return 'open'
+  }
+  const endedCards = groups.filter((g) => cardState(g.entry, g.exit) === 'ended').length
+  const shownGroups = showEnded ? groups : groups.filter((g) => cardState(g.entry, g.exit) !== 'ended')
 
   // Counts the live ones. An ended row is settling on chain but it is not an active
   // session, and counting it as one is what produced "Active Sessions (2)" over a
@@ -260,8 +275,14 @@ export default function ActiveSessions({
       ? sessions.find((s) => s.id === status.sessionId) ?? null
       : null
     const warnings = ['This will close the session on-chain. Remaining data/time will be forfeited.']
-    if (peer) {
+    if (peer && peer.status === 'active') {
       warnings.push(`This is the ${session.chainRole ?? 'first'} hop of a two-hop chain, so #${peer.id} will be ended too. One hop alone carries no traffic.`)
+    } else if (session.chainPeerSessionId) {
+      // A broken chain: the other hop has ended (or already left the list), so only
+      // this one is closed, and "will be ended too" would promise a cancel that
+      // does not happen.
+      const otherRole = session.chainRole === 'exit' ? 'entry' : session.chainRole === 'entry' ? 'exit' : 'other'
+      warnings.push(`This is the ${session.chainRole ?? 'first'} hop of a chain whose ${otherRole} hop has already ended. On its own it carries no traffic.`)
     }
     if (reconnectTarget) {
       warnings.push('Note: Your current VPN connection will be temporarily interrupted to reach the blockchain, then reconnected.')
@@ -421,7 +442,9 @@ export default function ActiveSessions({
                   seconds: Math.max(entryRow.usage.seconds, exitRow.usage.seconds),
                 }
               : entryRow.usage
-            const isBusy = busy === session.id
+            // Either hop: End on a broken chain closes whichever one is still open,
+            // which may be the exit.
+            const isBusy = busy === session.id || (exitRow !== null && busy === exitRow.session.id)
             // Refused for setup: pressing it again before the pane reads Ready can
             // only be refused again. Only this card: another session may need other items.
             const setupHeld = setupItems !== null && setupSessionId === session.id && !setupReady
@@ -450,7 +473,20 @@ export default function ActiveSessions({
             // the list.
             // For a chain, EITHER hop ending finishes it: one hop alone carries no
             // traffic, so offering Connect on the survivor would sell a dead tunnel.
-            const isEnded = isCardEnded(entryRow, exitRow)
+            // That chain is 'broken', not 'ended': its open hop can still be ended.
+            const state = cardState(entryRow, exitRow)
+            const isEnded = state === 'ended'
+            const isBroken = state === 'broken'
+            // On a broken card: the hop still open, and the role of the one that ended
+            // (a lone hop's partner has the other role).
+            const openHop = [entryRow, exitRow].find((h) => h !== null && h.session.status === 'active')?.session ?? session
+            const endedRole = exitRow
+              ? (entryRow.session.status !== 'active' ? 'entry' : 'exit')
+              : (session.chainRole === 'exit' ? 'entry' : 'exit')
+            const openRole = endedRole === 'entry' ? 'exit' : 'entry'
+            const openClosesInSeconds = openHop.inactiveAt
+              ? Math.floor((new Date(openHop.inactiveAt).getTime() - Date.now()) / 1000)
+              : null
             // 'active' does NOT mean 'usable'. The chain keeps metering a session
             // past what it was paid for and leaves the row active until someone
             // cancels it or the EndBlocker reaps it — #53647217 read duration
@@ -511,7 +547,8 @@ export default function ActiveSessions({
                         Connected
                       </span>
                     )}
-                    {!isChain && session.chainPeerSessionId && (
+                    {/* A broken lone hop says so on the right instead. */}
+                    {!isChain && session.chainPeerSessionId && !isBroken && (
                       <span
                         className="text-warning text-xs border border-warning px-1.5 py-0.5 rounded-sm font-medium"
                         title={`This was the ${session.chainRole ?? 'first'} hop of a chain with #${session.chainPeerSessionId}, which is no longer listed. One hop alone carries no traffic.`}
@@ -530,6 +567,30 @@ export default function ActiveSessions({
                       <span className="text-text-secondary text-xs border border-border px-1.5 py-0.5 rounded-sm font-medium">
                         Ended
                       </span>
+                    ) : isBroken ? (
+                      // No Reconnect: it would rebuild the chain through a hop that is
+                      // gone (main refuses it too, for the tray's Connect). What is left
+                      // is closing the open hop, and building a new chain.
+                      <>
+                        <span className="text-warning text-xs border border-warning px-1.5 py-0.5 rounded-sm font-medium">
+                          Chain broken
+                        </span>
+                        <button
+                          onClick={() => setMainTab('multihop')}
+                          className="btn btn-secondary text-xs px-3 py-1"
+                          title="Open the Multi-hop tab to build a new chain"
+                        >
+                          New chain
+                        </button>
+                        <button
+                          onClick={() => handleEndSession(openHop)}
+                          disabled={isBusy || busy !== null}
+                          className="btn btn-danger text-xs px-3 py-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={`Ends the ${openRole} hop, the one still open`}
+                        >
+                          {isBusy ? <Spinner /> : 'End'}
+                        </button>
+                      </>
                     ) : (
                       <>
                         {!isConnectedSession && (
@@ -580,9 +641,9 @@ export default function ActiveSessions({
                     destinations. */}
                 {isChain ? (
                   <div className="mb-2 space-y-1">
-                    <HopLine role="entry" session={entryRow.session} usage={entryRow.usage} />
+                    <HopLine role="entry" session={entryRow.session} usage={entryRow.usage} ended={isBroken && entryRow.session.status !== 'active'} />
                     <div className="text-text-tertiary text-xs pl-[52px]">↓ tunnelled inside the entry hop</div>
-                    <HopLine role="exit" session={exitRow!.session} usage={exitRow!.usage} />
+                    <HopLine role="exit" session={exitRow!.session} usage={exitRow!.usage} ended={isBroken && exitRow!.session.status !== 'active'} />
                   </div>
                 ) : (
                   <div className="flex items-center gap-3 mb-2 text-sm">
@@ -697,6 +758,18 @@ export default function ActiveSessions({
                   </div>
                 )}
 
+                {/* "blockchain", not "chain", in this line: next to a two-hop chain the
+                    bare word reads as the chain that broke. */}
+                {isBroken && (
+                  <div className="text-warning text-xs mt-2">
+                    The {endedRole} hop has ended, so this chain carries no traffic. The {openRole} hop
+                    is still open: end it now, or the blockchain closes it by itself
+                    {openClosesInSeconds !== null && openClosesInSeconds > 60
+                      ? ` in about ${formatDuration(openClosesInSeconds)}.`
+                      : '.'}
+                  </div>
+                )}
+
                 {/* The use-it-or-lose-it clock. Quota is metered from the node's
                     proofs, so an unused session burns none of it — this deadline is
                     the only thing actually counting down on an idle session.
@@ -706,14 +779,25 @@ export default function ActiveSessions({
                     while you are "connected" to a tunnel the node is not seeing — the
                     wording has to hold in that case too, so it names the node's
                     reports rather than the user's intent. */}
-                {!isEnded && inactiveInSeconds !== null && inactiveInSeconds > 0 && (
+                {/* A chain is the exception: its exit never reports usage, so the
+                    sooner deadline is the exit's and nothing pushes it back. "unless
+                    the nodes report usage" told the user to keep the chain busy, which
+                    does nothing. */}
+                {state === 'open' && inactiveInSeconds !== null && inactiveInSeconds > 0 && (isChain ? (
+                  <div
+                    className="text-text-tertiary text-xs mt-2"
+                    title="Exit nodes do not report usage, so the blockchain closes the exit hop about two hours after it was bought, whether or not the chain is used. That ends the chain."
+                  >
+                    Chain stops in about {formatDuration(inactiveInSeconds)}, when the blockchain closes the exit hop.
+                  </div>
+                ) : (
                   <div
                     className="text-text-tertiary text-xs mt-2"
                     title="The chain reaps a session the node stops reporting usage for. Every usage report pushes this deadline back, so it only really counts down when nothing is getting through."
                   >
-                    Expires in {formatDuration(inactiveInSeconds)} unless the {isChain ? 'nodes report' : 'node reports'} usage.
+                    Expires in {formatDuration(inactiveInSeconds)} unless the node reports usage.
                   </div>
-                )}
+                ))}
               </div>
             )
           })}
@@ -729,10 +813,12 @@ export default function ActiveSessions({
  * node that sees the user's IP, "exit" is the one that sees where they go, and the
  * card is unreadable without knowing which is which.
  */
-function HopLine({ role, session, usage }: {
+function HopLine({ role, session, usage, ended }: {
   role: 'entry' | 'exit'
   session: SessionInfo
   usage: SessionUsage
+  /** Set on a broken chain's ended hop, so the card shows which of the two went. */
+  ended: boolean
 }) {
   return (
     <div className="flex items-center gap-2 text-sm">
@@ -753,6 +839,11 @@ function HopLine({ role, session, usage }: {
       >
         {session.nodeAddress.slice(0, 16)}...{session.nodeAddress.slice(-6)}
       </span>
+      {ended && (
+        <span className="text-text-secondary text-[10px] border border-border px-1 rounded-sm font-medium shrink-0">
+          Ended
+        </span>
+      )}
       {/* Each hop's OWN metered figure. The card's gauge shows the worse of the two,
           which is what governs the chain — but the hops settle independently and can
           land well apart (a live chain finished on 29.1 MB against 4.5 MB), so a

@@ -134,6 +134,19 @@ xray-core is a strict superset of what the builder emits, so it lands in
 - **Ending a chain hop leaves a TOMBSTONE** (`retireSessionConfig`): credentials cleared,
   pairing kept, so the two rows stay grouped for the ~2h they take to settle. A record
   with an empty `configString` must never be reconnected.
+- **A chain that has lost a hop is BROKEN, not ended** (Sessions tab `cardState`): one
+  hop still active, the other ended or already off the list. It is the normal way a
+  chain dies (the exit closes ~2 h in, the entry lives on), and it used to be drawn as
+  "Ended" with no buttons while the expiry banner said the other hop "can be ended from
+  the Sessions tab". The broken card says which hop ended and when the blockchain will
+  close the open one, offers End on the open hop and New chain, and never Reconnect.
+  The Show ended filter hides only `ended` cards, never a broken one. **Main refuses to
+  replay a broken chain** in `CONNECTION_RECONNECT` (the tray's Connect reaches it with
+  whatever session is newest): a tombstone on either hop, or a hop listed and not
+  active. A hop merely MISSING from the list keeps the old behaviour, because a failed
+  read of the second wallet looks exactly like that. User-facing copy around a chain
+  says "blockchain" for the ledger: next to a two-hop chain, the bare word reads as the
+  chain that broke.
 - **`nodeType` is the NODE's protocol, never the runtime.** A chain of two V2Ray nodes
   runs on xray; hardcoding 4 on the reconnect path put "XRAY" in the connected bar.
 - Reconnect replays the SAVED chained config and re-applies **no** policy, deliberately:
@@ -160,10 +173,26 @@ xray-core is a strict superset of what the builder emits, so it lands in
   purchase + 2 h that never moves. The chain then reaps the exit while the entry still has
   hours and most of its quota, and the tunnel dies with the UI saying connected.
   `evaluateQuota` scores duration and bytes, NOT `inactiveAt`, so it cannot see this
-  coming — only `checkTunnelStalled` catches it, after the fact. Anything that wants to
-  warn before a chain dies has to read `inactiveAt` on the worse hop, not the quota.
+  coming, and `checkTunnelStalled` may never fire either: once the exit is gone, the
+  resets tun2socks writes back keep rx moving (see the probe floor in
+  [reliability.md](invariants/reliability.md)). Unmeasured on a live reap; check it the
+  next time a chain is held past its exit's deadline.
   The review modal says it BEFORE payment (since 2026-10-05): a "Ends about 2 h after
   buying" limit, and an amber note when more than 2 hours are being bought.
+  **While connected, `checkChainExitDeadline` (quota loop) sees it coming**, off the
+  exit row's `inactiveAt` captured in `startQuotaWatchdog` (decided by the pure
+  `chainDeadlineStep`): a notification 10 minutes out, then, 30 s past the deadline,
+  `tunnelCarriesTraffic()`, the bring-up test, whose IP-literal probe and 16 KB rx floor
+  were sized for exactly this failure. Fail: `standDownSession('hop-closed', exit)`, and
+  the banner names the exit and says the entry is still open. Pass: the exit is still
+  serving, test again a minute later. The deadline is keyed on the ROLE, not on "the
+  exit metered nothing", because `lastKnownSessions` rows carry our own usage floor
+  (`primeSessionsCache`), so after a first connect the exit LOOKS metered when the chain
+  says 0. That is safe only because the deadline triggers a test, never a stand-down by
+  itself; the cost of an exit that does prove is one early warning. Local-proxy mode
+  gets the warning but no test (no tunnel; a direct probe always passes). A reconnect
+  ladder that gives up past the deadline also reports `hop-closed`, not a generic
+  failure.
 - **Progress is per hop AND per phase.** A chain runs the purchase sequence TWICE, so the
   shared 1/5..3/5 steps replay from the start halfway through and read as a restart.
   `sendChainHopProgress` emits `hop:<role>:<phase>` (buy | handshake) and the modal maps

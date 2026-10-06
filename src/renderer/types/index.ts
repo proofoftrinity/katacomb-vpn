@@ -271,7 +271,8 @@ export interface ConnectionStatus {
   expired?: {
     sessionId: string
     nodeMoniker: string
-    reason: 'time' | 'data' | 'stalled' | 'dropped'
+    /** 'hop-closed': MULTIHOP, the chain closed the exit hop on its deadline. */
+    reason: 'time' | 'data' | 'stalled' | 'dropped' | 'hop-closed'
     trafficBlocked: boolean
     /**
      * MULTIHOP: which end of the chain ran out, so the banner can name it. `sessionId`
@@ -279,6 +280,8 @@ export interface ConnectionStatus {
      * ordinary single-hop session.
      */
     chainRole?: 'entry' | 'exit'
+    /** MULTIHOP: the tunnel was a chain, even when no hop could be named (a stall). */
+    chain?: boolean
   }
 }
 
