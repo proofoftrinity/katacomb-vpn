@@ -103,6 +103,10 @@ export default function ActiveSessions({
   // card's Reconnect is held until every row the pane lists is Ready.
   const [setupSessionId, setSetupSessionId] = useState<string | null>(null)
   const [setupReady, setSetupReady] = useState(false)
+  // An ended card stays listed until the chain settles it, up to two hours, and
+  // offers nothing to do. Hidden unless asked for. Local state like the Plans tab's
+  // filters, not a setting, so every visit to the tab starts with them hidden.
+  const [showEnded, setShowEnded] = useState(false)
   const vpnConnected = status.state === 'connected'
   // Refresh asks the chain, and WALLET_SESSIONS returns lastKnownSessions verbatim
   // while isVpnActive() — so while our own tunnel carries the traffic the button is a
@@ -197,15 +201,21 @@ export default function ActiveSessions({
     groups.push({ entry: rowIsEntry ? row : peer, exit: rowIsEntry ? peer : row })
   }
 
-  // Counts the live ones. An ended row is still shown (it is settling on chain) but
-  // it is not an active session, and counting it as one is what produced
-  // "Active Sessions (2)" over a single running session.
+  // Whether a card shows "Ended". Decided once, so the Show ended filter can never
+  // hide a card that would have offered Reconnect or End.
+  const isCardEnded = (entry: Row, exit: Row | null) =>
+    entry.session.status !== 'active' || (exit !== null && exit.session.status !== 'active')
+  const endedCards = groups.filter((g) => isCardEnded(g.entry, g.exit)).length
+  const shownGroups = showEnded ? groups : groups.filter((g) => !isCardEnded(g.entry, g.exit))
+
+  // Counts the live ones. An ended row is settling on chain but it is not an active
+  // session, and counting it as one is what produced "Active Sessions (2)" over a
+  // single running session. The ended ones are counted on the Show ended box
+  // instead, in cards, since that is what ticking it brings back. "ending" read as
+  // still-in-progress to the one person who has used this screen, so the box says
+  // "ended", matching the card's own badge.
   const activeCount = sessions.filter((s) => s.status === 'active').length
-  // "ending" read as still-in-progress to the one person who has used this screen:
-  // the session is over, what remains is the chain settling it. Match the row's own
-  // "Ended" badge rather than inventing a second tense for the same state.
-  const endedCount = sessions.length - activeCount
-  const sessionCountLabel = `${activeCount} active${endedCount > 0 ? ` · ${endedCount} ended` : ''}`
+  const sessionCountLabel = `${activeCount} active`
 
   // Drop an ended row as soon as the chain settles it, rather than leaving it up to
   // two minutes (the useSessions poll) after it has ceased to exist. One timer for
@@ -320,16 +330,27 @@ export default function ActiveSessions({
         <h3 className="text-text-secondary text-xs font-medium uppercase tracking-wide">
           Sessions ({sessionCountLabel})
         </h3>
-        <button
-          onClick={refresh}
-          disabled={refreshing || chainFrozen}
-          className="text-text-secondary text-xs hover:text-accent transition-colors flex items-center gap-1 disabled:opacity-50"
-          title={chainFrozen
-            ? 'Unavailable while connected: the chain is unreachable through the tunnel, so this list is the one from before you connected. The connected session keeps updating from live traffic.'
-            : 'Reload sessions from the chain'}
-        >
-          {refreshing ? <Spinner className="text-accent" /> : 'Refresh'}
-        </button>
+        <div className="flex items-center gap-4">
+          {endedCards > 0 && (
+            <label
+              className="flex items-center gap-1.5 cursor-pointer text-text-secondary text-xs"
+              title="Ended sessions stay listed until the chain settles them, up to two hours after they end."
+            >
+              <input type="checkbox" checked={showEnded} onChange={(e) => setShowEnded(e.target.checked)} className="accent-accent" />
+              Show ended ({endedCards})
+            </label>
+          )}
+          <button
+            onClick={refresh}
+            disabled={refreshing || chainFrozen}
+            className="text-text-secondary text-xs hover:text-accent transition-colors flex items-center gap-1 disabled:opacity-50"
+            title={chainFrozen
+              ? 'Unavailable while connected: the chain is unreachable through the tunnel, so this list is the one from before you connected. The connected session keeps updating from live traffic.'
+              : 'Reload sessions from the chain'}
+          >
+            {refreshing ? <Spinner className="text-accent" /> : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {error && (setupItems ? (
@@ -348,7 +369,7 @@ export default function ActiveSessions({
         </div>
       ))}
 
-      {sessions.length === 0 && allocations.length === 0 ? (
+      {shownGroups.length === 0 && allocations.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-2">
           <p className="text-text-secondary text-sm">No active sessions</p>
           <ChainUnreachable what="this list" />
@@ -381,12 +402,12 @@ export default function ActiveSessions({
               ))}
             </div>
           )}
-          {sessions.length > 0 && allocations.length > 0 && (
+          {shownGroups.length > 0 && allocations.length > 0 && (
             <div className="text-text-tertiary text-[10px] font-medium uppercase tracking-wide px-1 pt-2">
               Sessions ({sessionCountLabel})
             </div>
           )}
-          {groups.map(({ entry: entryRow, exit: exitRow }) => {
+          {shownGroups.map(({ entry: entryRow, exit: exitRow }) => {
             const session = entryRow.session
             const isChain = exitRow !== null
             // Both hops carry the same stream, so their meters should agree — but
@@ -429,8 +450,7 @@ export default function ActiveSessions({
             // the list.
             // For a chain, EITHER hop ending finishes it: one hop alone carries no
             // traffic, so offering Connect on the survivor would sell a dead tunnel.
-            const isEnded = session.status !== 'active' ||
-              (exitRow !== null && exitRow.session.status !== 'active')
+            const isEnded = isCardEnded(entryRow, exitRow)
             // 'active' does NOT mean 'usable'. The chain keeps metering a session
             // past what it was paid for and leaves the row active until someone
             // cancels it or the EndBlocker reaps it — #53647217 read duration
