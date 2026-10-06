@@ -3,6 +3,8 @@ import type { PlanInfo, SubscriptionSummary } from '../../types'
 import { usePlansContext } from '../../contexts/PlansContext'
 import { planPriceDisplay, formatDateUntil } from '../../utils/format'
 import { displayConnectError } from '../../utils/connect-errors'
+import { renewalPolicyLabel } from '../../../shared/renewal-policy'
+import { ReviewModal, Segmented } from '../ConnectReview'
 import Spinner from '../Spinner'
 
 interface Props {
@@ -68,162 +70,155 @@ export default function SubscriptionActionModal({ subscription, plan, locked, on
     }
   }
 
+  // A policy set elsewhere (not one of the two offered here) still shows as selected.
+  const policyOptions: [string, string][] = Object.entries(POLICY_LABELS)
+  if (!(subscription.renewalPricePolicy in POLICY_LABELS)) {
+    policyOptions.push([String(subscription.renewalPricePolicy), renewalPolicyLabel(subscription.renewalPricePolicy)])
+  }
+
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={busy ? undefined : onClose}>
-      <div
-        className="bg-bg-secondary border border-border w-full max-w-md mx-4 p-6 space-y-4 rounded-lg shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-text-primary text-base font-semibold">
-            Subscription #{subscription.id}
-          </h2>
-          {!busy && (
-            <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-lg transition-colors">
-              ×
-            </button>
-          )}
+    <ReviewModal
+      title={`Subscription #${subscription.id}`}
+      subtitle="Renewal, renew now, or cancel"
+      closable={busy === null}
+      onClose={onClose}
+      className="max-w-md"
+    >
+      <div className="space-y-1.5 text-sm">
+        <div className="flex justify-between">
+          <span className="text-text-secondary">Kind</span>
+          <span className="text-text-primary">
+            {isPlanSub ? `Plan #${subscription.planId}` : 'Node subscription (per GB or hourly)'}
+          </span>
         </div>
-
-        <div className="space-y-1.5 text-sm">
+        {subscription.inactiveAt && (
           <div className="flex justify-between">
-            <span className="text-text-secondary">Kind</span>
-            <span className="text-text-primary">
-              {isPlanSub ? `Plan #${subscription.planId}` : 'Node subscription (per GB or hourly)'}
-            </span>
+            <span className="text-text-secondary">Active until</span>
+            <span className="text-text-primary">{formatDateUntil(subscription.inactiveAt)}</span>
           </div>
-          {subscription.inactiveAt && (
-            <div className="flex justify-between">
-              <span className="text-text-secondary">Active until</span>
-              <span className="text-text-primary">{formatDateUntil(subscription.inactiveAt)}</span>
-            </div>
-          )}
+        )}
+      </div>
+
+      {done && (
+        <div className="bg-success/10 border border-success/40 rounded-md px-3 py-2 text-success text-sm">
+          {done}
         </div>
+      )}
 
-        {done && (
-          <div className="bg-success/10 border border-success/40 rounded-md px-3 py-2 text-success text-sm">
-            {done}
-          </div>
-        )}
-
-        {error && (
-          <div className="bg-danger-subtle border border-danger rounded-md px-3 py-2 text-danger text-sm">
-            {displayConnectError(error)}
-          </div>
-        )}
-
-        {/* Renewal policy */}
-        <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="text-text-secondary">Renewal</span>
-          <div className="flex items-center gap-2">
-            <select
-              value={policy}
-              onChange={(e) => setPolicy(parseInt(e.target.value, 10))}
-              disabled={busy !== null || locked}
-              className="bg-bg-tertiary border border-border text-text-primary text-sm px-2 py-1 rounded-sm focus:outline-none focus:border-border-focus"
-            >
-              {Object.entries(POLICY_LABELS).map(([v, label]) => (
-                <option key={v} value={v}>{label}</option>
-              ))}
-            </select>
-            <button
-              onClick={() => run(
-                'policy',
-                () => window.api.subscriptionUpdatePolicy(subscription.id, policy),
-                'Renewal policy updated.',
-              )}
-              disabled={busy !== null || locked || policy === subscription.renewalPricePolicy}
-              className="btn btn-secondary text-xs px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {busy === 'policy' ? <Spinner /> : 'Save'}
-            </button>
-          </div>
+      {error && (
+        <div className="bg-danger-subtle border border-danger rounded-md px-3 py-2 text-danger text-sm">
+          {displayConnectError(error)}
         </div>
+      )}
 
-        {/* Renew now (plan subscriptions only: a node subscription has no plan price). */}
-        {isPlanSub && (
-          confirming === 'renew' ? (
-            <div className="bg-bg-tertiary border border-border rounded-md p-3 space-y-2 text-sm">
-              <p className="text-text-primary">
-                Renew this subscription for another period now?
-                {price?.amount
-                  ? ` This charges ${price.amount} ${price.denomLabel} again.`
-                  : ' This charges the plan price again at its current on-chain rate.'}
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => run(
-                    'renew',
-                    () => window.api.subscriptionRenew(subscription.id, subscription.planId, 'udvpn'),
-                    'Renewed. The new period starts when the current one ends.',
-                  )}
-                  disabled={busy !== null || locked}
-                  className="btn btn-primary flex-1 disabled:opacity-40"
-                >
-                  {busy === 'renew' ? <Spinner /> : 'Renew and pay'}
-                </button>
-                <button onClick={() => setConfirming(null)} disabled={busy !== null} className="btn btn-secondary flex-1">
-                  Keep as is
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => { setDone(null); setConfirming('renew') }}
-              disabled={busy !== null || locked || subscription.status !== 1}
-              className="btn btn-secondary w-full text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Renew now{price?.amount ? ` (${price.amount} ${price.denomLabel})` : ''}
-            </button>
-          )
-        )}
+      {/* Renewal policy */}
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="text-text-secondary">Renewal</span>
+        <div className="flex items-center gap-2">
+          <Segmented
+            label="Renewal"
+            value={String(policy)}
+            options={policyOptions}
+            onChange={(v) => setPolicy(parseInt(v, 10))}
+            disabled={busy !== null || locked}
+          />
+          <button
+            onClick={() => run(
+              'policy',
+              () => window.api.subscriptionUpdatePolicy(subscription.id, policy),
+              'Renewal policy updated.',
+            )}
+            disabled={busy !== null || locked || policy === subscription.renewalPricePolicy}
+            className="btn btn-secondary text-xs px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busy === 'policy' ? <Spinner /> : 'Save'}
+          </button>
+        </div>
+      </div>
 
-        {/* Cancel */}
-        {confirming === 'cancel' ? (
-          <div className="bg-danger-subtle border border-danger rounded-md p-3 space-y-2 text-sm">
-            <p className="text-danger">
-              Cancelling marks the subscription inactive and ends its sessions. It is not an
-              instant refund: the chain settles what was used first, over up to two hours.
+      {/* Renew now (plan subscriptions only: a node subscription has no plan price). */}
+      {isPlanSub && (
+        confirming === 'renew' ? (
+          <div className="bg-bg-tertiary border border-border rounded-md p-3 space-y-2 text-sm">
+            <p className="text-text-primary">
+              Renew this subscription for another period now?
+              {price?.amount
+                ? ` This charges ${price.amount} ${price.denomLabel} again.`
+                : ' This charges the plan price again at its current on-chain rate.'}
             </p>
             <div className="flex gap-2">
               <button
                 onClick={() => run(
-                  'cancel',
-                  () => window.api.subscriptionCancel(subscription.id),
-                  null,
+                  'renew',
+                  () => window.api.subscriptionRenew(subscription.id, subscription.planId, 'udvpn'),
+                  'Renewed. The new period starts when the current one ends.',
                 )}
                 disabled={busy !== null || locked}
-                className="btn btn-danger flex-1 disabled:opacity-40"
+                className="btn btn-primary flex-1 disabled:opacity-40"
               >
-                {busy === 'cancel' ? <Spinner /> : 'Cancel subscription'}
+                {busy === 'renew' ? <Spinner /> : 'Renew and pay'}
               </button>
               <button onClick={() => setConfirming(null)} disabled={busy !== null} className="btn btn-secondary flex-1">
-                Keep it
+                Keep as is
               </button>
             </div>
           </div>
         ) : (
           <button
-            onClick={() => { setDone(null); setConfirming('cancel') }}
+            onClick={() => { setDone(null); setConfirming('renew') }}
             disabled={busy !== null || locked || subscription.status !== 1}
-            className="btn btn-danger w-full text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn btn-secondary w-full text-sm disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Cancel subscription
+            Renew now{price?.amount ? ` (${price.amount} ${price.denomLabel})` : ''}
           </button>
-        )}
+        )
+      )}
 
-        {locked && subscription.status === 1 && (
-          <p className="text-text-tertiary text-xs">
-            Disconnect the VPN to manage this subscription.
+      {/* Cancel */}
+      {confirming === 'cancel' ? (
+        <div className="bg-danger-subtle border border-danger rounded-md p-3 space-y-2 text-sm">
+          <p className="text-danger">
+            Cancelling marks the subscription inactive and ends its sessions. It is not an
+            instant refund: the chain settles what was used first, over up to two hours.
           </p>
-        )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => run(
+                'cancel',
+                () => window.api.subscriptionCancel(subscription.id),
+                null,
+              )}
+              disabled={busy !== null || locked}
+              className="btn btn-danger flex-1 disabled:opacity-40"
+            >
+              {busy === 'cancel' ? <Spinner /> : 'Cancel subscription'}
+            </button>
+            <button onClick={() => setConfirming(null)} disabled={busy !== null} className="btn btn-secondary flex-1">
+              Keep it
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => { setDone(null); setConfirming('cancel') }}
+          disabled={busy !== null || locked || subscription.status !== 1}
+          className="btn btn-danger w-full text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Cancel subscription
+        </button>
+      )}
 
-        {subscription.status !== 1 && (
-          <p className="text-text-tertiary text-xs">
-            This subscription is no longer active, so renewing and cancelling are unavailable.
-          </p>
-        )}
-      </div>
-    </div>
+      {locked && subscription.status === 1 && (
+        <p className="text-text-tertiary text-xs">
+          Disconnect the VPN to manage this subscription.
+        </p>
+      )}
+
+      {subscription.status !== 1 && (
+        <p className="text-text-tertiary text-xs">
+          This subscription is no longer active, so renewing and cancelling are unavailable.
+        </p>
+      )}
+    </ReviewModal>
   )
 }

@@ -141,24 +141,39 @@ function CheckRow({ tone, text, tip, tipLabel, action, body }: Omit<CheckSpec, '
   )
 }
 
-export function Segmented<T extends string>({ label, value, options, onChange }: {
+/**
+ * `disabled` greys the whole switch (a string is the reason, shown on hover), and
+ * `pending` puts a spinner on the option an on-chain change is moving to while the
+ * current value stays selected: the Provider tab's plan status and visibility.
+ */
+export function Segmented<T extends string>({ label, value, options, onChange, disabled, pending }: {
   label: string
   value: T
   options: [T, string][]
   onChange: (v: T) => void
+  disabled?: boolean | string
+  pending?: T | null
 }) {
+  const locked = Boolean(disabled) || (pending !== undefined && pending !== null)
   return (
-    <span role="group" aria-label={label} className="inline-flex p-0.5 bg-bg-primary border border-border rounded-md">
+    <span
+      role="group"
+      aria-label={label}
+      title={typeof disabled === 'string' ? disabled : undefined}
+      className="inline-flex p-0.5 bg-bg-primary border border-border rounded-md"
+    >
       {options.map(([v, text]) => (
         <button
           key={v}
           type="button"
           aria-pressed={value === v}
-          onClick={() => onChange(v)}
-          className={`px-2.5 py-1 text-xs font-medium rounded-sm transition-colors ${
-            value === v ? 'bg-bg-tertiary text-text-primary' : 'text-text-secondary hover:text-text-primary'
-          }`}
+          disabled={locked}
+          onClick={() => { if (v !== value) onChange(v) }}
+          className={`px-2.5 py-1 text-xs font-medium rounded-sm transition-colors inline-flex items-center gap-1.5 disabled:cursor-not-allowed ${
+            value === v ? 'bg-bg-tertiary text-text-primary' : 'text-text-secondary hover:text-text-primary disabled:hover:text-text-secondary'
+          } ${Boolean(disabled) ? 'opacity-60' : ''}`}
         >
+          {pending === v && <Spinner size="sm" />}
           {text}
         </button>
       ))}

@@ -2,9 +2,54 @@ import { useEffect, useState } from 'react'
 import type { LeaseQuote, LeaseSummary, SentNode } from '../../types'
 import { RENEWAL_POLICY_OPTIONS, renewalPolicyLabel, renewalPolicyRefusal } from '../../../shared/renewal-policy'
 import { displayConnectError } from '../../utils/connect-errors'
+import { protocolMeta } from '../../utils/protocols'
 import { formatUdvpn, formatUdvpnAmount } from '../../utils/provider-format'
 import { useConfirm } from '../ConfirmModal'
+import { AmountStepper, FooterReason, Note, ReviewModal, SectionHead } from '../ConnectReview'
+import CountryFlag from '../CountryFlag'
+import ProtocolIcon from '../ProtocolIcon'
 import Spinner from '../Spinner'
+
+/**
+ * The renewal policies a lease can carry, as choices that each say what they mean.
+ * Shared by the Lease and link window and this one, so the rule reads the same
+ * when it is chosen and when it is changed. It replaced a native select whose
+ * options only showed their meaning one at a time, under the box.
+ */
+export function RenewalChoice({ value, onChange, disabled }: {
+  value: number
+  onChange: (policy: number) => void
+  disabled?: boolean
+}) {
+  return (
+    <div role="radiogroup" aria-label="When the hours run out" className="grid grid-cols-2 gap-2">
+      {RENEWAL_POLICY_OPTIONS.map((o) => {
+        const on = value === o.value
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            disabled={disabled}
+            onClick={() => onChange(o.value)}
+            className={`text-left flex gap-2.5 items-start rounded-md border px-3 py-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+              on ? 'border-accent bg-accent-subtle' : 'border-border hover:border-border-focus'
+            }`}
+          >
+            <span className={`mt-0.5 w-3.5 h-3.5 rounded-full border-2 shrink-0 ${
+              on ? 'border-accent bg-accent shadow-[inset_0_0_0_2px_var(--color-bg-secondary)]' : 'border-text-tertiary'
+            }`} />
+            <span className="min-w-0">
+              <span className="block text-sm text-text-primary">{o.label}</span>
+              <span className="block text-[11px] text-text-tertiary">{o.hint}</span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 /**
  * Everything that can be done to a lease after it is bought.
@@ -26,7 +71,7 @@ export default function LeaseManageModal({ lease, node, readOnly, onClose, onDon
   const [quote, setQuote] = useState<LeaseQuote | null>(null)
   const [quoteError, setQuoteError] = useState<string | null>(null)
   const [policy, setPolicy] = useState(lease.renewalPricePolicy)
-  const [hours, setHours] = useState(String(lease.maxHours || 720))
+  const [hours, setHours] = useState(lease.maxHours || 720)
   const [busy, setBusy] = useState<'policy' | 'renew' | 'end' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { requestConfirm, confirmDialog } = useConfirm()
@@ -43,12 +88,11 @@ export default function LeaseManageModal({ lease, node, readOnly, onClose, onDon
     return () => { cancelled = true }
   }, [lease.nodeAddress])
 
-  const hourCount = Number(hours)
   const validHours =
-    Number.isInteger(hourCount) &&
-    hourCount >= (quote?.minHours ?? 1) &&
-    hourCount <= (quote?.maxHours ?? 720)
-  const extendTotal = quote && validHours ? String(BigInt(quote.hourlyPrice) * BigInt(hourCount)) : null
+    Number.isInteger(hours) &&
+    hours >= (quote?.minHours ?? 1) &&
+    hours <= (quote?.maxHours ?? 720)
+  const extendTotal = quote && validHours ? String(BigInt(quote.hourlyPrice) * BigInt(hours)) : null
 
   // The chain applies this to a hand-sent MsgRenewLease exactly as it does to the
   // automatic one, so an Extend button that ignored it would just buy a rejection.
@@ -81,7 +125,7 @@ export default function LeaseManageModal({ lease, node, readOnly, onClose, onDon
 
   async function handleRenew() {
     if (!(await requestConfirm({
-      title: `Extend lease #${lease.id} to ${hourCount} hours?`,
+      title: `Extend lease #${lease.id} to ${hours} hours?`,
       body: [
         `Cost: ${extendTotal ? formatUdvpnAmount(extendTotal) : 'unknown'} escrowed now.`,
         'The chain does not add to the hours you have left: it refunds what is unspent and charges for the whole new term, starting from zero.',
@@ -89,7 +133,7 @@ export default function LeaseManageModal({ lease, node, readOnly, onClose, onDon
       ],
       confirmLabel: 'Extend lease',
     }))) return
-    await act('renew', () => window.api.leaseRenew(lease.id, hourCount))
+    await act('renew', () => window.api.leaseRenew(lease.id, hours))
   }
 
   async function handleEnd() {
@@ -107,129 +151,110 @@ export default function LeaseManageModal({ lease, node, readOnly, onClose, onDon
   }
 
   const anyBusy = busy !== null
+  const used = lease.maxHours > 0 ? Math.min(1, lease.hours / lease.maxHours) : 0
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={anyBusy ? undefined : onClose}>
-      <div
-        className="bg-bg-secondary border border-border w-full max-w-md mx-4 p-6 space-y-4 rounded-lg shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-text-primary text-base font-semibold">Lease #{lease.id}</h2>
-          {!anyBusy && (
-            <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-lg transition-colors">
-              ×
-            </button>
+    <ReviewModal
+      title={`Lease #${lease.id}`}
+      subtitle="Renew automatically, extend now, or stop"
+      closable={!anyBusy}
+      onClose={onClose}
+      footer={readOnly ? <FooterReason tone="muted" text="Disconnect the VPN to change this lease." /> : undefined}
+    >
+      <div className="bg-bg-primary border border-border rounded-md px-3.5 py-3 space-y-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {node && <CountryFlag country={node.country} />}
+          <span className="text-sm text-text-primary truncate">{node?.moniker || lease.nodeAddress}</span>
+          {node && (
+            <span className="flex items-center gap-1 text-xs text-text-tertiary shrink-0">
+              <ProtocolIcon type={node.type} className={`w-3 h-3 ${protocolMeta(node.type).color}`} />
+              {protocolMeta(node.type).label}
+            </span>
           )}
         </div>
-
-        <div className="space-y-1.5 text-sm">
-          <Line label="Node" value={node?.moniker || lease.nodeAddress} />
-          <Line label="Hours used" value={`${lease.hours} of ${lease.maxHours}`} />
-          <Line label="Bought at" value={`${formatUdvpn(lease.hourlyPrice)}/h`} />
-          <Line
-            label="Node charges now"
-            value={quote ? `${formatUdvpn(quote.hourlyPrice)}/h` : quoteError ? 'unavailable' : '…'}
-          />
-          <Line label="Renewal" value={renewalPolicyLabel(lease.renewalPricePolicy)} />
+        <div className="flex items-center gap-2.5">
+          <span className="flex-1 h-1.5 rounded-full bg-bg-tertiary relative">
+            <span className="absolute inset-y-0 left-0 rounded-full bg-accent" style={{ width: `${used * 100}%` }} />
+          </span>
+          <span className="font-mono text-xs text-text-secondary whitespace-nowrap">{lease.hours} of {lease.maxHours} hours used</span>
         </div>
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs">
+          <dt className="text-text-tertiary">Bought at</dt>
+          <dd className="text-text-primary font-mono">{formatUdvpn(lease.hourlyPrice)}/h</dd>
+          <dt className="text-text-tertiary">Node charges now</dt>
+          <dd className="text-text-primary font-mono">{quote ? `${formatUdvpn(quote.hourlyPrice)}/h` : quoteError ? 'unavailable' : '…'}</dd>
+          <dt className="text-text-tertiary">Renewal</dt>
+          <dd className="text-text-primary">{renewalPolicyLabel(lease.renewalPricePolicy)}</dd>
+        </dl>
+      </div>
 
-        {refusal && (
-          <div className="bg-warning/10 border border-warning/40 rounded-sm px-3 py-2">
-            <p className="text-warning text-xs">{refusal}</p>
-          </div>
-        )}
+      {refusal && <Note>{refusal}</Note>}
 
-        <div className="border-t border-border pt-4 space-y-2">
-          <span className="text-text-secondary text-xs font-medium uppercase tracking-wide">Renewal policy</span>
-          <select
-            value={policy}
-            disabled={anyBusy}
-            onChange={(e) => setPolicy(Number(e.target.value))}
-            className="w-full bg-bg-tertiary border border-border text-text-primary text-sm px-3 py-2 rounded-sm focus:outline-none focus:border-border-focus disabled:opacity-40"
-          >
-            {RENEWAL_POLICY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <p className="text-text-tertiary text-[11px]">
-            {RENEWAL_POLICY_OPTIONS.find((o) => o.value === policy)?.hint}
-          </p>
+      <section>
+        <SectionHead title="When the hours run out" />
+        <RenewalChoice value={policy} onChange={setPolicy} disabled={anyBusy} />
+        <div className="flex justify-end mt-2">
           <button
             type="button"
-            onClick={handlePolicy}
+            onClick={() => void handlePolicy()}
             disabled={anyBusy || readOnly || policy === lease.renewalPricePolicy}
-            className="btn btn-secondary text-xs py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn btn-secondary text-xs py-1.5 px-3 inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
           >
+            {busy === 'policy' && <Spinner size="sm" />}
             {busy === 'policy' ? 'Saving…' : 'Change policy'}
           </button>
         </div>
+      </section>
 
-        <div className="border-t border-border pt-4 space-y-2">
-          <span className="text-text-secondary text-xs font-medium uppercase tracking-wide">Extend now</span>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              value={hours}
-              disabled={anyBusy || Boolean(refusal)}
-              onChange={(e) => setHours(e.target.value)}
-              className="w-24 bg-bg-tertiary border border-border text-text-primary text-sm px-3 py-2 rounded-sm focus:outline-none focus:border-border-focus disabled:opacity-40"
-            />
-            <span className="text-text-secondary text-xs">hours</span>
-            <span className="flex-1" />
-            <button
-              type="button"
-              onClick={handleRenew}
-              disabled={anyBusy || readOnly || Boolean(refusal) || !validHours || !quote}
-              className="btn btn-primary text-xs py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
-              title={refusal ?? undefined}
-            >
-              {busy === 'renew'
-                ? 'Extending…'
-                : extendTotal
-                  ? `Extend for ${formatUdvpnAmount(extendTotal)}`
-                  : quote ? 'Extend' : 'Pricing…'}
-            </button>
-          </div>
+      <section>
+        <SectionHead title="Extend now" />
+        <AmountStepper label="New term" amount={hours} onChange={setHours} unit="hours" presets={[24, 168, 720]} />
+        <div className="flex items-center justify-between gap-3 mt-2.5">
           <p className="text-text-tertiary text-[11px]">
             This replaces the term rather than adding to it: the chain refunds the unspent escrow and
-            charges for the full new stretch. The field starts at the length you originally bought.
+            charges for the full new stretch. It starts at the length you originally bought.
           </p>
-        </div>
-
-        {readOnly && <p className="text-text-tertiary text-xs">Disconnect the VPN to change this lease.</p>}
-
-        {(error || quoteError) && (
-          <div className="bg-danger-subtle border border-danger rounded-sm px-3 py-2">
-            <p className="text-danger text-xs">{displayConnectError(error ?? quoteError ?? '')}</p>
-          </div>
-        )}
-
-        <div className="border-t border-border pt-4">
           <button
             type="button"
-            onClick={handleEnd}
+            onClick={() => void handleRenew()}
+            disabled={anyBusy || readOnly || Boolean(refusal) || !validHours || !quote}
+            className="btn btn-primary text-xs py-1.5 px-3 shrink-0 inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={refusal ?? (!validHours && quote ? `The chain allows ${quote.minHours} to ${quote.maxHours} hours` : undefined)}
+          >
+            {busy === 'renew' && <Spinner size="sm" />}
+            {busy === 'renew'
+              ? 'Extending…'
+              : extendTotal
+                ? `Extend for ${formatUdvpnAmount(extendTotal)}`
+                : quote ? 'Extend' : 'Pricing…'}
+          </button>
+        </div>
+      </section>
+
+      <section>
+        <SectionHead title="Stop" />
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-text-tertiary text-[11px]">
+            Refunds the unspent escrow, and unlinks this node from every plan it serves.
+          </p>
+          <button
+            type="button"
+            onClick={() => void handleEnd()}
             disabled={anyBusy || readOnly}
-            className="btn btn-danger text-xs py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+            className="btn btn-danger text-xs py-1.5 px-3 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {busy === 'end' && <Spinner size="sm" />}
             {busy === 'end' ? 'Ending…' : 'End lease'}
           </button>
-          <p className="text-text-tertiary text-[11px] mt-1.5">
-            Refunds the unspent escrow, and unlinks this node from every plan it serves.
-          </p>
         </div>
-      </div>
-      {confirmDialog}
-    </div>
-  )
-}
+      </section>
 
-function Line({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <span className="text-text-secondary shrink-0">{label}</span>
-      <span className="text-text-primary truncate">{value}</span>
-    </div>
+      {(error || quoteError) && (
+        <div className="bg-danger-subtle border border-danger rounded-md px-3 py-2">
+          <p className="text-danger text-xs">{displayConnectError(error ?? quoteError ?? '')}</p>
+        </div>
+      )}
+      {confirmDialog}
+    </ReviewModal>
   )
 }

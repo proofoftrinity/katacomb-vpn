@@ -1,19 +1,19 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import type { ProviderState } from '../../hooks/useProvider'
 import { useConnection } from '../../hooks/useConnection'
 import { useRpcHealth } from '../../hooks/useRpcHealth'
 import { isChainUnreachable } from '../../../shared/rpc-health'
 import { providerDetailsProblem } from '../../../shared/provider-details'
 import { displayConnectError } from '../../utils/connect-errors'
-import { STATUS_ACTIVE, formatUdvpn, formatUdvpnAmount } from '../../utils/provider-format'
+import { STATUS_ACTIVE, formatUdvpn } from '../../utils/provider-format'
 import { providerSetupSteps, setupComplete, type SetupStep } from '../../utils/provider-setup'
-import type { ProviderDetailsInput, ProviderEconomics } from '../../types'
+import type { ProviderDetailsInput } from '../../types'
 import ChainUnreachable from '../ChainUnreachable'
 import { useConfirm } from '../ConfirmModal'
-import InfoTip from '../InfoTip'
 import Spinner from '../Spinner'
 import ProviderDetailsFields from './ProviderDetailsFields'
-import ProviderIdentityCard from './ProviderIdentityCard'
+import ProviderIdentityCard, { useProviderStatus } from './ProviderIdentityCard'
+import { AlertIcon, CheckIcon } from '../Icons'
 import ProviderPlans from './ProviderPlans'
 import type { NodeActionState } from './PlanNodesManager'
 
@@ -55,6 +55,8 @@ export default function ProviderConsole({
   // Per-plan linked-node counters live in ProviderPlans, but the setup path needs
   // their total, so the confirmed count is lifted here. null = not confirmed.
   const [confirmedLinkedNodes, setConfirmedLinkedNodes] = useState<number | null>(null)
+  // One status control for the bar's button and the workspace's "Activate provider".
+  const status = useProviderStatus(plans, leases, refresh)
 
   if (loading && !provider) {
     return (
@@ -115,26 +117,27 @@ export default function ProviderConsole({
     <div className="h-full flex flex-col overflow-hidden">
       <ProviderIdentityCard
         provider={provider}
-        plans={plans}
-        leases={leases}
+        economics={economics}
         stale={readOnly}
         fetchedAt={fetchedAt}
+        status={status}
         onRefresh={refresh}
         onChanged={refresh}
       />
-      <EconomicsTiles economics={economics} onRetry={refresh} stale={readOnly} />
       {readOnly ? (
-        <Banner>
-          Showing cached data: the chain is not reachable while the VPN is connected. Reads stay
-          available, actions need you to disconnect first.
-        </Banner>
-      ) : !active ? (
-        <Banner>
-          Your provider is inactive, so the chain refuses new plans, plan activations and leases.
-          Activate to change any of that.
-        </Banner>
-      ) : null}
-      {!readOnly && !setupComplete(steps) && <SetupPath steps={steps} />}
+        <div className="px-5 py-1.5 border-b border-border bg-warning-subtle shrink-0">
+          <p className="text-warning text-xs">
+            Showing cached data: the chain is not reachable while the VPN is connected. Reads stay
+            available, actions need you to disconnect first.
+          </p>
+        </div>
+      ) : !setupComplete(steps) && (
+        // Shown only while incomplete. An inactive provider always lands here, since
+        // Activate is one of the steps, which is what replaced the separate banner.
+        <div className="px-5 py-3 border-b border-border shrink-0">
+          <SetupRoute steps={steps} />
+        </div>
+      )}
       <ProviderPlans
         plans={plans}
         leases={leases}
@@ -145,130 +148,66 @@ export default function ProviderConsole({
         onChanged={refresh}
         onLinkedNodesCounted={setConfirmedLinkedNodes}
         nodeAction={nodeAction}
+        onActivateProvider={() => void status.setStatus(true)}
+        activatingProvider={status.pendingTarget === true}
       />
+      {status.confirmDialog}
     </div>
   )
 }
+
+// Written out in full for Tailwind: the Multi-hop route's discs and links, so the
+// setup path reads as the same kind of picture (global.css .route-disc / .route-link).
+const STEP_DISC: Record<SetupStep['state'], string> = {
+  done: 'route-disc route-disc-ok',
+  next: 'route-disc route-disc-done',
+  unknown: 'route-disc route-disc-waiting',
+  later: 'route-disc route-disc-waiting',
+}
+const STEP_LABEL: Record<SetupStep['state'], string> = {
+  done: 'text-text-tertiary',
+  next: 'text-text-primary font-medium',
+  unknown: 'text-text-tertiary',
+  later: 'text-text-tertiary',
+}
+const LINK_LIT = 'route-link route-link-lit'
+const LINK_DIM = 'route-link route-link-dim'
 
 /**
- * The money band: what the leased nodes cost to keep, and what the plans have
- * brought in.
- *
- * There is deliberately no profit line. The chain deletes a lease once it ends, so
- * lifetime spend can't be reconstructed — subtracting the costs we *can* still see
- * from complete revenue would report a business as healthier than it is. Burn and
- * revenue are shown side by side and the break-even line on the plan form does the
- * comparison that is actually sound.
+ * The provider lifecycle as a route, one disc per step, recomputed from chain state on
+ * every render: the guided flow, without any stored progress to get out of sync. The
+ * line under it says what the next step is. Activate is the step that blocks the rest,
+ * so while it is next the line is amber: it replaced the "Your provider is inactive"
+ * banner.
  */
-function EconomicsTiles({ economics, onRetry, stale }: {
-  economics: ProviderEconomics | null
-  onRetry: () => Promise<void>
-  stale: boolean
-}) {
-  if (!economics) {
-    return (
-      <div className="px-5 py-3 border-b border-border bg-bg-secondary shrink-0 flex items-center gap-3">
-        <div className="bg-warning/10 border border-warning/40 rounded-md px-3 py-1.5">
-          <p className="text-warning text-xs">The money figures could not be read from the chain just now.</p>
-        </div>
-        {!stale && (
-          <button type="button" onClick={() => void onRetry()} className="btn btn-secondary text-xs py-1 px-2.5">
-            Retry
-          </button>
-        )}
-      </div>
-    )
-  }
-
-  const idle = economics.activeLeases === 0
-  return (
-    <div className="px-5 py-3 border-b border-border bg-bg-secondary shrink-0">
-      <div className="flex items-start gap-8 flex-wrap">
-        <Tile
-          label="Burn"
-          value={idle ? 'None' : `${formatUdvpnAmount(economics.burnDailyUdvpn)} / day`}
-          note={idle ? 'no nodes leased yet' : `${economics.activeLeases} lease${economics.activeLeases === 1 ? '' : 's'} running`}
-        />
-        <Tile
-          label="Committed"
-          value={idle ? 'None' : formatUdvpnAmount(economics.committedUdvpn)}
-          note={idle ? 'nothing escrowed yet' : 'refunded if you end the leases'}
-        />
-        <Tile
-          label="Revenue"
-          value={economics.estimatedRevenueUdvpn === '0' ? 'None' : `≈ ${formatUdvpnAmount(economics.estimatedRevenueUdvpn)}`}
-          note={`${economics.subscriptions} subscription${economics.subscriptions === 1 ? '' : 's'} sold`}
-        />
-        <span className="ml-auto self-start">
-          <InfoTip label="how these figures are computed">
-            Revenue is subscriptions sold, times the plan price, less the share the chain keeps. It is
-            a floor: renewals may charge again without creating a new subscription. You pay nodes by
-            the hour whether or not anyone connects, but sell plans by the gigabyte, so extra
-            subscribers on nodes you already lease cost you nothing more until the nodes run out of
-            bandwidth.
-          </InfoTip>
-        </span>
-      </div>
-    </div>
-  )
-}
-
-function Tile({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <div>
-      <div className="text-text-tertiary text-[10px] font-medium uppercase tracking-wide">{label}</div>
-      <div className="text-text-primary text-lg leading-snug">{value}</div>
-      <div className="text-text-tertiary text-[11px]">{note}</div>
-    </div>
-  )
-}
-
-function Banner({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-5 py-2 border-b border-border bg-warning/10 shrink-0">
-      <p className="text-warning text-xs">{children}</p>
-    </div>
-  )
-}
-
-/**
- * The provider lifecycle as the chain sees it, one glyph per step. Recomputed
- * from chain state on every render and shown only while incomplete — this is the
- * guided flow, without any stored progress to get out of sync.
- */
-function SetupPath({ steps }: { steps: SetupStep[] }) {
+function SetupRoute({ steps }: { steps: SetupStep[] }) {
   const next = steps.find((s) => s.state === 'next')
   return (
-    <div className="px-5 py-2 border-b border-border bg-bg-secondary shrink-0">
-      <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
-        <span className="text-text-tertiary text-[10px] font-medium uppercase tracking-wide">Setup</span>
-        {steps.map((step) => (
-          <span key={step.key} className="flex items-center gap-1.5 text-xs" title={step.detail}>
-            <StepGlyph state={step.state} />
-            <span
-              className={
-                step.state === 'next'
-                  ? 'text-text-primary font-medium'
-                  : step.state === 'done'
-                    ? 'text-text-tertiary'
-                    : 'text-text-tertiary/70'
-              }
-            >
-              {step.label}
+    <div>
+      <div role="list" aria-label="Provider setup" className="flex items-center max-w-4xl">
+        {steps.map((step, i) => (
+          <Fragment key={step.key}>
+            {i > 0 && (
+              <span className={`${steps[i - 1].state === 'done' ? LINK_LIT : LINK_DIM} flex-1 min-w-[14px] mx-2`} />
+            )}
+            <span role="listitem" className="flex items-center gap-2 shrink-0" title={step.detail}>
+              <span className={`${STEP_DISC[step.state]} w-6 h-6`}>
+                {step.state === 'done' ? <CheckIcon className="w-3 h-3 text-success" />
+                  : step.state === 'unknown' ? <AlertIcon className="w-3 h-3 text-warning" />
+                    : <span className={`font-mono text-[11px] ${step.state === 'next' ? 'text-accent' : ''}`}>{i + 1}</span>}
+              </span>
+              <span className={`text-xs whitespace-nowrap ${STEP_LABEL[step.state]}`}>{step.label}</span>
             </span>
-          </span>
+          </Fragment>
         ))}
       </div>
-      {next && <p className="text-text-tertiary text-[11px] mt-1">{next.detail}</p>}
+      {next && (
+        <p className={`text-xs mt-2 ${next.key === 'activate' ? 'text-warning' : 'text-text-secondary'}`}>
+          Next: {next.detail}
+        </p>
+      )}
     </div>
   )
-}
-
-function StepGlyph({ state }: { state: SetupStep['state'] }) {
-  if (state === 'done') return <span className="text-success text-[11px] leading-none">✓</span>
-  if (state === 'next') return <span className="status-dot status-dot-pending" />
-  if (state === 'unknown') return <span className="text-text-tertiary text-[11px] leading-none">?</span>
-  return <span className="w-1.5 h-1.5 rounded-full border border-border inline-block" />
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
@@ -353,16 +292,18 @@ function ProviderOnboarding({ address, steps, readOnly, onRegistered }: {
 
   return (
     <div className="h-full overflow-y-auto px-8 py-8">
-      <div className="max-w-xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-6">
         <div>
           <h2 className="text-text-primary text-lg font-semibold">Become a provider</h2>
-          <p className="text-text-secondary text-sm mt-2">
+          <p className="text-text-secondary text-sm mt-2 max-w-2xl">
             A provider publishes subscription plans on the Sentinel chain. Subscribers pay you for a plan;
             you cover them with bandwidth by leasing nodes and linking those nodes to the plan.
           </p>
         </div>
 
-        <SetupPath steps={steps} />
+        <div className="border border-border bg-bg-secondary rounded-md px-4 py-3">
+          <SetupRoute steps={steps} />
+        </div>
 
         {readOnly && (
           <div className="bg-warning/10 border border-warning/40 rounded-md px-3 py-2">
@@ -372,57 +313,64 @@ function ProviderOnboarding({ address, steps, readOnly, onRegistered }: {
           </div>
         )}
 
-        <dl className="border border-border bg-bg-secondary rounded-md divide-y divide-border text-sm">
-          <Row label="Your provider address">
-            <span className="font-mono text-xs text-accent break-all">{address}</span>
-          </Row>
-          <Row label="Registration deposit">
-            <span className="text-text-primary">{depositLabel}</span>
-          </Row>
-        </dl>
+        {/* What it costs and what it binds you to on the left, the record on the right.
+            They stack below 900px, where two columns would squeeze the form. */}
+        <div className="grid grid-cols-1 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-6 items-start">
+          <div className="space-y-4">
+            <dl className="border border-border bg-bg-secondary rounded-md divide-y divide-border text-sm">
+              <Row label="Your provider address">
+                <span className="font-mono text-xs text-accent break-all">{address}</span>
+              </Row>
+              <Row label="Registration deposit">
+                <span className="text-text-primary">{depositLabel}</span>
+              </Row>
+            </dl>
 
-        {deposit === 'failed' && (
-          <div className="flex items-center gap-3">
-            <div className="bg-danger-subtle border border-danger rounded-md px-3 py-1.5 flex-1">
-              <p className="text-danger text-xs">
-                The registration deposit could not be read from the chain, so registering is disabled.
-              </p>
-            </div>
-            <button type="button" onClick={loadDeposit} className="btn btn-secondary text-xs py-1.5 px-3">
-              Retry
+            {deposit === 'failed' && (
+              <div className="flex items-center gap-3">
+                <div className="bg-danger-subtle border border-danger rounded-md px-3 py-1.5 flex-1">
+                  <p className="text-danger text-xs">
+                    The registration deposit could not be read from the chain, so registering is disabled.
+                  </p>
+                </div>
+                <button type="button" onClick={loadDeposit} className="btn btn-secondary text-xs py-1.5 px-3">
+                  Retry
+                </button>
+              </div>
+            )}
+
+            <p className="text-text-tertiary text-xs">
+              The provider address is your wallet address in provider form, and the same key signs for both.
+              The deposit is set by chain governance and is paid into the community pool, so it cannot be
+              reclaimed by deactivating later. There is no way to remove a provider from the chain once it
+              exists, so registering is a one-way step.
+            </p>
+            <p className="text-text-tertiary text-xs">
+              You will be inactive right after registering: a second transaction activates you. Plans can only
+              go live while the provider is active.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            <ProviderDetailsFields details={details} onChange={setDetails} disabled={busy} />
+
+            {error && (
+              <div className="bg-danger-subtle border border-danger rounded-md px-3 py-2">
+                <p className="text-danger text-xs">{displayConnectError(error)}</p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleRegister}
+              disabled={busy || Boolean(problem) || !depositKnown || readOnly}
+              className="btn btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed"
+              title={problem ?? undefined}
+            >
+              {busy ? 'Registering…' : depositKnown ? `Register provider (${depositLabel})` : 'Register provider'}
             </button>
           </div>
-        )}
-
-        <p className="text-text-tertiary text-xs">
-          The provider address is your wallet address in provider form, and the same key signs for both.
-          The deposit is set by chain governance and is paid into the community pool, so it cannot be
-          reclaimed by deactivating later. There is no way to remove a provider from the chain once it
-          exists, so registering is a one-way step.
-        </p>
-
-        <ProviderDetailsFields details={details} onChange={setDetails} disabled={busy} />
-
-        {error && (
-          <div className="bg-danger-subtle border border-danger rounded-md px-3 py-2">
-            <p className="text-danger text-xs">{displayConnectError(error)}</p>
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={handleRegister}
-          disabled={busy || Boolean(problem) || !depositKnown || readOnly}
-          className="btn btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed"
-          title={problem ?? undefined}
-        >
-          {busy ? 'Registering…' : depositKnown ? `Register provider (${depositLabel})` : 'Register provider'}
-        </button>
-
-        <p className="text-text-tertiary text-xs">
-          You will be inactive right after registering: a second transaction activates you. Plans can only
-          go live while the provider is active.
-        </p>
+        </div>
       </div>
       {confirmDialog}
     </div>
