@@ -339,6 +339,44 @@ export function isTunnelOneWay(txSinceLastRx: number, msSinceLastRx: number): bo
   return txSinceLastRx >= ONE_WAY_TX_FLOOR_BYTES && msSinceLastRx >= ONE_WAY_SILENCE_MS
 }
 
+/** How long before the chain closes a chain's exit hop the user is warned. */
+export const CHAIN_DEADLINE_WARN_MS = 10 * 60_000
+/**
+ * How long past the exit's deadline before the tunnel is tested. The EndBlocker closes
+ * a session on the first block after its inactiveAt, and blocks are seconds apart, so a
+ * test right at the deadline would usually find the exit still serving.
+ */
+export const CHAIN_DEADLINE_SLACK_MS = 30_000
+/** A test that passed holds the next one off this long. */
+export const CHAIN_DEADLINE_RECHECK_MS = 60_000
+
+/**
+ * What the quota loop should do about a chain's exit-hop deadline on this tick.
+ *
+ * The exit hop never reports usage (docs/multihop.md, three chains, three exit nodes,
+ * all zero), and on an active row `inactiveAt` is the last proof + statusTimeout, so
+ * the chain closes the exit at its purchase + statusTimeout whatever the user does.
+ * The entry proves, so its deadline is always later; the exit's is the chain's end.
+ *
+ * 'check' is a TEST, never a verdict: the caller stands down only when the tunnel
+ * fails it. That is what makes reading the deadline off a row frozen since before the
+ * connect safe: if an exit did prove after all, its real deadline moved later, the
+ * tunnel still works, and the test passes. The cost of being wrong is one early warning.
+ */
+export function chainDeadlineStep(input: {
+  nowMs: number
+  /** The exit hop's inactiveAt. */
+  deadlineMs: number
+  warned: boolean
+  /** A test that passed holds the next one off until this moment. 0 when none has. */
+  recheckAtMs: number
+}): 'none' | 'warn' | 'check' {
+  const { nowMs, deadlineMs, warned, recheckAtMs } = input
+  if (nowMs >= deadlineMs + CHAIN_DEADLINE_SLACK_MS) return nowMs >= recheckAtMs ? 'check' : 'none'
+  if (!warned && nowMs >= deadlineMs - CHAIN_DEADLINE_WARN_MS) return 'warn'
+  return 'none'
+}
+
 /**
  * A kernel WireGuard peer whose last completed handshake is this old is gone. Not a
  * tuned number: WireGuard refuses a keypair older than RejectAfterTime (180 s) for

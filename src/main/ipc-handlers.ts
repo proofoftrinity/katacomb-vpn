@@ -39,7 +39,7 @@ import { openChainFlow } from './chain/chain-clients'
 import type { SentinelClient } from '@sentinel-official/sentinel-js-sdk'
 import type https from 'node:https'
 import { withTimeout } from './async-utils'
-import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, evaluateQuota, serviceTypeToNodeType, stripDnsLines, replaceDnsLines, isTunnelOneWay, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, shouldRetrySessionHandshake, HANDSHAKE_RETRY_DELAY_MS, REFUND_FAILED_TAIL, type QuotaVerdict } from './vpn/connect-decisions'
+import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, evaluateQuota, serviceTypeToNodeType, stripDnsLines, replaceDnsLines, isTunnelOneWay, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs, chainDeadlineStep, CHAIN_DEADLINE_RECHECK_MS, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, shouldRetrySessionHandshake, HANDSHAKE_RETRY_DELAY_MS, REFUND_FAILED_TAIL, type QuotaVerdict } from './vpn/connect-decisions'
 import { discoverPlans, listCachedPlans, listNodesForPlan, listPlansForNode, subscribeToPlan, startSessionWithExistingSubscription, cancelSubscription, renewSubscription, updateSubscriptionPolicy, getPlanOverview, getCachedPlanNodes, TX_TIMEOUT_MESSAGE as PLAN_TX_TIMEOUT_MESSAGE, type PlanOverview } from './plans/plan-service'
 import { rankPlanCandidates, shouldTryNextCandidate, ladderNextTx, smartConnectFailureSummary, type PlanNodeCandidate, type SmartConnectFailure } from './plans/plan-connect'
 import { getCachedPlans } from './plans/plan-cache'
@@ -440,6 +440,11 @@ let activeQuota: ActiveQuota | null = null
 // live counters, which is exact rather than conservative. Whichever runs out first
 // stands the chain down (see currentQuotaVerdict).
 let activeExitQuota: ActiveQuota | null = null
+// MULTIHOP: when the chain closes the exit hop, read off its row (see
+// checkChainExitDeadline). Keyed by session id like activeExitQuota, so an
+// auto-reconnect keeps the warning it already gave.
+let exitDeadline: { sessionId: string; atMs: number; warned: boolean; recheckAtMs: number } | null = null
+let exitDeadlineProbeInFlight = false
 let quotaWarned = false
 let quotaTimer: ReturnType<typeof setInterval> | null = null
 // When the CURRENT tunnel came up. The quota watchdog measures elapsed session time
@@ -456,10 +461,16 @@ let connectedAtMs: number | null = null
 let lastExpiry: {
   sessionId: string
   nodeMoniker: string
-  reason: 'time' | 'data' | 'stalled' | 'dropped'
+  reason: 'time' | 'data' | 'stalled' | 'dropped' | 'hop-closed'
   trafficBlocked: boolean
   /** MULTIHOP: which end of the chain ran out. Absent for an ordinary session. */
   chainRole?: 'entry' | 'exit'
+  /**
+   * MULTIHOP: the tunnel was a chain, even when no hop could be named (a stall). The
+   * single-hop advice, "your session is still open, reconnect", is wrong for a chain
+   * that has lost a hop, so the banner needs to know.
+   */
+  chain?: boolean
 } | null = null
 
 // Quota is coarse — the 5s interface poll is not a useful cadence for it.
@@ -560,6 +571,18 @@ function startQuotaWatchdog(): void {
     const exitRow = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === activeExitSessionId)
     activeExitQuota = exitRow ? quotaFromSessionRow(exitRow) : null
   }
+  // MULTIHOP: the exit's deadline, from the same row. A fresh chain primes the cache
+  // before it connects, and a reconnect reads it while disconnected, so the row is
+  // there either way.
+  if (!activeExitSessionId) {
+    exitDeadline = null
+  } else if (exitDeadline?.sessionId !== activeExitSessionId) {
+    const exitRow = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === activeExitSessionId)
+    const atMs = exitRow?.inactiveAt ? new Date(exitRow.inactiveAt).getTime() : NaN
+    exitDeadline = Number.isFinite(atMs)
+      ? { sessionId: activeExitSessionId, atMs, warned: false, recheckAtMs: 0 }
+      : null
+  }
   // Before the timer guard: an auto-reconnect re-enters here with the timer already
   // running, and the clock still has to start on the first bring-up of the session.
   connectedAtMs ??= Date.now()
@@ -579,6 +602,8 @@ function startQuotaWatchdog(): void {
     }
     // Fire-and-forget: it awaits a daemon round trip and stands down on its own.
     void checkWireGuardHandshake()
+    // Same shape: it may await a tunnel test.
+    void checkChainExitDeadline()
     const scored = currentQuotaVerdict()
     if (!scored) return
     const verdict = scored.verdict
@@ -745,6 +770,59 @@ async function checkWireGuardHandshake(): Promise<void> {
   }
 }
 
+/**
+ * MULTIHOP: the end of a chain, seen coming.
+ *
+ * The chain closes the exit hop on a deadline its row already holds (see
+ * chainDeadlineStep), and the tunnel dies then whatever the quota says. Nothing else
+ * here notices in time: evaluateQuota scores bytes and time, and checkTunnelStalled
+ * needs rx to stay silent, which the resets tun2socks writes back once the exit is
+ * gone can prevent (docs/invariants/reliability.md). Left alone, the user sat on
+ * "Connected" with nothing getting through, then got a stall banner naming the ENTRY
+ * and advising a reconnect that rebuilds the same dead chain.
+ *
+ * So warn ahead of it, and once it has passed, test the tunnel exactly as a bring-up
+ * is tested (the IP-literal probe and the rx floor were sized for this failure) and
+ * stand down naming the exit when it fails. Local-proxy mode is skipped: there is no
+ * tunnel to test, and a direct probe would always pass. It still gets the warning.
+ */
+async function checkChainExitDeadline(): Promise<void> {
+  const deadline = exitDeadline
+  const exitId = activeExitSessionId
+  if (!deadline || !exitId || deadline.sessionId !== exitId) return
+  const step = chainDeadlineStep({
+    nowMs: Date.now(),
+    deadlineMs: deadline.atMs,
+    warned: deadline.warned,
+    recheckAtMs: deadline.recheckAtMs,
+  })
+  if (step === 'warn') {
+    deadline.warned = true
+    const mins = Math.max(1, Math.round((deadline.atMs - Date.now()) / 60_000))
+    notify('Katacomb VPN', `Your chain stops in about ${mins} minute${mins === 1 ? '' : 's'}, when the blockchain closes its exit hop.`)
+    // Nudge the renderer to re-poll, as the quota warning does.
+    sendStateChange('connected')
+    return
+  }
+  if (step !== 'check' || exitDeadlineProbeInFlight || desiredMode !== 'tunnel') return
+  exitDeadlineProbeInFlight = true
+  const myEpoch = connectionEpoch
+  try {
+    const alive = await tunnelCarriesTraffic()
+    // Disconnected, or a newer lifecycle began, while the test was in flight.
+    if (connectionEpoch !== myEpoch || isIntentionalDisconnect || reconnectAttempt > 0 || activeExitSessionId !== exitId) return
+    if (alive) {
+      // Still serving: it proved after all, or the EndBlocker has not run yet.
+      deadline.recheckAtMs = Date.now() + CHAIN_DEADLINE_RECHECK_MS
+      return
+    }
+    console.error(`[vpn] chain exit #${exitId} is past its deadline and the tunnel carries nothing — the chain closed it`)
+    void standDownSession('hop-closed', exitId)
+  } finally {
+    exitDeadlineProbeInFlight = false
+  }
+}
+
 /** "10 minutes" / "1.2 GB" — the remaining-quota phrase for the warning notification. */
 function describeRemaining(reason: 'time' | 'data', remaining: number): string {
   if (reason === 'time') {
@@ -805,9 +883,10 @@ function notify(title: string, body: string): void {
  * from a chain stranded by a crash) and must NOT be weakened to preserve this state.
  */
 async function standDownSession(
-  reason: 'time' | 'data' | 'stalled' | 'dropped',
+  reason: 'time' | 'data' | 'stalled' | 'dropped' | 'hop-closed',
   /**
-   * MULTIHOP: the hop whose quota actually ran out, when that is known. Both hops are
+   * MULTIHOP: the hop whose quota actually ran out (or, for 'hop-closed', the exit the
+   * chain closed), when that is known. Both hops are
    * separate nodes on separate deposits, so reporting the entry's name for an exit
    * expiry sends the user off to replace the wrong one. Absent for a stall, which
    * nothing can attribute to an end: the report then falls back to the entry (the
@@ -826,10 +905,14 @@ async function standDownSession(
     activeExitSessionId === null || endedSessionId === undefined
       ? undefined
       : isExitHop ? 'exit' : 'entry'
+  // Read before the stand-down clears activeExitSessionId below.
+  const chain = activeExitSessionId !== null
   console.log(
     reason === 'stalled' || reason === 'dropped'
       ? `[vpn] session #${sessionId} tunnel ${reason === 'stalled' ? 'stopped carrying traffic' : 'closed unexpectedly'} — disconnecting`
-      : `[quota] session #${sessionId} exhausted its ${reason} quota — disconnecting`,
+      : reason === 'hop-closed'
+        ? `[vpn] the chain closed exit hop #${sessionId} — disconnecting`
+        : `[quota] session #${sessionId} exhausted its ${reason} quota — disconnecting`,
   )
 
   // Same synchronous stand-down performDisconnect does, and for the same reason:
@@ -877,7 +960,7 @@ async function standDownSession(
     // idempotent click to clear) rather than under-reporting it (user stranded). If
     // arming truly failed, the Restore button runs killswitch-off (idempotent) and
     // everything self-corrects.
-    lastExpiry = { sessionId, nodeMoniker, reason, trafficBlocked: isKillSwitchArmed(), chainRole }
+    lastExpiry = { sessionId, nodeMoniker, reason, trafficBlocked: isKillSwitchArmed(), chainRole, chain }
     isIntentionalDisconnect = false
     sendStateChange('idle')
   })
@@ -889,7 +972,8 @@ async function standDownSession(
   const why =
     reason === 'stalled' ? 'The tunnel stopped carrying traffic, so it was disconnected.'
       : reason === 'dropped' ? 'The VPN tunnel closed unexpectedly, so it was disconnected.'
-        : 'Session ended, VPN disconnected.'
+        : reason === 'hop-closed' ? 'The blockchain closed the exit hop of your chain, so the VPN was disconnected.'
+          : 'Session ended, VPN disconnected.'
   notify(
     'Katacomb VPN',
     blocked ? `${why} The kill switch is still blocking all traffic.` : why,
@@ -2056,6 +2140,13 @@ async function attemptReconnect(): Promise<void> {
       await standDownSession(scored.verdict.reason, scored.sessionId)
       return
     }
+    // MULTIHOP: the same honesty for a chain whose exit is past its deadline. The
+    // attempts failed because the chain closed the exit, and every one of them rebuilt
+    // a tunnel through a hop that no longer exists.
+    if (activeExitSessionId && exitDeadline?.sessionId === activeExitSessionId && Date.now() >= exitDeadline.atMs) {
+      await standDownSession('hop-closed', activeExitSessionId)
+      return
+    }
     await teardownToIdle(true)
     return
   }
@@ -3130,6 +3221,28 @@ export function registerIpcHandlers(): void {
         'This session has ended and its credentials were cleared, so it cannot be ' +
         'reconnected. Buy a new session to connect again.'
       )
+    }
+    // MULTIHOP: a chain that has lost a hop cannot carry traffic, and replaying it
+    // rebuilds a tunnel through a hop that no longer exists, which then fails telling
+    // the user both hops are still open. The Sessions card offers no Reconnect there,
+    // but the tray's Connect reaches this path with whichever session is newest.
+    // Positive evidence only: a tombstone, or a row that is listed and not active. A
+    // peer merely missing from the list may be a failed read of the second wallet.
+    if (saved.chainPeerSessionId) {
+      const peer = loadSessionConfig(saved.chainPeerSessionId)
+      const endedHop = [saved, peer].find((hop) => {
+        if (!hop) return false
+        if (!hop.configString) return true
+        const row = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === hop.sessionId)
+        return row !== undefined && row.status !== 'active'
+      })
+      if (endedHop) {
+        throw new Error(
+          `The ${endedHop.chainRole ?? 'other'} hop of this chain (#${endedHop.sessionId}) has ended, ` +
+          'so the chain cannot carry traffic. Build a new chain from the Multi-hop tab. If the ' +
+          'other hop is still open, you can end it from the Sessions tab.',
+        )
+      }
     }
     // Before any state is mutated, and before the node is re-handshaked: a Sessions-tab
     // reconnect is always full-tunnel.
