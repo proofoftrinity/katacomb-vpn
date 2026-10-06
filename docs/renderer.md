@@ -216,6 +216,36 @@ from `src/main/`; `src/shared/` is the only overlap.
   unsigned reply even from a 9.4 node, the review said "Signature not required" under a
   green check, and the user asked why a node that signs anyway was not trusted
   (2026-10-05). Hiding non-signers is the Signed filter chip's job.
+- **Plans and Provider speak the Nodes tab's dialect** (rebuilt 2026-10-06, when they read
+  as a different app): a `bg-bg-secondary` toolbar with `SearchIcon`, `Chip` toggles, a
+  "N of M" count and a ghost refresh; tables with one sticky sortable header; the first
+  catalog row selected so no pane is ever an empty "select something"; and every money
+  window (Lease and link, Manage lease, Manage subscription, Edit provider details) on
+  `ReviewModal` and its parts. Lease and link opens no second confirm: the window is the
+  review, as for a connect. A blocking reason shared by many rows (provider inactive,
+  tunnel up) is said ONCE with its fix, never as a disabled button on every row.
+- **Graphs are plain SVG and CSS, never a chart library or WebGL.** The value strip,
+  coverage map, lease runway, cost and income bars, break-even meter and validity gauge
+  are divs and `<svg>`, so they cost nothing at rest and draw with no GPU (checked with
+  `--disable-gpu --disable-software-rasterizer`). Their maths lives in import-free
+  helpers with tests (`plan-value.ts`, `lease-runway.ts`). Rules they keep: every figure is
+  also said in words beside it (a sentence, a label, or a `title`), a chart with one bar
+  becomes a figure, status colours only appear next to a word, and an unknown count shows
+  `?` or a sentence, never 0. One hue in three steps for coverage (`.coverage-1/2/3`,
+  listed in full in `PlanDetailPane`'s `COVERAGE_CLASS`).
+- **`map/world-geo.ts` owns the small maps' world file**: `useWorldCountries`,
+  `countryPoint` and the small-country fallbacks, shared by the Multi-hop `RouteMap` and
+  the Plans coverage map. The Map tab's globe still loads its own copy.
+- **A disabled filled button drops its fill** (`global.css`, every tab). The accent at the
+  buttons' `disabled:opacity-40` turned a pane muddy brown when a row of them shared one
+  blocking reason. Every filled button that can be disabled carries that opacity utility,
+  which still applies on top; one without it would read as an enabled outline button.
+- **Dollar estimates go through `usdEstimate`, which returns the whole phrase** ("about
+  $2.05", "under $0.0001"). `toPrecision` printed a 24 hour lease as `$1.9e-7`, and a
+  bare figure invited "≈ under".
+- **A table whose rows are separate grids has no `auto` column.** Each row sizes its own
+  auto column from its buttons while the header's is empty, so the header drifted off its
+  values (the Provider nodes table, 2026-10-06). Fixed or fractional tracks only.
 - **A modal's honesty paragraphs can sit behind chips when they sit mid-row.** `InfoTip`
   must be at a row's right end (it has no positioning logic), so each connect window's
   limits are toggle chips that open one shared panel below them (`LimitsSection`). The

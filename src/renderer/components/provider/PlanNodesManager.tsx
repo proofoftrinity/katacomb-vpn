@@ -37,7 +37,9 @@ function p2p(udvpn: string): string {
 }
 
 // Written out in full for Tailwind, shared by the header and every row.
-const NODE_GRID = 'grid grid-cols-[minmax(150px,1.6fr)_96px_minmax(110px,1fr)_76px_auto] gap-x-3 items-center'
+// Every column fixed or fractional, never auto: each row is its own grid, so an auto
+// column sized by its buttons would not line up with the header's empty one.
+const NODE_GRID = 'grid grid-cols-[minmax(150px,1.6fr)_96px_minmax(110px,1fr)_76px_164px] gap-x-3 items-center'
 
 /**
  * Nodes serving one plan, in the node table's vocabulary: flag, name, protocol icon,
@@ -436,7 +438,7 @@ function NodeDrawer({ planId, nodes, nodesLoading, nodesError, excluded, price, 
     }
   }, [nodes, excluded, search, cheapestFirst])
 
-  const grid = 'grid grid-cols-[minmax(0,1fr)_64px_84px_auto] gap-x-2.5 items-center'
+  const grid = 'grid grid-cols-[minmax(0,1fr)_64px_84px_60px] gap-x-2.5 items-center'
 
   return (
     <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose}>

@@ -321,7 +321,9 @@ function ValueStrip({ plan, perGb, listed, nodeMedian }: {
       <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
         <SectionLabel>Value per GB</SectionLabel>
         <span className="flex items-center gap-3 text-[11px] text-text-tertiary">
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-accent" />this plan</span>
+          {perGb !== null && (
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-accent" />this plan</span>
+          )}
           {others.length > 0 && (
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-text-tertiary" />other listed plans</span>
           )}
