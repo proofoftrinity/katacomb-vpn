@@ -117,6 +117,19 @@ else must keep throwing, or an unreachable RPC gets reported as "you have no pro
 Don't assume a chain read returns undefined for a missing key — check it live against an
 address that really is absent, not just one that exists.
 
+**Two hub queries only page from a non-empty key** (sentinelhub v12.0.2, measured on
+mainnet 2026-10-06). `QueryNodesForPlan` and `QueryPlansForProvider` run the SDK's
+`FilteredPaginate` with a callback that opens `if !accumulate { return false, nil }`, so
+the empty-key (offset) branch never sees a hit past the page: no `next_key`, `total` equal
+to the rows returned, and any offset returns nothing. Every loop that started with an
+empty key read ONE page, so every plan with more than 50 nodes read as exactly 50 (plan 41
+has 873), smart connect ranked an arbitrary 50, and a provider's leased nodes past the
+first 50 showed under "Leased, not linked" with a Link that could only fail. Both reads now
+go through `chain/filtered-pages.ts` `collectPages`, which starts at key `0x00`: every store
+key sorts at or after it, and the key branch sets `next_key` itself. It keeps working after
+an upstream fix, so reverting it is optional cleanup, never urgent. The other paged queries
+(plans, providers, subscriptions, leases, sessions) use plain `Paginate` and are fine.
+
 **Per-plan counters** (`getPlanSubscriberStats`, `PROVIDER_PLAN_STATS`): the subscription
 total is the chain's own `pagination.total` (one `countTotal` request — exact and cheap),
 but the ACTIVE count has no counter and must be scanned page by page, so it stops at

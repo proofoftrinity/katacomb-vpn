@@ -69,6 +69,15 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   and with the batch probe's `CONCURRENCY` of 3 that stalls a whole sweep. Three of the
   four call sites already wrapped it in `withTimeout`; `probeNode` did not, which was
   the live path. Those wraps stay as defence in depth but are no longer load-bearing.)
+  **Smart connect's ladder counts free failures too** (`MAX_FREE_FAILURES` = 10 in
+  `plan-connect.ts`): preflight and endpoint failures spend nothing, so they used to
+  advance without limit, and that only looked bounded because every plan was read as at
+  most 50 nodes (the hub paging defect in docs/provider-console.md). With the full list a
+  plan can link hundreds (873 on plan 41), and a bad local network would walk them all at
+  seconds per check. Ten is past the probed top six, where the order is close to
+  arbitrary anyway. The ladder's error says when the cap stopped it, and says nothing was
+  purchased when no session-creating tx went out. Each
+  `nodesForPlan` page is also under `withTimeout` now that a plan can take many pages.
 - **Pin every node endpoint to an IPv4 literal, for EVERY protocol.** Nodes advertise
   themselves by hostname on chain (`remoteAddrs: ["helen.busur.cc:63115"]`), and two
   separate things break on that: the tunnel re-resolves it *through itself* (the v2ray

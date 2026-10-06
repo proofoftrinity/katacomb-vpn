@@ -31,6 +31,7 @@ import { getRpcEndpoint } from '../settings'
 import { withTimeout } from '../async-utils'
 import { withProtobufQuery } from '../chain/protobuf-query'
 import { listLeasesForProvider, getLeaseParams, type LeaseInfo } from '../chain/lease-query'
+import { collectPages } from '../chain/filtered-pages'
 import {
   computeBurn,
   computeCommitted,
@@ -252,7 +253,7 @@ const MAX_PLANS = 1000
  * (sic — misspelled, and it never sends a status) leaves the request's status at
  * STATUS_UNSPECIFIED, which the hub treats as "no filter" — which is what we
  * want, since a freshly created plan is INACTIVE and must still be listed.
- * Paginated like lease-query, with the same hard stop.
+ * Paginated through collectPages, with the same hard stop as lease-query.
  */
 export async function listMyPlans(accountAddress: string, shared?: SentinelClient): Promise<MyPlanInfo[]> {
   const provAddress = toProviderAddress(accountAddress)
@@ -265,10 +266,9 @@ export async function listMyPlans(accountAddress: string, shared?: SentinelClien
       private: boolean
       status: number
     }
-    const out: MyPlanInfo[] = []
-    let key: Uint8Array = new Uint8Array()
-
-    while (out.length < MAX_PLANS) {
+    // Same hub defect as nodesForPlan: the empty-key branch never returns a next page,
+    // so collectPages starts at key 0x00 (chain/filtered-pages.ts).
+    return collectPages(async (key) => {
       const resp = await withTimeout(
         queryOf(client).plan.plansForProvide(provAddress, {
           key,
@@ -281,22 +281,18 @@ export async function listMyPlans(accountAddress: string, shared?: SentinelClien
         'plan.plansForProvider',
       )
       const plans = (resp?.plans ?? []) as unknown as RawPlan[]
-      for (const p of plans) {
-        out.push({
+      return {
+        items: plans.map((p): MyPlanInfo => ({
           id: p.id.toString(),
           bytes: p.bytes,
           durationSeconds: p.duration ? p.duration.seconds.toNumber() + (p.duration.nanos || 0) / 1e9 : null,
           prices: p.prices ?? [],
           private: p.private,
           status: p.status,
-        })
+        })),
+        nextKey: resp?.pagination?.nextKey,
       }
-      const nextKey = resp?.pagination?.nextKey
-      if (!nextKey || nextKey.length === 0) break
-      key = nextKey
-    }
-
-    return out
+    }, MAX_PLANS)
   }, shared)
 }
 

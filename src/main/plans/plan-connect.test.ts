@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 import {
   rankPlanCandidates,
   shouldTryNextCandidate,
+  isFreeFailure,
   ladderNextTx,
   smartConnectFailureSummary,
   LATENCY_BUCKET_MS,
   MAX_TX_ATTEMPTS,
+  MAX_FREE_FAILURES,
   type PlanNodeCandidate,
 } from './plan-connect.ts'
 
@@ -149,29 +151,38 @@ test('rankPlanCandidates: empty input ranks nothing and excludes nothing', () =>
 
 // --- shouldTryNextCandidate: the failure ladder ---
 
-test('shouldTryNextCandidate: nothing-spent failures (preflight, endpoint) always advance', () => {
+test('shouldTryNextCandidate: nothing-spent failures (preflight, endpoint) advance until MAX_FREE_FAILURES', () => {
   for (const failure of ['preflight', 'endpoint'] as const) {
-    assert.equal(shouldTryNextCandidate(failure, 0), true)
-    assert.equal(shouldTryNextCandidate(failure, MAX_TX_ATTEMPTS + 5), true)
+    assert.equal(isFreeFailure(failure), true)
+    assert.equal(shouldTryNextCandidate(failure, 0, 1), true)
+    // The tx budget does not limit them: they spend nothing.
+    assert.equal(shouldTryNextCandidate(failure, MAX_TX_ATTEMPTS + 5, 1), true)
+    assert.equal(shouldTryNextCandidate(failure, 0, MAX_FREE_FAILURES - 1), true)
+    // The count includes this failure, so the tenth one stops the ladder: a plan can
+    // link hundreds of nodes, and walking them all costs minutes of checks.
+    assert.equal(shouldTryNextCandidate(failure, 0, MAX_FREE_FAILURES), false)
   }
 })
 
 test('shouldTryNextCandidate: refunded failures advance until the tx budget is spent', () => {
   for (const failure of ['handshake', 'policy'] as const) {
-    assert.equal(shouldTryNextCandidate(failure, MAX_TX_ATTEMPTS - 1), true)
-    assert.equal(shouldTryNextCandidate(failure, MAX_TX_ATTEMPTS), false)
+    assert.equal(isFreeFailure(failure), false)
+    assert.equal(shouldTryNextCandidate(failure, MAX_TX_ATTEMPTS - 1, 0), true)
+    assert.equal(shouldTryNextCandidate(failure, MAX_TX_ATTEMPTS, 0), false)
+    // Free failures before them do not eat into the tx budget.
+    assert.equal(shouldTryNextCandidate(failure, MAX_TX_ATTEMPTS - 1, MAX_FREE_FAILURES), true)
   }
 })
 
 test('shouldTryNextCandidate: a tx timeout stops the ladder, the tx may still land', () => {
   // Firing a second session-creating tx after a timeout could buy a second
   // subscription; the timeout copy already tells the user to check Sessions.
-  assert.equal(shouldTryNextCandidate('tx-timeout', 0), false)
+  assert.equal(shouldTryNextCandidate('tx-timeout', 0, 0), false)
 })
 
 test('shouldTryNextCandidate: funds and chain failures stop immediately', () => {
-  assert.equal(shouldTryNextCandidate('funds', 0), false)
-  assert.equal(shouldTryNextCandidate('chain', 0), false)
+  assert.equal(shouldTryNextCandidate('funds', 0, 0), false)
+  assert.equal(shouldTryNextCandidate('chain', 0, 0), false)
 })
 
 // --- ladderNextTx: the plan price is spent at most once ---
