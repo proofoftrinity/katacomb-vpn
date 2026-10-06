@@ -247,6 +247,7 @@ function decorateSessionRow<T extends { id: string; nodeAddress: string }>(sessi
   nodeCountry: string
   chainPeerSessionId?: string
   chainRole?: 'entry' | 'exit'
+  chainPeerEndedByUser?: boolean
 } {
   const saved = loadSessionConfig(session.id)
   const nodeMeta = getNodeMeta(session.nodeAddress)
@@ -256,6 +257,15 @@ function decorateSessionRow<T extends { id: string; nodeAddress: string }>(sessi
     nodeCountry: saved?.nodeCountry || nodeMeta.country,
     chainPeerSessionId: saved?.chainPeerSessionId,
     chainRole: saved?.chainRole,
+    // The other hop is a TOMBSTONE: its credentials were cleared by a cancel this app
+    // made. The only such cancel on a chain hop is the user's End (WALLET_END_SESSION):
+    // a failed purchase is refunded before finalizeChain saves any config, so it leaves
+    // no record at all. This is what tells "you ended the other hop" (End is two txs in
+    // a row, and the second can fail or be cut off by a quit) apart from "the
+    // blockchain closed it", and only the second is a broken chain.
+    chainPeerEndedByUser: saved?.chainPeerSessionId
+      ? loadSessionConfig(saved.chainPeerSessionId)?.configString === ''
+      : undefined,
   }
 }
 

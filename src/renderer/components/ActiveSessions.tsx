@@ -212,12 +212,17 @@ export default function ActiveSessions({
   //           be ended, so it stays visible. This is the normal way a chain dies: the
   //           exit never reports usage, so the chain closes it about two hours after
   //           purchase while the entry lives on (docs/multihop.md).
+  //   ending: the same shape, but the user ended the other hop (End is two txs in a
+  //           row, and the second failed or was cut off by a quit). Not a breakage the
+  //           user has to be told about, only the rest of their own End to finish.
   //   ended:  no hop active; nothing to do but wait for it to settle.
-  const cardState = (entry: Row, exit: Row | null): 'open' | 'broken' | 'ended' => {
+  const cardState = (entry: Row, exit: Row | null): 'open' | 'broken' | 'ending' | 'ended' => {
     const hops = exit ? [entry, exit] : [entry]
-    const active = hops.filter((h) => h.session.status === 'active').length
-    if (active === 0) return 'ended'
-    if (active < hops.length || (!exit && entry.session.chainPeerSessionId)) return 'broken'
+    const open = hops.filter((h) => h.session.status === 'active')
+    if (open.length === 0) return 'ended'
+    if (open.length < hops.length || (!exit && entry.session.chainPeerSessionId)) {
+      return open[0].session.chainPeerEndedByUser ? 'ending' : 'broken'
+    }
     return 'open'
   }
   const endedCards = groups.filter((g) => cardState(g.entry, g.exit) === 'ended').length
@@ -282,7 +287,9 @@ export default function ActiveSessions({
       // this one is closed, and "will be ended too" would promise a cancel that
       // does not happen.
       const otherRole = session.chainRole === 'exit' ? 'entry' : session.chainRole === 'entry' ? 'exit' : 'other'
-      warnings.push(`This is the ${session.chainRole ?? 'first'} hop of a chain whose ${otherRole} hop has already ended. On its own it carries no traffic.`)
+      warnings.push(session.chainPeerEndedByUser
+        ? `You already ended the ${otherRole} hop of this chain. This ends the ${session.chainRole ?? 'other'} hop as well.`
+        : `This is the ${session.chainRole ?? 'first'} hop of a chain whose ${otherRole} hop has already ended. On its own it carries no traffic.`)
     }
     if (reconnectTarget) {
       warnings.push('Note: Your current VPN connection will be temporarily interrupted to reach the blockchain, then reconnected.')
@@ -477,8 +484,15 @@ export default function ActiveSessions({
             const state = cardState(entryRow, exitRow)
             const isEnded = state === 'ended'
             const isBroken = state === 'broken'
-            // On a broken card: the hop still open, and the role of the one that ended
-            // (a lone hop's partner has the other role).
+            // The user's own End, between its two txs: the first hop is already gone
+            // and its tombstone makes the card 'ending'. Drawn exactly as it was when
+            // they pressed End, spinners and all, until the second tx lands and the card
+            // drops to 'ended'. Telling them mid-click that a hop "has ended" reported
+            // their own action back to them as if something had gone wrong.
+            const endInFlight = state === 'ending' && isBusy
+            const isEnding = state === 'ending' && !endInFlight
+            // On a broken or ending card: the hop still open, and the role of the one
+            // that ended (a lone hop's partner has the other role).
             const openHop = [entryRow, exitRow].find((h) => h !== null && h.session.status === 'active')?.session ?? session
             const endedRole = exitRow
               ? (entryRow.session.status !== 'active' ? 'entry' : 'exit')
@@ -547,8 +561,9 @@ export default function ActiveSessions({
                         Connected
                       </span>
                     )}
-                    {/* A broken lone hop says so on the right instead. */}
-                    {!isChain && session.chainPeerSessionId && !isBroken && (
+                    {/* Only a lone hop that has ended itself: an open one is broken or
+                        ending, and says so in its own words. */}
+                    {!isChain && session.chainPeerSessionId && isEnded && (
                       <span
                         className="text-warning text-xs border border-warning px-1.5 py-0.5 rounded-sm font-medium"
                         title={`This was the ${session.chainRole ?? 'first'} hop of a chain with #${session.chainPeerSessionId}, which is no longer listed. One hop alone carries no traffic.`}
@@ -591,6 +606,17 @@ export default function ActiveSessions({
                           {isBusy ? <Spinner /> : 'End'}
                         </button>
                       </>
+                    ) : isEnding ? (
+                      // The rest of the user's own End. No badge and no New chain: they
+                      // chose to close this chain, nothing broke.
+                      <button
+                        onClick={() => handleEndSession(openHop)}
+                        disabled={busy !== null}
+                        className="btn btn-danger text-xs px-3 py-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                        title={`Ends the ${openRole} hop, finishing your End`}
+                      >
+                        End
+                      </button>
                     ) : (
                       <>
                         {!isConnectedSession && (
@@ -641,9 +667,9 @@ export default function ActiveSessions({
                     destinations. */}
                 {isChain ? (
                   <div className="mb-2 space-y-1">
-                    <HopLine role="entry" session={entryRow.session} usage={entryRow.usage} ended={isBroken && entryRow.session.status !== 'active'} />
+                    <HopLine role="entry" session={entryRow.session} usage={entryRow.usage} ended={(isBroken || isEnding) && entryRow.session.status !== 'active'} />
                     <div className="text-text-tertiary text-xs pl-[52px]">↓ tunnelled inside the entry hop</div>
-                    <HopLine role="exit" session={exitRow!.session} usage={exitRow!.usage} ended={isBroken && exitRow!.session.status !== 'active'} />
+                    <HopLine role="exit" session={exitRow!.session} usage={exitRow!.usage} ended={(isBroken || isEnding) && exitRow!.session.status !== 'active'} />
                   </div>
                 ) : (
                   <div className="flex items-center gap-3 mb-2 text-sm">
@@ -767,6 +793,13 @@ export default function ActiveSessions({
                     {openClosesInSeconds !== null && openClosesInSeconds > 60
                       ? ` in about ${formatDuration(openClosesInSeconds)}.`
                       : '.'}
+                  </div>
+                )}
+
+                {isEnding && (
+                  <div className="text-text-secondary text-xs mt-2">
+                    You ended the {endedRole} hop. The {openRole} hop is still open: end it to finish
+                    closing this chain.
                   </div>
                 )}
 

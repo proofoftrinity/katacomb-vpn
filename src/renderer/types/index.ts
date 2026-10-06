@@ -182,6 +182,12 @@ export interface SessionInfo {
    */
   chainPeerSessionId?: string
   chainRole?: 'entry' | 'exit'
+  /**
+   * The other hop was ended by the user's End (main reads its tombstone). Set on the
+   * hop still open after a chain End that only got halfway, so the card says "you
+   * ended it" rather than calling the chain broken.
+   */
+  chainPeerEndedByUser?: boolean
 }
 
 /**
