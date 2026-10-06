@@ -88,7 +88,7 @@ export function useNodeTest() {
       return result
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Speed test failed'
-      const failResult: SpeedTestResult = { downloadMbps: 0, googleLatencyMs: null, googleReachable: false, error }
+      const failResult: SpeedTestResult = { downloadMbps: 0, latencyMs: null, reachable: false, error }
       setSpeedResult(failResult)
       return failResult
     } finally {

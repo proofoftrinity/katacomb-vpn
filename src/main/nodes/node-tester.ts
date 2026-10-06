@@ -59,8 +59,8 @@ export interface NodeProbeResult {
 
 export interface SpeedTestResult {
   downloadMbps: number
-  googleLatencyMs: number | null
-  googleReachable: boolean
+  latencyMs: number | null
+  reachable: boolean
   error?: string
 }
 
@@ -332,6 +332,7 @@ const SPEED_TEST_URLS = [
   'https://proof.ovh.net/files/1Mb.dat',
   'http://speedtest.tele2.net/1MB.zip',
 ]
+const LATENCY_URL = 'https://speed.cloudflare.com/__down?bytes=0'
 
 export async function speedTest(signal?: AbortSignal): Promise<SpeedTestResult> {
   let downloadMbps = 0
@@ -358,24 +359,30 @@ export async function speedTest(signal?: AbortSignal): Promise<SpeedTestResult> 
     }
   }
 
-  // Google reachability check
-  let googleLatencyMs: number | null = null
-  let googleReachable = false
+  // Latency: a zero-byte request to the download's own provider, so the test contacts
+  // no third party. Two requests, timing the second: the first pays for DNS + TCP + TLS
+  // through the fresh tunnel (~100 ms of a cold request), the second reuses the pooled
+  // connection and measures one round trip.
+  let latencyMs: number | null = null
+  let reachable = false
   try {
-    const start = performance.now()
-    const res = await net.fetch('https://www.google.com/generate_204', {
-      signal: AbortSignal.timeout(10000),
-    })
-    googleLatencyMs = Math.round(performance.now() - start)
-    googleReachable = res.status === 204 || res.ok
+    for (let i = 0; i < 2; i++) {
+      const start = performance.now()
+      const res = await net.fetch(LATENCY_URL, { signal: AbortSignal.timeout(10000) })
+      await res.arrayBuffer()
+      latencyMs = Math.round(performance.now() - start)
+      reachable = res.ok
+    }
   } catch {
-    // Google unreachable through tunnel
+    // Unreachable through the tunnel
+    latencyMs = null
+    reachable = false
   }
 
   return {
     downloadMbps,
-    googleLatencyMs,
-    googleReachable,
+    latencyMs,
+    reachable,
     error: downloadError,
   }
 }

@@ -44,9 +44,9 @@ export default function StatusBar({ onShowAbout }: { onShowAbout: () => void }) 
                 {speedResult.downloadMbps > 0 && (
                   <span className="text-success">{speedResult.downloadMbps} Mbps</span>
                 )}
-                {speedResult.googleLatencyMs !== null && (
-                  <span className={speedResult.googleReachable ? 'text-success' : 'text-danger'}>
-                    {speedResult.downloadMbps > 0 ? ' · ' : ''}Google: {speedResult.googleLatencyMs}ms
+                {speedResult.latencyMs !== null && (
+                  <span className={speedResult.reachable ? 'text-success' : 'text-danger'}>
+                    {speedResult.downloadMbps > 0 ? ' · ' : ''}Latency: {speedResult.latencyMs}ms
                   </span>
                 )}
                 {speedResult.error && !speedResult.downloadMbps && (
