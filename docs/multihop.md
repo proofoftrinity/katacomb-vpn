@@ -140,7 +140,17 @@ xray-core is a strict superset of what the builder emits, so it lands in
   "Ended" with no buttons while the expiry banner said the other hop "can be ended from
   the Sessions tab". The broken card says which hop ended and when the blockchain will
   close the open one, offers End on the open hop and New chain, and never Reconnect.
-  The Show ended filter hides only `ended` cards, never a broken one. **Main refuses to
+  The Show ended filter hides only `ended` cards, never a broken one. **A hop the USER
+  ended is not a breakage** (`ending`, not `broken`): End on a chain is two txs in a row,
+  and between them the first push-triggered refresh drew "the entry hop has ended" over
+  the user's own click. While their End runs the card is drawn as it was, spinners and
+  all, until it drops to `ended`; if the second tx fails or a quit cuts it off, a
+  neutral line says "You ended the entry hop" and offers End for the rest, with no badge
+  and no New chain. Main tells the two apart by the other hop's TOMBSTONE
+  (`chainPeerEndedByUser` in `decorateSessionRow`): only WALLET_END_SESSION leaves one
+  on a chain hop, because a failed purchase is refunded before `finalizeChain` saves any
+  config. "Chain broken" therefore always means the user did not end that hop.
+  **Main refuses to
   replay a broken chain** in `CONNECTION_RECONNECT` (the tray's Connect reaches it with
   whatever session is newest): a tombstone on either hop, or a hop listed and not
   active. A hop merely MISSING from the list keeps the old behaviour, because a failed
