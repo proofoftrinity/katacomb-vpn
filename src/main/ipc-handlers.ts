@@ -41,7 +41,7 @@ import type https from 'node:https'
 import { withTimeout } from './async-utils'
 import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, evaluateQuota, serviceTypeToNodeType, stripDnsLines, replaceDnsLines, isTunnelOneWay, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs, chainDeadlineStep, CHAIN_DEADLINE_RECHECK_MS, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, shouldRetrySessionHandshake, HANDSHAKE_RETRY_DELAY_MS, REFUND_FAILED_TAIL, type QuotaVerdict } from './vpn/connect-decisions'
 import { discoverPlans, listCachedPlans, listNodesForPlan, listPlansForNode, subscribeToPlan, startSessionWithExistingSubscription, cancelSubscription, renewSubscription, updateSubscriptionPolicy, getPlanOverview, getCachedPlanNodes, TX_TIMEOUT_MESSAGE as PLAN_TX_TIMEOUT_MESSAGE, type PlanOverview } from './plans/plan-service'
-import { rankPlanCandidates, shouldTryNextCandidate, ladderNextTx, smartConnectFailureSummary, type PlanNodeCandidate, type SmartConnectFailure } from './plans/plan-connect'
+import { rankPlanCandidates, shouldTryNextCandidate, isFreeFailure, MAX_FREE_FAILURES, ladderNextTx, smartConnectFailureSummary, type PlanNodeCandidate, type SmartConnectFailure } from './plans/plan-connect'
 import { getCachedPlans } from './plans/plan-cache'
 import { loadSettings, saveSettings, listWallets, deleteWalletEntry, renameWallet, getWalletMnemonic, clearRetainedSeed, type AppSettings } from './settings'
 import { assignSeedGroups } from '../shared/seed-groups'
@@ -4078,9 +4078,11 @@ export function registerIpcHandlers(): void {
       }
 
       // The ladder. Refunded failures advance to the next candidate while the
-      // tx budget lasts; anything that may have left money in flight stops it.
+      // tx budget lasts, free ones while MAX_FREE_FAILURES lasts; anything that
+      // may have left money in flight stops it.
       let subscriptionId: string | null = params.subscriptionId ?? null
       let txAttempts = 0
+      let freeFailures = 0
       const attempts: { moniker: string; reason: string }[] = []
 
       for (const candidate of ranked) {
@@ -4090,7 +4092,8 @@ export function registerIpcHandlers(): void {
             moniker: candidate.moniker,
             reason: err instanceof Error ? err.message : 'unknown failure',
           })
-          return shouldTryNextCandidate(failure, txAttempts)
+          if (isFreeFailure(failure)) freeFailures++
+          return shouldTryNextCandidate(failure, txAttempts, freeFailures)
         }
 
         // Pre-payment checks for THIS node; failures here cost nothing.
@@ -4214,6 +4217,11 @@ export function registerIpcHandlers(): void {
       // Ladder exhausted without a tunnel. A subscription bought along the way
       // survives its refunded sessions, so hand it back instead of losing it.
       let summary = smartConnectFailureSummary(attempts)
+      if (freeFailures >= MAX_FREE_FAILURES) {
+        summary += ` Stopped after ${MAX_FREE_FAILURES} nodes failed their checks.`
+      }
+      // No session-creating tx committed: the checks failed before any payment.
+      if (txAttempts === 0) summary += ' Nothing was purchased.'
       if (!params.subscriptionId && subscriptionId) {
         summary += ` Your new subscription #${subscriptionId} was created and can be connected from My plans without paying again.`
       }

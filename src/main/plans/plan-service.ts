@@ -16,6 +16,9 @@ import {
 } from '@sentinel-official/sentinel-js-sdk'
 import { BrowserWindow } from 'electron'
 import { openChainFlow, openChainQuery } from '../chain/chain-clients'
+import { collectPages } from '../chain/filtered-pages'
+import { QUERY_TIMEOUT_MS } from '../chain/protobuf-query'
+import { withTimeout } from '../async-utils'
 import { assertTxSucceeded, broadcastOrTimeout } from '../chain/tx-utils'
 import { TX_TIMEOUT_HEIGHT_OFFSET } from '../chain/chain-constants'
 import { IPC } from '../../shared/ipc-channels'
@@ -180,6 +183,10 @@ export function listCachedPlans(): { plans: EnrichedPlan[]; fetchedAt: number | 
 
 const planNodesCache = new Map<string, { addresses: string[]; fetchedAt: number }>()
 const PLAN_NODES_TTL_MS = 10 * 60 * 1000
+const PLAN_NODES_PAGE_SIZE = 200
+// A safety stop, not a sample size: the whole network is ~2,600 nodes, and smart
+// connect ranks every linked node, so no real plan may be cut short.
+const MAX_PLAN_NODES = 5000
 
 /** Drop a plan's cached node list after we ourselves link/unlink one of its nodes. */
 export function invalidatePlanNodes(planId: string): void {
@@ -208,37 +215,27 @@ export async function listNodesForPlan(planId: string, sharedClient?: SentinelCl
   const own = sharedClient ? null : await openChainQuery()
   const client = sharedClient ?? own!.query
   try {
-    const addresses: string[] = []
-    let nextKey: Uint8Array = new Uint8Array()
-    let firstPage = true
-    const MAX_NODES = 500
-
-    while (addresses.length < MAX_NODES) {
-      const pagination = {
-        key: nextKey,
-        offset: Long.fromNumber(0, true),
-        limit: Long.fromNumber(PAGE_SIZE, true),
-        countTotal: firstPage,
-        reverse: false,
-      }
-      firstPage = false
-
-      const resp = await client.sentinelQuery?.node.nodesForPlan(
-        Long.fromString(planId, true),
-        Status.STATUS_ACTIVE,
-        pagination
+    // collectPages starts at key 0x00: this query's empty-key branch never returns a
+    // next page, which capped every plan at the first 50 nodes (filtered-pages.ts).
+    const addresses = await collectPages(async (key) => {
+      const resp = await withTimeout(
+        Promise.resolve(client.sentinelQuery?.node.nodesForPlan(
+          Long.fromString(planId, true),
+          Status.STATUS_ACTIVE,
+          {
+            key,
+            offset: Long.fromNumber(0, true),
+            limit: Long.fromNumber(PLAN_NODES_PAGE_SIZE, true),
+            countTotal: false,
+            reverse: false,
+          },
+        )),
+        QUERY_TIMEOUT_MS,
+        'node.nodesForPlan',
       )
-      if (!resp || !resp.nodes) break
-
-      for (const n of resp.nodes as unknown as { address: string }[]) {
-        if (n.address) addresses.push(n.address)
-        if (addresses.length >= MAX_NODES) break
-      }
-
-      const nk = resp.pagination?.nextKey
-      if (!nk || nk.length === 0) break
-      nextKey = nk
-    }
+      const nodes = (resp?.nodes ?? []) as unknown as { address: string }[]
+      return { items: nodes.map((n) => n.address).filter(Boolean), nextKey: resp?.pagination?.nextKey }
+    }, MAX_PLAN_NODES)
 
     planNodesCache.set(planId, { addresses, fetchedAt: now })
     return addresses

@@ -103,16 +103,34 @@ export type SmartConnectFailure =
   | 'chain'       // the chain rejected or was unreachable
 
 /**
+ * Nothing-spent failures (preflight, endpoint) one smart connect may hit before it stops.
+ * They cost no money but each costs seconds of network checks, and a plan can link
+ * hundreds of nodes (873 on plan 41). Past the probed top few the order is close to
+ * arbitrary, so a long walk mostly tells the user late what ten checks already showed.
+ * The old uncapped rule only looked bounded because every plan was read as 50 nodes.
+ */
+export const MAX_FREE_FAILURES = 10
+
+export function isFreeFailure(failure: SmartConnectFailure): boolean {
+  return failure === 'preflight' || failure === 'endpoint'
+}
+
+/**
  * May the ladder move to the next candidate after this failure?
  *
- * preflight/endpoint cost nothing, so they always advance. The refunded
- * failures advance while the tx budget lasts. A tx TIMEOUT stops everything:
- * the tx may still commit, and a second MsgStartSession fired after it could
- * buy a second subscription — the timeout copy already sends the user to the
- * Sessions tab. funds/chain failures would fail every later candidate too.
+ * preflight/endpoint cost nothing, so they advance until MAX_FREE_FAILURES of them
+ * (this one included) have piled up. The refunded failures advance while the tx
+ * budget lasts. A tx TIMEOUT stops everything: the tx may still commit, and a second
+ * MsgStartSession fired after it could buy a second subscription — the timeout copy
+ * already sends the user to the Sessions tab. funds/chain failures would fail every
+ * later candidate too.
  */
-export function shouldTryNextCandidate(failure: SmartConnectFailure, txAttemptsSoFar: number): boolean {
-  if (failure === 'preflight' || failure === 'endpoint') return true
+export function shouldTryNextCandidate(
+  failure: SmartConnectFailure,
+  txAttemptsSoFar: number,
+  freeFailuresSoFar: number,
+): boolean {
+  if (isFreeFailure(failure)) return freeFailuresSoFar < MAX_FREE_FAILURES
   if (failure === 'handshake' || failure === 'policy') return txAttemptsSoFar < MAX_TX_ATTEMPTS
   return false
 }
