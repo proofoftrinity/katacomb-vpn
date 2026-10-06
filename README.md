@@ -35,7 +35,9 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
 - **Plans**: discover provider plans, subscribe, then start sessions on any node in the
   plan. Includes a subscription manager for cancelling and for the auto-renewal policy.
 - **Sessions**: every active session with usage, price and remaining allowance;
-  reconnect or end it from here.
+  reconnect or end it from here. Ended sessions, which stay listed while the blockchain
+  settles them, are hidden behind *Show ended*. A chain that has lost a hop is marked
+  *Chain broken*, with End for the hop still open.
 
 **Connecting**
 
@@ -324,7 +326,9 @@ instant refund.
 
 A multi-hop chain is **two** sessions and two deposits, and it is also considerably
 slower: expect roughly a second of added latency, more when the hops are far apart. If
-any part of building one fails, both sessions are cancelled.
+any part of building one fails, both sessions are cancelled. A chain also lasts about two
+hours from purchase, however much you buy: exit nodes report no usage, so the blockchain
+closes the exit hop then. The app warns you about 10 minutes before.
 
 The provider side spends too, and differently: the registration deposit goes to the
 community pool, so it is gone rather than escrowed (a governance parameter, which the app
