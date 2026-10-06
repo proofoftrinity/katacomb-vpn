@@ -573,8 +573,8 @@ export interface NodeProbeResult {
 
 export interface SpeedTestResult {
   downloadMbps: number
-  googleLatencyMs: number | null
-  googleReachable: boolean
+  latencyMs: number | null
+  reachable: boolean
   error?: string
 }
 
