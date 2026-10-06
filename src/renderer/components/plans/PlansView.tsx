@@ -1,22 +1,32 @@
 import { useEffect, useState } from 'react'
+import type { ProviderInfo, TokenPrice } from '../../types'
 import { usePlansContext } from '../../contexts/PlansContext'
 import { useNavigation } from '../../contexts/NavigationContext'
 import { useConnection } from '../../hooks/useConnection'
 import { formatTimeAgo } from '../../utils/format'
 import MyPlansPanel from './MyPlansPanel'
-import PlanCatalog from './PlanCatalog'
+import PlanCatalog, { type CatalogCounts, type CatalogFilters } from './PlanCatalog'
+import { Segmented } from '../ConnectReview'
+import { Chip } from '../nodes/NodeFilters'
 import Spinner from '../Spinner'
+import { AlertIcon, CloseIcon, LockIcon, PowerIcon, RefreshIcon, SearchIcon } from '../Icons'
 
 type Section = 'mine' | 'catalog'
 
 /**
  * The Plans tab: My plans (the wallet's subscriptions, one-click connect) and
- * the Catalog (browse and subscribe). State lives in PlansContext above the
- * tab, so switching tabs no longer resets it.
+ * the Catalog (browse and subscribe). Overview state lives in PlansContext above
+ * the tab, so switching tabs does not reset it.
+ *
+ * The toolbar is the Nodes tab's, on purpose: the same shaded bar, search with its
+ * icon, pill chips for the filters, a "N of M" count and a ghost refresh. It used to
+ * be its own dialect (native checkboxes, a native sort select, a bordered Rescan), and
+ * the tab read as a different app (2026-10-06). The catalog's filters live here, not
+ * in PlanCatalog, because they sit in this bar; the catalog reports its counts back.
  */
 export default function PlansView() {
   const { overview, discovering, progress, discoverError, discover, ensureFreshCatalog } = usePlansContext()
-  const { plansNodeFilter } = useNavigation()
+  const { plansNodeFilter, clearPlansNodeFilter } = useNavigation()
   const { status } = useConnection()
   // Rescan needs the chain, which our own tunnel makes unreachable (proxy mode
   // leaves routing alone, so it still works there).
@@ -24,6 +34,22 @@ export default function PlansView() {
   const [section, setSection] = useState<Section>(
     overview.subscriptions.length > 0 ? 'mine' : 'catalog',
   )
+  const [filters, setFilters] = useState<CatalogFilters>({
+    search: '',
+    // Hide plans whose availability scan counted ZERO nodes (nothing to connect to,
+    // so nothing to buy). Plans never counted (null) stay visible either way.
+    readyOnly: true,
+    showTests: false,
+    showPrivate: false,
+  })
+  const [counts, setCounts] = useState<CatalogCounts | null>(null)
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [tokenPrice, setTokenPrice] = useState<TokenPrice | null>(null)
+
+  useEffect(() => {
+    window.api.providerList().then(setProviders).catch(() => setProviders([]))
+    window.api.priceToken().then(setTokenPrice).catch(() => setTokenPrice(null))
+  }, [])
 
   // Arriving from a node's "See Plans tab" targets the catalog.
   useEffect(() => {
@@ -35,47 +61,88 @@ export default function PlansView() {
     if (section === 'catalog') void ensureFreshCatalog()
   }, [section, ensureFreshCatalog])
 
-  const staleness = overview.fetchedAt
-    ? `Catalog updated ${formatTimeAgo(overview.fetchedAt)}`
-    : 'Catalog not loaded yet'
   const catalogOld = overview.fetchedAt !== null && Date.now() - overview.fetchedAt > 3600_000
+  const update = (patch: Partial<CatalogFilters>) => setFilters((f) => ({ ...f, ...patch }))
+  const subCount = overview.subscriptions.length
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center gap-4 px-5 py-3 border-b border-border shrink-0">
-        {/* Section switch */}
-        <div className="flex bg-bg-tertiary border border-border rounded-md p-0.5">
-          {(['mine', 'catalog'] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSection(s)}
-              className={`px-3 py-1 text-sm rounded-[4px] transition-colors ${
-                section === s
-                  ? 'bg-bg-secondary text-accent font-medium'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {s === 'mine' ? `My plans${overview.subscriptions.length > 0 ? ` (${overview.subscriptions.length})` : ''}` : 'Catalog'}
-            </button>
-          ))}
-        </div>
+      {/* One row that wraps, like NodeFilters: the controls on the left, the count and
+          Rescan grouped with ml-auto so they wrap as a unit and stay right-aligned. */}
+      <div className="border-b border-border bg-bg-secondary px-4 py-3 shrink-0">
+        <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
+          <Segmented
+            label="Plans section"
+            value={section}
+            options={[['mine', subCount > 0 ? `My plans (${subCount})` : 'My plans'], ['catalog', 'Catalog']]}
+            onChange={setSection}
+          />
 
-        <div className="ml-auto flex items-center gap-3 text-xs">
-          {overview.stale && (
-            <span className="text-warning">Cached data, chain unreachable while connected</span>
+          {section === 'catalog' && (
+            <>
+              <div className="relative">
+                <SearchIcon className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
+                <input
+                  type="text"
+                  value={filters.search}
+                  onChange={(e) => update({ search: e.target.value })}
+                  placeholder="Plans and providers"
+                  aria-label="Search plans and providers"
+                  className="bg-bg-tertiary border border-border text-text-primary text-sm pl-8 pr-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus w-[220px] placeholder:text-text-tertiary"
+                />
+              </div>
+              <Chip on={filters.readyOnly} label="Ready to connect" Icon={PowerIcon} onToggle={() => update({ readyOnly: !filters.readyOnly })} />
+              <Chip on={filters.showTests} label="Test plans" Icon={AlertIcon} onToggle={() => update({ showTests: !filters.showTests })} />
+              <Chip on={filters.showPrivate} label="Private" Icon={LockIcon} onToggle={() => update({ showPrivate: !filters.showPrivate })} />
+              {/* The node a "See Plans tab" came from. Always on while present; the
+                  only action is to dismiss it, like the Nodes tab's country chip. */}
+              {plansNodeFilter && (
+                <button
+                  type="button"
+                  onClick={clearPlansNodeFilter}
+                  title="Only plans that include this node. Click to show every plan again."
+                  className="flex items-center gap-1.5 border rounded-full pl-2.5 pr-2 py-1 text-xs transition-colors select-none bg-accent-subtle border-accent text-accent"
+                >
+                  With node <span className="font-mono">{plansNodeFilter.slice(0, 14)}...</span>
+                  <CloseIcon className="w-3 h-3" />
+                </button>
+              )}
+            </>
           )}
-          <span className="flex items-center gap-1.5 text-text-tertiary" title={staleness}>
-            <span className={`status-dot ${catalogOld ? 'status-dot-pending' : 'status-dot-active'}`} />
-            {staleness}
-          </span>
-          <button
-            onClick={() => void discover()}
-            disabled={discovering || chainFrozen}
-            title={chainFrozen ? 'The chain is not reachable while the VPN is connected' : 'Rescan the plan catalog from the chain'}
-            className="btn btn-secondary text-xs px-2.5 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {discovering ? <Spinner /> : 'Rescan'}
-          </button>
+
+          <div className="ml-auto flex items-center gap-3">
+            {overview.stale && (
+              <span className="text-warning text-xs">Cached data, chain unreachable while connected</span>
+            )}
+            {section === 'catalog' && (
+              <>
+                <span className="text-text-secondary text-xs">
+                  {counts && (
+                    <>
+                      {counts.shown.toLocaleString('en')} of {counts.total.toLocaleString('en')} plans
+                      {counts.hiddenNodeless > 0 && ` · ${counts.hiddenNodeless} without nodes hidden`}
+                    </>
+                  )}
+                  <span
+                    className={catalogOld ? 'text-warning' : 'text-text-tertiary'}
+                    title={catalogOld ? 'Over an hour old. Rescan reads the catalog from the chain again.' : undefined}
+                  >
+                    {counts ? ' · ' : ''}
+                    {overview.fetchedAt ? `Updated ${formatTimeAgo(overview.fetchedAt)}` : 'Not loaded yet'}
+                  </span>
+                </span>
+                <button
+                  onClick={() => void discover()}
+                  disabled={discovering || chainFrozen}
+                  title={chainFrozen ? 'The chain is not reachable while the VPN is connected' : 'Read the plan catalog from the chain again'}
+                  className="flex items-center gap-1.5 text-text-secondary hover:text-accent text-sm transition-colors disabled:opacity-30"
+                >
+                  {discovering ? <Spinner className="text-accent" /> : <RefreshIcon className="w-3.5 h-3.5" />}
+                  {discovering ? 'Scanning' : 'Rescan'}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -108,9 +175,9 @@ export default function PlansView() {
       )}
 
       {section === 'mine' ? (
-        <MyPlansPanel onBrowse={() => setSection('catalog')} />
+        <MyPlansPanel providers={providers} onBrowse={() => setSection('catalog')} />
       ) : (
-        <PlanCatalog />
+        <PlanCatalog filters={filters} providers={providers} tokenPrice={tokenPrice} onCounts={setCounts} />
       )}
     </div>
   )

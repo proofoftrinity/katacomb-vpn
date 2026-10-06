@@ -1,38 +1,36 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { LeaseSummary, MyPlan, PlanStats, ProviderEconomics, TokenPrice } from '../../types'
-import { computeBreakEven, netOfStakingShare, parseDecShare } from '../../../shared/provider-economics'
+import type { LeaseSummary, MyPlan, PlanStats, ProviderEconomics, SentNode, TokenPrice } from '../../types'
+import { computeBreakEven, isActiveLease, netOfStakingShare, parseDecShare } from '../../../shared/provider-economics'
 import { isTestPlan } from '../../../shared/test-plan'
+import { RENEWAL_POLICY, renewalPolicyLabel } from '../../../shared/renewal-policy'
 import { displayConnectError } from '../../utils/connect-errors'
+import { formatBytes, formatDuration } from '../../utils/format'
+import { leaseRunway } from '../../utils/lease-runway'
+import { useNodesContext } from '../../contexts/NodesContext'
 import { useConfirm, type ConfirmOptions } from '../ConfirmModal'
-import Spinner from '../Spinner'
+import { ChecksSection, Segmented, type CheckSpec } from '../ConnectReview'
+import CountryFlag from '../CountryFlag'
+import { ChartIcon, PlusIcon } from '../Icons'
 import PlanNodesManager, { type NodeActionState } from './PlanNodesManager'
-import { STATUS_ACTIVE, formatUdvpnAmount, formatUsd } from '../../utils/provider-format'
-
-function formatSize(bytes: string): string {
-  const gb = Number(bytes) / 1e9
-  if (!isFinite(gb) || gb <= 0) return '—'
-  if (gb >= 1000) return `${(gb / 1000).toLocaleString('en-US', { maximumFractionDigits: 2 })} TB`
-  return `${gb.toLocaleString('en-US', { maximumFractionDigits: 2 })} GB`
-}
-
-function formatDays(seconds: number | null): string {
-  if (!seconds || seconds <= 0) return '—'
-  const days = seconds / 86400
-  return days >= 1 ? `${days.toLocaleString('en-US', { maximumFractionDigits: 1 })}d` : `${Math.round(seconds / 3600)}h`
-}
+import { STATUS_ACTIVE, formatUdvpnAmount, usdEstimate } from '../../utils/provider-format'
 
 // formatUdvpnAmount, not formatUdvpn: on the provider's own row a zero price must
 // read "0 P2P". "free" is the consumer catalog's word, and it sat oddly next to
 // figures the provider chose.
 function planPrice(plan: MyPlan): string {
   const udvpn = plan.prices.find((p) => p.denom === 'udvpn')
-  return udvpn ? formatUdvpnAmount(udvpn.quoteValue) : '—'
+  return udvpn ? formatUdvpnAmount(udvpn.quoteValue) : '-'
 }
 
 function planUsd(plan: MyPlan, price: TokenPrice | null): string | null {
   if (!price) return null
   const udvpn = plan.prices.find((p) => p.denom === 'udvpn')
-  return udvpn ? `≈ ${formatUsd(udvpn.quoteValue, price.usd)}` : null
+  return udvpn ? usdEstimate(udvpn.quoteValue, price.usd) : null
+}
+
+/** "10 TB · 30d · 100,000 P2P", in the shared formatters the Plans tab uses too. */
+function planFacts(plan: MyPlan): string {
+  return `${formatBytes(plan.bytes)} · ${formatDuration(plan.durationSeconds)} · ${planPrice(plan)}`
 }
 
 /**
@@ -66,8 +64,16 @@ interface Props {
   onLinkedNodesCounted: (count: number | null) => void
   /** Threaded to PlanNodesManager, which cannot own it. See NodeActionState. */
   nodeAction: NodeActionState
+  /** The bar's Activate, for the one place leasing says it is blocked. */
+  onActivateProvider: () => void
+  activatingProvider: boolean
 }
 
+/**
+ * The provider's plans: a compact list on the left, and on the right either the
+ * Overview (no plan selected), the selected plan's workspace, or the new-plan form.
+ * The Overview replaced an empty "Select a plan" pane that took half the window.
+ */
 export default function ProviderPlans({
   plans,
   leases,
@@ -78,12 +84,13 @@ export default function ProviderPlans({
   onChanged,
   onLinkedNodesCounted,
   nodeAction,
+  onActivateProvider,
+  activatingProvider,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const selected = plans.find((p) => p.id === selectedId) ?? null
-  // ONE confirm dialog for the whole pane, threaded to the rows — each row used
-  // to mount its own inside the clickable row div, one overlay per plan.
+  // ONE confirm dialog for the whole pane, threaded to the workspace.
   const { requestConfirm, confirmDialog } = useConfirm()
 
   // Counters and the USD rate are extra chain/network reads, so they load after
@@ -159,105 +166,131 @@ export default function ProviderPlans({
     await Promise.all([onChanged(), loadStats()])
   }, [onChanged, loadStats])
 
+  const statsFor = (id: string): PlanStats | null | undefined => (stats ? stats[id] : readOnly ? null : undefined)
+  const canCreate = providerActive && !readOnly
+
   return (
     <div className="flex-1 flex min-h-0">
-      <div className="w-[380px] border-r border-border flex flex-col min-h-0">
-        <div className="flex items-center justify-between px-5 py-2.5 border-b border-border shrink-0">
-          <span className="text-text-secondary text-xs font-medium uppercase tracking-wide">
-            Your plans ({plans.length})
-          </span>
-          <span className="flex items-center gap-2">
-            {statsFailed && (
-              <button
-                type="button"
-                onClick={() => void loadStats()}
-                className="text-warning text-[11px] hover:underline"
-                title="The per-plan counters could not be read. Click to try again."
-              >
-                counters unavailable, retry
-              </button>
-            )}
+      <aside className="w-[300px] shrink-0 border-r border-border flex flex-col min-h-0">
+        <button
+          type="button"
+          onClick={() => { setSelectedId(null); setCreating(false) }}
+          className={`w-full text-left px-4 py-3 border-b border-border flex items-center gap-2 text-sm font-medium transition-colors ${
+            !selected && !creating ? 'bg-accent-subtle text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+          }`}
+        >
+          <ChartIcon className="w-3.5 h-3.5" />
+          Overview
+        </button>
+        <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
+          <span className="text-text-tertiary text-[10px] font-medium uppercase tracking-wide">Your plans ({plans.length})</span>
+          {statsFailed && (
             <button
               type="button"
-              onClick={() => setCreating((v) => !v)}
-              disabled={(!providerActive || readOnly) && !creating}
-              className="btn btn-secondary text-xs py-1 px-2.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => void loadStats()}
+              className="text-warning text-[11px] hover:underline"
+              title="The per-plan counters could not be read. Click to try again."
             >
-              {creating ? 'Cancel' : 'New plan'}
+              counters unavailable, retry
             </button>
-          </span>
+          )}
         </div>
+        <div className="flex-1 overflow-y-auto">
+          {plans.length === 0 && (
+            <p className="px-4 py-2 text-text-tertiary text-xs">
+              No plans yet. A plan is what subscribers buy: gigabytes over a period, at your price,
+              served by the nodes you link to it.
+            </p>
+          )}
+          {plans.map((plan) => {
+            const s = statsFor(plan.id)
+            const isSelected = plan.id === selected?.id && !creating
+            const active = plan.status === STATUS_ACTIVE
+            return (
+              <button
+                key={plan.id}
+                type="button"
+                onClick={() => { setSelectedId(plan.id); setCreating(false) }}
+                className={`w-full text-left px-4 py-2.5 border-b border-border transition-colors ${
+                  isSelected ? 'bg-accent-subtle' : 'hover:bg-bg-hover'
+                }`}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="text-accent font-mono text-xs shrink-0">#{plan.id}</span>
+                  <span className="text-text-primary text-xs whitespace-nowrap truncate">{planFacts(plan)}</span>
+                </span>
+                <span className="flex items-center gap-1.5 mt-1.5 text-[11px] text-text-tertiary whitespace-nowrap">
+                  <span className={`px-1.5 py-0.5 rounded-full leading-none ${active ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'}`}>
+                    {active ? 'Live' : 'Inactive'}
+                  </span>
+                  {plan.private && <span className="px-1.5 py-0.5 rounded-full leading-none bg-info/15 text-info">Private</span>}
+                  <span className="truncate">
+                    {s ? `${s.nodes} node${s.nodes === 1 ? '' : 's'} · ${s.subscriptions} sold · ${s.truncated ? `${s.active}+` : s.active} active`
+                      : s === null || statsFailed ? 'counters not readable' : 'counting…'}
+                  </span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        <div className="p-3 border-t border-border space-y-1.5">
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            disabled={!canCreate}
+            className="btn btn-secondary w-full text-xs py-1.5 inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <PlusIcon className="w-3.5 h-3.5" />
+            New plan
+          </button>
+          {!canCreate && (
+            <p className="text-text-tertiary text-[11px] text-center">
+              {readOnly ? 'Disconnect the VPN to create plans.' : 'Needs an active provider.'}
+            </p>
+          )}
+        </div>
+      </aside>
 
-        {creating && (
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        {creating ? (
           <CreatePlanForm
             price={price}
             economics={economics}
             readOnly={readOnly}
             requestConfirm={requestConfirm}
+            onCancel={() => setCreating(false)}
             onCreated={() => {
               setCreating(false)
               void handleChanged()
             }}
           />
-        )}
-
-        <div className="flex-1 overflow-y-auto">
-          {plans.length === 0 && !creating && (
-            <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-              <p className="text-text-primary text-sm font-medium">No plans yet</p>
-              <p className="text-text-secondary text-xs max-w-[260px]">
-                A plan is what subscribers buy: gigabytes over a period, at your price, served by the
-                nodes you link to it.
-              </p>
-              {providerActive && !readOnly && (
-                <button type="button" onClick={() => setCreating(true)} className="btn btn-primary text-xs py-1.5 px-4">
-                  New plan
-                </button>
-              )}
-            </div>
-          )}
-          {plans.map((plan) => (
-            <PlanRow
-              key={plan.id}
-              plan={plan}
-              stats={stats ? stats[plan.id] : readOnly ? null : undefined}
-              statsUnknown={readOnly || statsFailed}
-              price={price}
-              selected={plan.id === selectedId}
-              providerActive={providerActive}
-              readOnly={readOnly}
-              providerName={providerName}
-              requestConfirm={requestConfirm}
-              onSelect={() => setSelectedId(plan.id === selectedId ? null : plan.id)}
-              onChanged={handleChanged}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 min-w-0">
-        {selected ? (
-          <PlanNodesManager
+        ) : selected ? (
+          <PlanWorkspace
+            key={selected.id}
             plan={selected}
-            leases={leases}
+            stats={statsFor(selected.id)}
+            statsUnknown={readOnly || statsFailed}
             price={price}
-            economics={economics}
             providerActive={providerActive}
             readOnly={readOnly}
+            providerName={providerName}
+            economics={economics}
+            leases={leases}
+            requestConfirm={requestConfirm}
             onChanged={handleChanged}
             nodeAction={nodeAction}
+            onActivateProvider={onActivateProvider}
+            activatingProvider={activatingProvider}
           />
         ) : (
-          <div className="h-full flex flex-col items-center justify-center gap-2 px-8 text-center">
-            <p className="text-text-primary text-sm font-medium">
-              {plans.length === 0 ? 'Nothing to manage yet' : 'Select a plan'}
-            </p>
-            <p className="text-text-tertiary text-xs max-w-sm">
-              {plans.length === 0
-                ? 'Once a plan exists, this pane is where you lease nodes and link them to it.'
-                : 'Pick a plan on the left to manage the nodes that serve it.'}
-            </p>
-          </div>
+          <Overview
+            plans={plans}
+            leases={leases}
+            stats={stats}
+            statsUnknown={readOnly || statsFailed}
+            economics={economics}
+            onSelectPlan={setSelectedId}
+          />
         )}
       </div>
       {confirmDialog}
@@ -265,18 +298,233 @@ export default function ProviderPlans({
   )
 }
 
-function PlanRow({
+function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{children}</h3>
+      {right && <span className="text-xs">{right}</span>}
+    </div>
+  )
+}
+
+/**
+ * When a lease's hours run out: what the chain will do, in words. Never and Always
+ * are certain; the conditional policies depend on the node's price at the time.
+ */
+function renewalEnd(policy: number): { text: string; className: string } {
+  if (policy === RENEWAL_POLICY.UNSPECIFIED) return { text: 'stops', className: 'text-danger' }
+  if (policy === RENEWAL_POLICY.ALWAYS) return { text: 'renews', className: 'text-success' }
+  if (policy === RENEWAL_POLICY.IF_LESSER_OR_EQUAL) return { text: 'renews if the price holds', className: 'text-text-secondary' }
+  if (policy === RENEWAL_POLICY.IF_LESSER) return { text: 'renews only if cheaper', className: 'text-text-secondary' }
+  return { text: renewalPolicyLabel(policy).toLowerCase(), className: 'text-text-secondary' }
+}
+
+function nodeName(node: SentNode | undefined, address: string): string {
+  return node?.moniker || `${address.slice(0, 12)}...${address.slice(-4)}`
+}
+
+/**
+ * The business at a glance, when no plan is selected: when each lease runs out, what
+ * each node costs a day, and what each plan has brought in. Honest by construction:
+ * the cost bars sum to the bar's Burn figure, income is labelled a minimum, and there
+ * is no profit line (the chain deletes ended leases, so lifetime cost is unknowable).
+ * A chart with one bar is a number, so one lease or one plan gets a figure instead.
+ */
+function Overview({ plans, leases, stats, statsUnknown, economics, onSelectPlan }: {
+  plans: MyPlan[]
+  leases: LeaseSummary[]
+  stats: Record<string, PlanStats | null> | null
+  statsUnknown: boolean
+  economics: ProviderEconomics | null
+  onSelectPlan: (id: string) => void
+}) {
+  const { allNodes } = useNodesContext()
+  const nodeIndex = useMemo(() => new Map(allNodes.map((n) => [n.address, n])), [allNodes])
+  const runway = useMemo(() => leaseRunway(leases), [leases])
+  const soonestStop = runway.rows.find((r) => r.renewalPricePolicy === RENEWAL_POLICY.UNSPECIFIED && r.hoursLeft < 24)
+
+  const costs = useMemo(() => leases
+    .filter(isActiveLease)
+    .map((l) => ({ lease: l, daily: BigInt(l.hourlyPrice) * 24n }))
+    .sort((a, b) => (b.daily > a.daily ? 1 : b.daily < a.daily ? -1 : 0)), [leases])
+  const maxCost = costs.reduce((m, c) => (c.daily > m ? c.daily : m), 0n)
+
+  // Income per plan, by the same shared maths main uses for the total: subscriptions
+  // sold times the price net of the chain's share. null when it cannot be computed.
+  const income = useMemo(() => {
+    if (!stats || statsUnknown || !economics) return null
+    let share: bigint
+    try { share = parseDecShare(economics.subscriptionStakingShare) } catch { return null }
+    return plans.flatMap((plan) => {
+      const s = stats[plan.id]
+      const udvpn = plan.prices.find((p) => p.denom === 'udvpn')?.quoteValue
+      if (!s || !udvpn || !/^\d+$/.test(udvpn)) return []
+      return [{ plan, sold: s.subscriptions, net: BigInt(netOfStakingShare(udvpn, share)) * BigInt(s.subscriptions) }]
+    }).sort((a, b) => (b.net > a.net ? 1 : b.net < a.net ? -1 : 0))
+  }, [plans, stats, statsUnknown, economics])
+  const maxIncome = income?.reduce((m, r) => (r.net > m ? r.net : m), 0n) ?? 0n
+  const pct = (v: bigint, max: bigint) => (max > 0n ? Math.max(1, Number((v * 1000n) / max) / 10) : 0)
+
+  return (
+    <div className="p-5 space-y-4">
+      <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
+        <SectionTitle right={soonestStop && (
+          <span className="text-warning">
+            {nodeName(nodeIndex.get(soonestStop.nodeAddress), soonestStop.nodeAddress)} stops in {formatDuration(soonestStop.hoursLeft * 3600)} and will not renew
+          </span>
+        )}>
+          Lease runway, soonest end first
+        </SectionTitle>
+        {runway.rows.length === 0 ? (
+          <div className="space-y-3">
+            {/* Decorative: where the bars will be. The sentence says it. */}
+            <div aria-hidden className="space-y-2.5">
+              {[82, 46, 64].map((w) => (
+                <div key={w} className="h-2.5 rounded-full border border-dashed border-text-tertiary/25" style={{ width: `${w}%` }} />
+              ))}
+            </div>
+            <p className="text-text-secondary text-sm">
+              No leases yet. Each node you lease shows here as a bar of the hours it has left, so you
+              can see which one stops first.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-[minmax(110px,170px)_minmax(0,1fr)_auto] gap-x-3 gap-y-2.5 items-center">
+            {runway.rows.map((r) => {
+              const node = nodeIndex.get(r.nodeAddress)
+              const end = renewalEnd(r.renewalPricePolicy)
+              const stops = r.renewalPricePolicy === RENEWAL_POLICY.UNSPECIFIED
+              return (
+                <div key={r.id} className="contents">
+                  <span className="flex items-center gap-2 min-w-0 text-sm">
+                    {node && <CountryFlag country={node.country} />}
+                    <span className="truncate text-text-primary">{nodeName(node, r.nodeAddress)}</span>
+                  </span>
+                  <span
+                    className="h-2 rounded-full bg-bg-tertiary relative"
+                    title={`${r.hoursLeft} of ${r.maxHours} hours left. ${renewalPolicyLabel(r.renewalPricePolicy)}.`}
+                  >
+                    <span
+                      className={`absolute inset-y-0 left-0 rounded-full min-w-[4px] ${stops ? 'bg-danger' : 'bg-accent'}`}
+                      style={{ width: `${r.fraction * 100}%` }}
+                    />
+                  </span>
+                  <span className="text-xs whitespace-nowrap">
+                    <span className="font-mono text-text-primary">{formatDuration(r.hoursLeft * 3600)} left</span>
+                    <span className={`ml-2 ${end.className}`}>{end.text}</span>
+                  </span>
+                </div>
+              )
+            })}
+            <span />
+            <span className="flex justify-between text-[10px] font-mono text-text-tertiary">
+              <span>now</span>
+              <span>{formatDuration((runway.axisHours / 2) * 3600)}</span>
+              <span>{formatDuration(runway.axisHours * 3600)}</span>
+            </span>
+            <span />
+          </div>
+        )}
+      </section>
+
+      <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4">
+        <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
+          <SectionTitle right={economics && economics.activeLeases > 0 && (
+            <span className="font-mono text-text-primary">{formatUdvpnAmount(economics.burnDailyUdvpn)}</span>
+          )}>
+            Cost by node, per day
+          </SectionTitle>
+          {costs.length === 0 ? (
+            <p className="text-text-secondary text-sm">
+              Nothing is being spent. Leases are billed by the hour whether or not anyone connects.
+            </p>
+          ) : costs.length === 1 ? (
+            <p className="text-sm text-text-secondary">
+              <span className="text-text-primary text-lg font-semibold">{formatUdvpnAmount(costs[0].daily.toString())}</span> a day for{' '}
+              {nodeName(nodeIndex.get(costs[0].lease.nodeAddress), costs[0].lease.nodeAddress)}, billed whether or not anyone connects.
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-[minmax(90px,140px)_minmax(0,1fr)_auto] gap-x-3 gap-y-2 items-center text-xs">
+                {costs.map(({ lease, daily }) => (
+                  <div key={lease.id} className="contents">
+                    <span className="truncate text-text-secondary">{nodeName(nodeIndex.get(lease.nodeAddress), lease.nodeAddress)}</span>
+                    <span className="h-2 rounded-full bg-bg-tertiary relative" title={`${formatUdvpnAmount(daily.toString())} a day`}>
+                      <span className="absolute inset-y-0 left-0 rounded-full bg-accent min-w-[3px]" style={{ width: `${pct(daily, maxCost)}%` }} />
+                    </span>
+                    <span className="font-mono text-text-primary text-right">{formatUdvpnAmount(daily.toString())}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-text-tertiary text-[11px] mt-3">Billed hourly whether or not anyone connects. The bars add up to the Burn figure above.</p>
+            </>
+          )}
+        </section>
+
+        <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
+          <SectionTitle right={economics && economics.estimatedRevenueUdvpn !== '0' && (
+            <span className="font-mono text-text-primary">{formatUdvpnAmount(economics.estimatedRevenueUdvpn)}</span>
+          )}>
+            Income by plan, at least
+          </SectionTitle>
+          {income === null ? (
+            <p className="text-text-secondary text-sm">
+              {plans.length === 0 ? 'No plans yet.' : 'The per-plan counters are not readable right now.'}
+            </p>
+          ) : income.every((r) => r.sold === 0) ? (
+            <p className="text-text-secondary text-sm">No subscriptions sold yet.</p>
+          ) : income.length === 1 ? (
+            <p className="text-sm text-text-secondary">
+              <span className="text-text-primary text-lg font-semibold">{formatUdvpnAmount(income[0].net.toString())}</span> from{' '}
+              {income[0].sold} subscription{income[0].sold === 1 ? '' : 's'} to{' '}
+              <button type="button" onClick={() => onSelectPlan(income[0].plan.id)} className="text-accent hover:underline">plan #{income[0].plan.id}</button>,
+              after the chain's share.
+            </p>
+          ) : (
+            <div className="grid grid-cols-[48px_minmax(0,1fr)_auto] gap-x-3 gap-y-2 items-center text-xs">
+              {income.map(({ plan, sold, net }) => (
+                <div key={plan.id} className="contents">
+                  <button type="button" onClick={() => onSelectPlan(plan.id)} className="font-mono text-accent hover:underline text-left">#{plan.id}</button>
+                  <span className="h-2 rounded-full bg-bg-tertiary relative" title={`${sold} sold`}>
+                    {net > 0n && <span className="absolute inset-y-0 left-0 rounded-full bg-accent min-w-[3px]" style={{ width: `${pct(net, maxIncome)}%` }} />}
+                  </span>
+                  <span className="font-mono text-text-primary text-right">{formatUdvpnAmount(net.toString())}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {income !== null && income.some((r) => r.sold > 0) && (
+            <p className="text-text-tertiary text-[11px] mt-3">
+              Subscriptions sold times the price, after the chain's share. A minimum: renewals can charge
+              again without a new subscription.
+            </p>
+          )}
+        </section>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * One plan: its facts and its two switches, the counters with the break-even meter,
+ * whether subscribers will find it, and the nodes serving it. The switches keep the
+ * confirm text and the in-flight rules the old row buttons had.
+ */
+function PlanWorkspace({
   plan,
   stats,
   statsUnknown,
   price,
-  selected,
   providerActive,
   readOnly,
   providerName,
+  economics,
+  leases,
   requestConfirm,
-  onSelect,
   onChanged,
+  nodeAction,
+  onActivateProvider,
+  activatingProvider,
 }: {
   plan: MyPlan
   /** undefined while the counters are still being read, null if they couldn't be. */
@@ -284,34 +532,32 @@ function PlanRow({
   /** True when no counter for this batch is trustworthy (cached data or a failed read). */
   statsUnknown: boolean
   price: TokenPrice | null
-  selected: boolean
   providerActive: boolean
   readOnly: boolean
   providerName: string
+  economics: ProviderEconomics | null
+  leases: LeaseSummary[]
   requestConfirm: (options: ConfirmOptions) => Promise<boolean>
-  onSelect: () => void
   onChanged: () => Promise<void>
+  nodeAction: NodeActionState
+  onActivateProvider: () => void
+  activatingProvider: boolean
 }) {
   const active = plan.status === STATUS_ACTIVE
   // Which action is running AND what it is moving to, not merely that one is.
   //
-  // Two reasons it carries both. The row has two buttons, and a shared boolean
-  // put the spinner on whichever one you did not click. And `plan` is live chain
-  // data that changes UNDER these buttons: `onChanged()` calls setData while it
-  // runs and the busy flag only clears a microtask later, so there is a render
-  // showing the NEW value with the spinner still going. Reading a label off
-  // `plan` there made a freshly activated plan say "Deactivating…" mid-spin.
-  // While an action is in flight both buttons describe the ACTION and hold their
-  // pre-action appearance, so each settles in one visible step.
+  // Two reasons it carries both. There are two switches, and a shared boolean put
+  // the spinner on whichever one you did not touch. And `plan` is live chain data
+  // that changes UNDER these switches: `onChanged()` calls setData while it runs and
+  // the busy flag only clears a microtask later, so there is a render showing the
+  // NEW value with the spinner still going. While an action is in flight each switch
+  // keeps its pre-action value and shows the spinner on the target, so it settles in
+  // one visible step.
   const [busy, setBusy] = useState<{ kind: 'status' | 'private'; target: boolean } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const anyBusy = busy !== null
-  // Pre-action values are the opposite of what each action is moving to.
-  const showActive = busy?.kind === 'status' ? !busy.target : active
-  const showPrivate = busy?.kind === 'private' ? !busy.target : plan.private
-  // Activating needs an active provider (the chain refuses otherwise);
-  // deactivating does not. Both need the chain reachable.
-  const statusBlocked = readOnly || anyBusy || (!active && !providerActive)
+  const shownActive = busy?.kind === 'status' ? !busy.target : active
+  const shownPrivate = busy?.kind === 'private' ? !busy.target : plan.private
+  const usd = planUsd(plan, price)
 
   /**
    * Flip the plan between public and private.
@@ -336,7 +582,7 @@ function PlanRow({
     setError(null)
     try {
       await window.api.providerPlanSetPrivate(plan.id, next)
-      // Awaited so the badge stays busy through the re-read and never flashes
+      // Awaited so the switch stays busy through the re-read and never flashes
       // the old value back on the way to the new one.
       await onChanged()
     } catch (err) {
@@ -373,114 +619,239 @@ function PlanRow({
     }
   }
 
-  return (
-    <div
-      className={`border-b border-border transition-colors ${selected ? 'bg-accent-subtle' : 'hover:bg-bg-hover'}`}
-    >
-      <div className="flex items-stretch">
-        {/* The selectable body is a real button, so the row works from the keyboard;
-            the action cluster sits beside it rather than nested inside it. */}
-        <button type="button" onClick={onSelect} className="flex-1 min-w-0 text-left px-5 py-3 cursor-pointer">
-          <div className="flex items-center gap-2.5">
-            <span className="text-accent font-mono text-xs">plan #{plan.id}</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full leading-none ${
-              active ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'
-            }`}>
-              {active ? 'Active' : 'Inactive'}
-            </span>
-            {plan.private && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full leading-none bg-info/15 text-info">
-                Private
-              </span>
-            )}
-          </div>
-          <div className="text-text-secondary text-xs mt-1.5 flex items-center gap-3">
-            <span>{formatSize(plan.bytes)}</span>
-            <span>{formatDays(plan.durationSeconds)}</span>
-            <span className="text-text-primary">{planPrice(plan)}</span>
-            {planUsd(plan, price) && <span className="text-text-tertiary">{planUsd(plan, price)}</span>}
-          </div>
-          <div className="text-text-tertiary text-[11px] mt-1 flex items-center gap-3">
-            {stats ? (
-              <>
-                <span title="Nodes linked to this plan">
-                  {stats.nodes} node{stats.nodes === 1 ? '' : 's'}
-                </span>
-                <span title="Subscriptions ever bought for this plan (one account can hold several)">
-                  {stats.subscriptions} subscriber{stats.subscriptions === 1 ? '' : 's'}
-                </span>
-                <span
-                  className={stats.active > 0 ? 'text-success' : undefined}
-                  title={stats.truncated
-                    ? `At least ${stats.active} are active: this plan has too many subscriptions to count them all`
-                    : 'Subscriptions currently active'}
-                >
-                  {stats.truncated ? `${stats.active}+` : stats.active} active
-                </span>
-              </>
-            ) : (
-              <span>
-                {stats === null || statsUnknown ? 'counters not readable right now' : 'counting…'}
-              </span>
-            )}
-          </div>
-          {error && <p className="text-danger text-xs mt-1.5">{displayConnectError(error)}</p>}
-        </button>
+  // Activating needs an active provider (the chain refuses otherwise);
+  // deactivating does not. Both need the chain reachable.
+  const statusLock = readOnly ? 'The chain is not reachable while the VPN is connected'
+    : !active && !providerActive ? 'Activate your provider first' : false
+  const privateLock = readOnly ? 'The chain is not reachable while the VPN is connected' : false
 
-        <div className="flex flex-col items-end justify-center gap-1.5 pr-5 py-3 shrink-0">
-          {/* min-w holds the busy label's width, so swapping to the gerund doesn't shove the row. */}
-          <button
-            type="button"
-            onClick={toggleStatus}
-            disabled={statusBlocked}
-            title={
-              readOnly
-                ? 'The chain is not reachable while the VPN is connected'
-                : !active && !providerActive
-                  ? 'Activate your provider first'
-                  : undefined
-            }
-            className={`btn text-xs py-1 px-2.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5 min-w-[128px] ${
-              showActive ? 'btn-secondary' : 'btn-primary'
-            }`}
-          >
-            {busy?.kind === 'status' && <Spinner size="sm" />}
-            {busy?.kind === 'status'
-              ? (busy.target ? 'Activating…' : 'Deactivating…')
-              : (active ? 'Deactivate' : 'Activate')}
-          </button>
-          <button
-            type="button"
-            onClick={togglePrivate}
-            disabled={anyBusy || readOnly}
-            className={`text-[10px] px-1.5 py-0.5 rounded-full leading-none shrink-0 disabled:opacity-40 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1 ${
-              showPrivate ? 'bg-info/15 text-info hover:bg-info/25' : 'bg-bg-tertiary text-text-tertiary hover:text-text-secondary'
-            }`}
-            title={
-              plan.private
-                ? 'Private: hidden from the catalog unless a subscriber opts to show private plans. Click to make it public.'
-                : 'Public: listed in the catalog. Click to make it private.'
-            }
-          >
-            {busy?.kind === 'private' && <Spinner size="sm" />}
-            {showPrivate ? 'Make public' : 'Make private'}
-          </button>
+  const checks = visibilityChecks({
+    plan, stats, statsUnknown, providerName, providerActive, readOnly,
+    onActivate: toggleStatus, onMakePublic: togglePrivate, busy: busy !== null,
+  })
+
+  return (
+    <div className="p-5 space-y-4">
+      <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
+        <h2 className="text-text-primary text-[17px] font-semibold">Plan #{plan.id}</h2>
+        <Segmented
+          label="Plan status"
+          value={shownActive ? 'active' : 'inactive'}
+          options={[['active', 'Active'], ['inactive', 'Inactive']]}
+          onChange={() => void toggleStatus()}
+          disabled={statusLock || (busy !== null && busy.kind !== 'status')}
+          pending={busy?.kind === 'status' ? (busy.target ? 'active' : 'inactive') : null}
+        />
+        <Segmented
+          label="Plan visibility"
+          value={shownPrivate ? 'private' : 'public'}
+          options={[['public', 'Public'], ['private', 'Private']]}
+          onChange={() => void togglePrivate()}
+          disabled={privateLock || (busy !== null && busy.kind !== 'private')}
+          pending={busy?.kind === 'private' ? (busy.target ? 'private' : 'public') : null}
+        />
+        <span className="ml-auto text-sm text-text-secondary whitespace-nowrap">
+          {formatBytes(plan.bytes)} · {formatDuration(plan.durationSeconds)} ·{' '}
+          <span className="text-text-primary">{planPrice(plan)}</span>
+          {usd && <span className="text-text-tertiary"> {usd}</span>}
+        </span>
+      </div>
+      {error && (
+        <div className="bg-danger-subtle border border-danger rounded-md px-3 py-2">
+          <p className="text-danger text-xs">{displayConnectError(error)}</p>
         </div>
+      )}
+
+      <StatStrip plan={plan} stats={stats} statsUnknown={statsUnknown} economics={economics} />
+
+      <div className="bg-bg-secondary border border-border rounded-md px-3 py-3">
+        <ChecksSection title="Will subscribers find it?" checks={checks} />
+      </div>
+
+      <PlanNodesManager
+        plan={plan}
+        leases={leases}
+        price={price}
+        economics={economics}
+        providerActive={providerActive}
+        readOnly={readOnly}
+        onChanged={onChanged}
+        nodeAction={nodeAction}
+        onActivateProvider={onActivateProvider}
+        activatingProvider={activatingProvider}
+      />
+    </div>
+  )
+}
+
+/**
+ * The counters, and the break-even meter: active subscribers against the number that
+ * would cover every running lease if this plan alone paid for them. The same
+ * computation as the create form's hint, so it is advisory and never blocks.
+ */
+function StatStrip({ plan, stats, statsUnknown, economics }: {
+  plan: MyPlan
+  stats: PlanStats | null | undefined
+  statsUnknown: boolean
+  economics: ProviderEconomics | null
+}) {
+  const unknown = stats === null || (stats === undefined && statsUnknown)
+  const val = (n: number | undefined) => (stats ? String(n) : unknown ? '?' : '…')
+
+  const breakEven = useMemo(() => {
+    if (!economics) return null
+    const udvpn = plan.prices.find((p) => p.denom === 'udvpn')?.quoteValue
+    const days = plan.durationSeconds ? Math.round(plan.durationSeconds / 86400) : 0
+    if (!udvpn || !/^\d+$/.test(udvpn) || days <= 0) return null
+    try {
+      const net = netOfStakingShare(udvpn, parseDecShare(economics.subscriptionStakingShare))
+      return computeBreakEven({ dailyBurnUdvpn: economics.burnDailyUdvpn, netPricePerSubUdvpn: net, durationDays: days })
+    } catch {
+      return null
+    }
+  }, [plan, economics])
+
+  const cell = 'px-4 py-2.5 border-r border-border min-w-0'
+  return (
+    <div className="grid grid-cols-[1fr_1fr_1fr_2fr] bg-bg-secondary border border-border rounded-md">
+      <div className={cell} title="Nodes linked to this plan">
+        <div className="text-text-tertiary text-[10px] font-medium uppercase tracking-wide">Nodes</div>
+        <div className="text-text-primary text-lg font-semibold">{val(stats?.nodes)}</div>
+      </div>
+      <div className={cell} title="Subscriptions ever bought for this plan (one account can hold several)">
+        <div className="text-text-tertiary text-[10px] font-medium uppercase tracking-wide">Sold</div>
+        <div className="text-text-primary text-lg font-semibold">{val(stats?.subscriptions)}</div>
+      </div>
+      <div
+        className={cell}
+        title={stats?.truncated ? `At least ${stats.active} are active: this plan has too many subscriptions to count them all` : 'Subscriptions currently active'}
+      >
+        <div className="text-text-tertiary text-[10px] font-medium uppercase tracking-wide">Active now</div>
+        <div className={`text-lg font-semibold ${stats && stats.active > 0 ? 'text-success' : 'text-text-primary'}`}>
+          {stats ? (stats.truncated ? `${stats.active}+` : stats.active) : val(undefined)}
+        </div>
+      </div>
+      <div className="px-4 py-2.5 min-w-0">
+        <div className="text-text-tertiary text-[10px] font-medium uppercase tracking-wide">Break-even</div>
+        {breakEven === null ? (
+          <div className="text-text-secondary text-xs mt-1.5">Not computable right now</div>
+        ) : breakEven.kind === 'no-burn' ? (
+          <div className="text-text-secondary text-xs mt-1.5">No leases running, so no costs to cover</div>
+        ) : breakEven.kind === 'never' ? (
+          <div className="text-warning text-xs mt-1.5">At this price you keep nothing per subscription</div>
+        ) : (
+          <div className="flex items-center gap-2.5 mt-1.5">
+            <span
+              className="flex-1 h-2 rounded-full bg-bg-tertiary relative"
+              role="img"
+              aria-label={`${stats ? stats.active : 'unknown'} active subscribers against ${breakEven.count} needed`}
+            >
+              {stats && (
+                <span
+                  className={`absolute inset-y-0 left-0 rounded-full min-w-[3px] ${stats.active >= breakEven.count ? 'bg-success' : 'bg-accent'}`}
+                  style={{ width: `${Math.min(100, (stats.active / breakEven.count) * 100)}%` }}
+                />
+              )}
+            </span>
+            <span
+              className="text-xs text-text-secondary whitespace-nowrap"
+              title="Active subscribers this plan would need to cover every running lease on its own."
+            >
+              ~{breakEven.count.toLocaleString('en-US')} needed{stats ? `, ${stats.active >= breakEven.count ? 'covered' : `${stats.active} now`}` : ''}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 /**
- * Create a plan. It lands INACTIVE on chain — activation is a separate tx, offered
- * on the row once it appears — so nothing here needs to track a half-created plan.
+ * Whether subscribers will find the plan, as live checks rather than a paragraph in
+ * the Activate confirm. Two different questions, kept apart as activateBody does:
+ * what the CHAIN allows (active, a real chain flag for private) and what this app's
+ * catalog shows by default ("Ready to connect" drops a plan counted at zero nodes, and
+ * "Test plans" is a guess from the PROVIDER NAME). An unconfirmed node count is never
+ * reported as zero.
  */
-function CreatePlanForm({ price: tokenPrice, economics, readOnly, requestConfirm, onCreated }: {
+function visibilityChecks({ plan, stats, statsUnknown, providerName, providerActive, readOnly, onActivate, onMakePublic, busy }: {
+  plan: MyPlan
+  stats: PlanStats | null | undefined
+  statsUnknown: boolean
+  providerName: string
+  providerActive: boolean
+  readOnly: boolean
+  onActivate: () => void
+  onMakePublic: () => void
+  busy: boolean
+}): CheckSpec[] {
+  const action = (label: string, onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={readOnly || busy}
+      className="btn btn-secondary text-xs px-2.5 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      {label}
+    </button>
+  )
+  const checks: CheckSpec[] = []
+  checks.push(plan.status === STATUS_ACTIVE
+    ? { id: 'status', tone: 'success', text: 'Active: subscribers can buy it.' }
+    : {
+        id: 'status',
+        tone: 'danger',
+        text: providerActive ? 'Inactive, so it cannot be bought.' : 'Inactive, and it can only be activated once your provider is.',
+        action: providerActive ? action('Activate', onActivate) : undefined,
+      })
+  checks.push(plan.private
+    ? {
+        id: 'private',
+        tone: 'warning',
+        text: 'Private: only buyers who tick the Private filter see it.',
+        tipLabel: 'About private plans',
+        tip: 'Private is a flag on chain, so other Sentinel apps should hide the plan too. Existing subscriptions are unaffected either way.',
+        action: action('Make public', onMakePublic),
+      }
+    : { id: 'private', tone: 'success', text: 'Public: listed for everyone browsing plans.' })
+  if (stats) {
+    checks.push(stats.nodes > 0
+      ? { id: 'nodes', tone: 'success', text: `Served by ${stats.nodes} linked node${stats.nodes === 1 ? '' : 's'}.` }
+      : {
+          id: 'nodes',
+          tone: 'danger',
+          text: 'No nodes linked, so the catalog hides it by default and a buyer would have nothing to connect to.',
+          tipLabel: 'Why no nodes hides it',
+          tip: 'The catalog\'s "Ready to connect" filter is on by default and drops any plan counted at zero nodes. Lease and link a node below; you can do that without deactivating.',
+        })
+  } else if (stats === undefined && !statsUnknown) {
+    checks.push({ id: 'nodes', tone: 'busy', text: 'Counting linked nodes' })
+  } else {
+    checks.push({ id: 'nodes', tone: 'warning', text: 'The linked-node count could not be read right now.' })
+  }
+  if (isTestPlan(providerName)) {
+    checks.push({
+      id: 'test',
+      tone: 'warning',
+      text: `"${providerName}" reads as a test account, so the catalog files the plan under Test plans, hidden by default.`,
+      tipLabel: 'Why the name matters',
+      tip: 'This is a guess this app makes from the provider name, not anything the chain records. Renaming the provider with Edit details, at the top, changes it.',
+    })
+  }
+  return checks
+}
+
+/**
+ * Create a plan. It lands INACTIVE on chain — activation is a separate tx, offered
+ * in its workspace once it appears — so nothing here needs to track a half-created plan.
+ */
+function CreatePlanForm({ price: tokenPrice, economics, readOnly, requestConfirm, onCancel, onCreated }: {
   price: TokenPrice | null
   economics: ProviderEconomics | null
   /** The console went read-only (tunnel up, or the chain read failed) after this form opened. */
   readOnly: boolean
   requestConfirm: (options: ConfirmOptions) => Promise<boolean>
+  onCancel: () => void
   onCreated: () => void
 }) {
   const [gigabytes, setGigabytes] = useState('100')
@@ -535,33 +906,49 @@ function CreatePlanForm({ price: tokenPrice, economics, readOnly, requestConfirm
   }
 
   return (
-    <div className="px-5 py-3 border-b border-border bg-bg-secondary space-y-2.5 shrink-0">
-      <div className="grid grid-cols-3 gap-2">
+    <div className="p-5 max-w-xl space-y-4">
+      <div>
+        <h2 className="text-text-primary text-[17px] font-semibold">New plan</h2>
+        <p className="text-text-tertiary text-xs mt-1">What subscribers buy: gigabytes over a period, at your price, served by the nodes you link to it.</p>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
         <NumField label="Size (GB)" value={gigabytes} onChange={setGigabytes} />
         <NumField label="Days" value={days} onChange={setDays} />
         <NumField label="Price (P2P)" value={price} onChange={setPrice} />
       </div>
-      <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
-        <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
-        Private (not listed for public discovery)
-      </label>
-      <p className="text-text-tertiary text-xs">
+      <div className="flex items-center gap-3">
+        <Segmented
+          label="Visibility"
+          value={isPrivate ? 'private' : 'public'}
+          options={[['public', 'Public'], ['private', 'Private']]}
+          onChange={(v) => setIsPrivate(v === 'private')}
+        />
+        <span className="text-text-tertiary text-xs">
+          {isPrivate ? 'Not listed for public discovery.' : 'Listed in the catalog once it is active.'}
+        </span>
+      </div>
+      <p className="text-text-secondary text-xs">
         {valid && priceUdvpn !== null
           ? `${gb} GB for ${dayCount} days · ${formatUdvpnAmount(priceUdvpn)}` +
-            (tokenPrice ? ` ≈ ${formatUsd(priceUdvpn, tokenPrice.usd)}` : '')
+            (tokenPrice ? `, ${usdEstimate(priceUdvpn, tokenPrice.usd)}` : '')
           : 'Size and days must be whole numbers; price accepts up to 6 decimals.'}
       </p>
       {valid && breakEven && <BreakEvenHint {...breakEven} />}
       {error && <p className="text-danger text-xs">{displayConnectError(error)}</p>}
       {readOnly && <p className="text-text-tertiary text-xs">Disconnect the VPN to create this plan.</p>}
-      <button
-        type="button"
-        onClick={handleCreate}
-        disabled={!valid || busy || readOnly}
-        className="btn btn-primary text-xs py-1.5 w-full disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        {busy ? 'Creating…' : 'Create plan'}
-      </button>
+      <div className="flex gap-2">
+        <button type="button" onClick={onCancel} disabled={busy} className="btn btn-secondary text-xs py-2 px-4 disabled:opacity-40 disabled:cursor-not-allowed">
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleCreate}
+          disabled={!valid || busy || readOnly}
+          className="btn btn-primary text-xs py-2 flex-1 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {busy ? 'Creating…' : 'Create plan'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -636,7 +1023,7 @@ function BreakEvenHint({ net, burnDailyUdvpn, result }: {
 }) {
   // No leases yet, so there is no burn to break even against. Nothing is wrong and
   // nothing is blocked, so this states the next steps rather than warning: the node
-  // picker lives inside the plan's own pane, which does not exist until the plan does.
+  // picker lives inside the plan's own workspace, which does not exist until the plan does.
   if (result.kind === 'no-burn') {
     return (
       <p className="text-text-tertiary text-xs">
@@ -676,7 +1063,7 @@ function NumField({ label, value, onChange }: { label: string; value: string; on
         inputMode="decimal"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-0.5 w-full bg-bg-tertiary border border-border text-text-primary text-xs px-2 py-1.5 rounded-sm focus:outline-none focus:border-border-focus"
+        className="mt-0.5 w-full bg-bg-tertiary border border-border text-text-primary text-sm px-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus"
       />
     </label>
   )

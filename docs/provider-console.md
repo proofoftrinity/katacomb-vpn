@@ -138,6 +138,20 @@ single account. The node count reuses `listNodesForPlan`, whose 10-minute cache 
 invalidated (`invalidatePlanNodes`) after our own link/unlink so the console doesn't
 re-read the pre-link answer.
 
+**The tab's layout** (2026-10-06): one provider bar (`ProviderIdentityCard`: record,
+money figures inline, actions; `useProviderStatus` there is the one Activate/Deactivate
+control, shared with the workspace's "Activate provider"), the setup steps as a route while
+incomplete (Activate is a step, which is what replaced the inactive banner), then the plan
+list beside an **Overview** (no plan selected) or a plan's **workspace**. Rules the Overview
+keeps: the cost bars are `hourlyPrice × 24` over `isActiveLease` leases, so they sum to the
+Burn figure; income per plan is `subscriptions × netOfStakingShare(price)`, the same shared
+maths as main's total, and is labelled a minimum; still no profit line. The workspace's
+"Will subscribers find it?" checks are `activateBody`'s two questions as live rows: what the
+chain allows (status, the private flag) and what this app's catalog hides by default
+(nodeless plans, and the test-name guess from the PROVIDER name). The break-even meter is
+the create form's `computeBreakEven`: active subscribers against the number that would
+cover every running lease from this plan alone, advisory only.
+
 **Design invariant:** the console is a **stateless view over chain state**. Every action
 is one tx and the multi-step flows (register→activate, create→activate, lease→link) are
 resumable because the middle state lives on chain — a failed link leaves the node under

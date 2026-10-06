@@ -3,67 +3,78 @@ import type { PlanInfo, ProviderInfo, TokenPrice } from '../../types'
 import { usePlansContext } from '../../contexts/PlansContext'
 import { useNavigation } from '../../contexts/NavigationContext'
 import { formatBytes, formatDuration, planPriceDisplay, pricePerGb, formatPerGb } from '../../utils/format'
+import { ChevronIcon } from '../Icons'
 import PlanDetailPane from './PlanDetailPane'
 
-type SortBy = 'per-gb' | 'price' | 'data' | 'duration'
-
-const SORT_LABELS: Record<SortBy, string> = {
-  'per-gb': 'Price per GB',
-  price: 'Price',
-  data: 'Data',
-  duration: 'Duration',
+export interface CatalogFilters {
+  search: string
+  readyOnly: boolean
+  showTests: boolean
+  showPrivate: boolean
 }
 
+/** What the toolbar's count says: shown of total active plans, and the nodeless ones hidden. */
+export interface CatalogCounts {
+  shown: number
+  total: number
+  hiddenNodeless: number
+}
+
+type SortKey = 'provider' | 'data' | 'duration' | 'price' | 'per-gb' | 'nodes'
+
 /**
- * Sort keys. Plans without a udvpn price sort AFTER every priced plan on the
- * price keys (they used to read as free and sort first).
+ * Columns in the Nodes table's idiom: one sticky uppercase header, each label a sort
+ * button. `dir` is the direction a first click sorts in: cheapest first for prices,
+ * biggest first for sizes and counts.
  */
-function sortValue(plan: PlanInfo, by: SortBy): number {
-  switch (by) {
-    case 'per-gb': {
-      const v = pricePerGb(plan)
-      return v === null ? Number.MAX_VALUE : v
-    }
-    case 'price': {
-      const { udvpn } = planPriceDisplay(plan.prices)
-      return udvpn === null ? Number.MAX_VALUE : udvpn
-    }
-    case 'data':
-      return -Number(plan.bytes)
-    case 'duration':
-      return -(plan.durationSeconds ?? 0)
+const COLUMNS: { key: SortKey; label: string; right?: boolean; dir: 1 | -1; title?: string }[] = [
+  { key: 'provider', label: 'Provider', dir: 1 },
+  { key: 'data', label: 'Data', dir: -1 },
+  { key: 'duration', label: 'Valid', dir: -1 },
+  { key: 'price', label: 'Price', right: true, dir: 1, title: 'Plan price, in P2P unless marked' },
+  { key: 'per-gb', label: 'P2P/GB', right: true, dir: 1, title: 'Price per GB of data' },
+  { key: 'nodes', label: 'Nodes', right: true, dir: -1, title: 'Active nodes linked at the last catalog scan' },
+]
+
+// Written out in full for Tailwind, and shared by the header and every row so the
+// columns line up.
+const GRID = 'grid grid-cols-[minmax(120px,1fr)_76px_52px_112px_64px_52px] gap-x-3 items-center'
+
+/**
+ * A plan's value for a numeric sort key, or null when it has none. Missing values
+ * sort AFTER everything else in both directions: a plan without a udvpn price used
+ * to read as free and sort first.
+ */
+function numericValue(plan: PlanInfo, key: Exclude<SortKey, 'provider'>): number | null {
+  switch (key) {
+    case 'per-gb': return pricePerGb(plan)
+    case 'price': return planPriceDisplay(plan.prices).udvpn
+    case 'data': return Number(plan.bytes) || null
+    case 'duration': return plan.durationSeconds
+    case 'nodes': return plan.nodeCount
   }
 }
 
 /**
- * Browse the catalog: search, sort, select. Every cached plan lists
- * immediately; node availability is checked on selection (the detail pane)
- * and inside smart connect, never as a bulk scan on load (the old tab's
- * default filter started the list empty and grew it over hundreds of
- * requests).
+ * Browse the catalog: a sortable table, and the selected plan's details beside it.
+ * Every cached plan lists immediately; node availability for the selection is read
+ * by the detail pane, never as a bulk scan on load. The first row is selected on
+ * arrival, so the right half of the tab is never an empty "select a plan".
  */
-export default function PlanCatalog() {
+export default function PlanCatalog({ filters, providers, tokenPrice, onCounts }: {
+  filters: CatalogFilters
+  providers: ProviderInfo[]
+  tokenPrice: TokenPrice | null
+  onCounts: (counts: CatalogCounts) => void
+}) {
   const { overview } = usePlansContext()
-  const { plansNodeFilter, clearPlansNodeFilter } = useNavigation()
-  const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState<SortBy>('per-gb')
-  // Hide plans whose availability scan counted ZERO nodes (nothing to connect
-  // to, so nothing to buy). On by default; plans never counted (null) stay
-  // visible either way, and the count line below says what is hidden.
-  const [readyOnly, setReadyOnly] = useState(true)
-  const [showTests, setShowTests] = useState(false)
-  const [showPrivate, setShowPrivate] = useState(false)
+  const { plansNodeFilter } = useNavigation()
+  const [sortKey, setSortKey] = useState<SortKey>('per-gb')
+  const [sortDir, setSortDir] = useState<1 | -1>(1)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [providers, setProviders] = useState<ProviderInfo[]>([])
-  const [tokenPrice, setTokenPrice] = useState<TokenPrice | null>(null)
   // Plan ids containing the node the user arrived from (ConnectionModal's
   // "See Plans tab"). null = no filter or still resolving.
   const [nodeFilterPlanIds, setNodeFilterPlanIds] = useState<Set<string> | null>(null)
-
-  useEffect(() => {
-    window.api.providerList().then(setProviders).catch(() => setProviders([]))
-    window.api.priceToken().then(setTokenPrice).catch(() => setTokenPrice(null))
-  }, [])
 
   useEffect(() => {
     if (!plansNodeFilter) {
@@ -78,6 +89,7 @@ export default function PlanCatalog() {
   }, [plansNodeFilter])
 
   const providerByAddr = useMemo(() => new Map(providers.map((p) => [p.address, p])), [providers])
+  const providerLabel = (plan: PlanInfo) => providerByAddr.get(plan.provAddress)?.name || `${plan.provAddress.slice(0, 14)}...`
   const activeSubByPlan = useMemo(() => {
     const m = new Map<string, string>()
     for (const a of overview.allocations) {
@@ -86,11 +98,12 @@ export default function PlanCatalog() {
     return m
   }, [overview.allocations])
 
-  const { filtered, hiddenNodeless } = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    let list = overview.plans.filter((p) => p.status === 1)
-    if (!showTests) list = list.filter((p) => !p.isTest)
-    if (!showPrivate) list = list.filter((p) => !p.private)
+  const { listed, total, hiddenNodeless } = useMemo(() => {
+    const q = filters.search.trim().toLowerCase()
+    const active = overview.plans.filter((p) => p.status === 1)
+    let list = active
+    if (!filters.showTests) list = list.filter((p) => !p.isTest)
+    if (!filters.showPrivate) list = list.filter((p) => !p.private)
     if (nodeFilterPlanIds) list = list.filter((p) => nodeFilterPlanIds.has(p.id))
     if (q) {
       list = list.filter((p) => {
@@ -102,141 +115,146 @@ export default function PlanCatalog() {
     }
     // Only a COUNTED zero hides a plan; nodeCount null (never scanned) stays.
     let hiddenNodeless = 0
-    if (readyOnly) {
+    if (filters.readyOnly) {
       const before = list.length
       list = list.filter((p) => p.nodeCount !== 0)
       hiddenNodeless = before - list.length
     }
-    const sorted = [...list].sort((a, b) =>
-      sortValue(a, sortBy) - sortValue(b, sortBy) || Number(a.id) - Number(b.id))
-    return { filtered: sorted, hiddenNodeless }
-  }, [overview.plans, search, sortBy, readyOnly, showTests, showPrivate, nodeFilterPlanIds, providerByAddr])
+    return { listed: list, total: active.length, hiddenNodeless }
+  }, [overview.plans, filters, nodeFilterPlanIds, providerByAddr])
 
-  const selected = selectedId ? filtered.find((p) => p.id === selectedId) ?? null : null
+  const sorted = useMemo(() => {
+    const name = (p: PlanInfo) => providerByAddr.get(p.provAddress)?.name || p.provAddress
+    return [...listed].sort((a, b) => {
+      let c: number
+      if (sortKey === 'provider') {
+        c = sortDir * name(a).localeCompare(name(b))
+      } else {
+        const va = numericValue(a, sortKey)
+        const vb = numericValue(b, sortKey)
+        c = va === null && vb === null ? 0 : va === null ? 1 : vb === null ? -1 : sortDir * (va - vb)
+      }
+      return c || Number(a.id) - Number(b.id)
+    })
+  }, [listed, sortKey, sortDir, providerByAddr])
+
+  useEffect(() => {
+    onCounts({ shown: listed.length, total, hiddenNodeless })
+  }, [listed.length, total, hiddenNodeless, onCounts])
+
+  const selected = sorted.find((p) => p.id === selectedId) ?? sorted[0] ?? null
+  const listedPerGb = useMemo(
+    () => sorted.flatMap((p) => {
+      const v = pricePerGb(p)
+      return v === null ? [] : [{ id: p.id, perGb: v }]
+    }),
+    [sorted],
+  )
+
+  function toggleSort(col: (typeof COLUMNS)[number]) {
+    if (sortKey === col.key) setSortDir((d) => (d === 1 ? -1 : 1))
+    else {
+      setSortKey(col.key)
+      setSortDir(col.dir)
+    }
+  }
 
   return (
     <div className="flex-1 flex min-h-0">
-      {/* Catalog list */}
-      <div className="w-[46%] min-w-[320px] border-r border-border flex flex-col min-h-0">
-        <div className="p-4 space-y-2.5 border-b border-border shrink-0">
-          {plansNodeFilter && (
-            <div className="bg-accent/10 border border-accent/40 rounded-md px-3 py-1.5 text-xs text-text-secondary flex items-center gap-2">
-              <span className="flex-1">
-                Showing plans that include node <span className="font-mono text-text-primary">{plansNodeFilter.slice(0, 14)}...</span>
-              </span>
-              <button onClick={clearPlansNodeFilter} className="text-accent hover:underline shrink-0">
-                Show all
-              </button>
-            </div>
-          )}
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search plans and providers"
-            className="w-full bg-bg-tertiary border border-border text-text-primary text-sm px-3 py-1.5 rounded-sm focus:outline-none focus:border-border-focus placeholder:text-text-tertiary"
-          />
-          <div className="flex items-center gap-3 text-xs">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortBy)}
-              className="bg-bg-tertiary border border-border text-text-primary px-2 py-1 rounded-sm focus:outline-none focus:border-border-focus"
+      <div className="flex-1 min-w-0 overflow-auto">
+        <div className={`${GRID} sticky top-0 z-10 px-4 py-2 border-b border-border bg-bg-secondary text-text-secondary text-xs font-medium uppercase tracking-wide select-none`}>
+          {COLUMNS.map((col) => (
+            <button
+              key={col.key}
+              type="button"
+              onClick={() => toggleSort(col)}
+              title={col.title}
+              className={`flex items-center gap-1 uppercase tracking-wide hover:text-accent transition-colors ${
+                col.right ? 'justify-end' : ''
+              } ${sortKey === col.key ? 'text-text-primary' : ''}`}
             >
-              {(Object.keys(SORT_LABELS) as SortBy[]).map((k) => (
-                <option key={k} value={k}>Sort: {SORT_LABELS[k]}</option>
-              ))}
-            </select>
-            <label className="flex items-center gap-1.5 cursor-pointer text-text-secondary">
-              <input type="checkbox" checked={readyOnly} onChange={(e) => setReadyOnly(e.target.checked)} className="accent-accent" />
-              Ready to connect
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer text-text-secondary">
-              <input type="checkbox" checked={showTests} onChange={(e) => setShowTests(e.target.checked)} className="accent-accent" />
-              Test plans
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer text-text-secondary">
-              <input type="checkbox" checked={showPrivate} onChange={(e) => setShowPrivate(e.target.checked)} className="accent-accent" />
-              Private
-            </label>
-          </div>
-          {hiddenNodeless > 0 && (
-            <p className="text-text-tertiary text-xs">
-              {hiddenNodeless} plan{hiddenNodeless === 1 ? '' : 's'} with no linked nodes hidden.{' '}
-              <button type="button" onClick={() => setReadyOnly(false)} className="text-accent hover:underline">
-                Show all
-              </button>
-            </p>
-          )}
+              {col.label}
+              {sortKey === col.key && (
+                <ChevronIcon direction={sortDir === 1 ? 'up' : 'down'} className="w-3 h-3 text-accent" />
+              )}
+            </button>
+          ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto overflow-x-hidden">
-          {filtered.length === 0 ? (
-            <p className="text-text-secondary text-sm p-4">
-              {overview.plans.length === 0
-                ? 'No plans in the catalog yet. Rescan to load them from the chain.'
-                : 'No plans match these filters.'}
-            </p>
-          ) : (
-            filtered.map((plan) => {
-              const price = planPriceDisplay(plan.prices)
-              const perGb = pricePerGb(plan)
-              const prov = providerByAddr.get(plan.provAddress)
-              const subscribed = activeSubByPlan.has(plan.id)
-              return (
-                <button
-                  key={plan.id}
-                  onClick={() => setSelectedId(plan.id)}
-                  className={`w-full text-left px-4 py-2.5 border-b border-border transition-colors ${
-                    selectedId === plan.id ? 'bg-accent/10' : 'hover:bg-bg-tertiary'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-accent font-semibold">{formatBytes(plan.bytes)}</span>
-                    <span className="text-text-secondary">{formatDuration(plan.durationSeconds)}</span>
+        {sorted.length === 0 ? (
+          <p className="text-text-secondary text-sm p-4">
+            {overview.plans.length === 0
+              ? 'No plans in the catalog yet. Rescan to load them from the chain.'
+              : 'No plans match these filters.'}
+          </p>
+        ) : (
+          sorted.map((plan) => {
+            const price = planPriceDisplay(plan.prices)
+            const perGb = pricePerGb(plan)
+            const subscribed = activeSubByPlan.has(plan.id)
+            const isSelected = selected?.id === plan.id
+            return (
+              <button
+                key={plan.id}
+                type="button"
+                onClick={() => setSelectedId(plan.id)}
+                aria-pressed={isSelected}
+                className={`${GRID} w-full h-12 px-4 border-b border-border text-left transition-colors ${
+                  isSelected ? 'bg-accent/10' : 'hover:bg-bg-tertiary'
+                }`}
+              >
+                <span className="min-w-0 leading-tight">
+                  <span className="block text-sm text-text-primary truncate">{providerLabel(plan)}</span>
+                  <span className="flex items-center gap-1.5 text-xs text-text-tertiary mt-0.5">
+                    <span className="font-mono">#{plan.id}</span>
                     {subscribed && (
-                      <span className="text-[10px] font-mono uppercase bg-success/15 text-success px-1.5 py-0.5 rounded-sm">subscribed</span>
+                      <span className="text-[10px] font-mono uppercase bg-success/15 text-success px-1.5 py-px rounded-sm">subscribed</span>
                     )}
                     {plan.isTest && (
-                      <span className="text-[10px] font-mono uppercase bg-warning-subtle text-warning px-1.5 py-0.5 rounded-sm">test</span>
+                      <span className="text-[10px] font-mono uppercase bg-warning-subtle text-warning px-1.5 py-px rounded-sm">test</span>
                     )}
-                    <span className="ml-auto text-text-primary font-mono text-xs">
-                      {price.amount ? `${price.amount} ${price.denomLabel}` : 'no price'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-text-tertiary mt-0.5">
-                    <span className="truncate min-w-0">
-                      {prov?.name || `${plan.provAddress.slice(0, 14)}...`}
-                    </span>
-                    <span className="font-mono shrink-0">#{plan.id}</span>
-                    {plan.nodeCount !== null && plan.nodeCount > 0 && (
-                      <span className="text-success shrink-0">
-                        {plan.nodeCount} node{plan.nodeCount === 1 ? '' : 's'}
-                      </span>
+                    {plan.private && (
+                      <span className="text-[10px] font-mono uppercase bg-info/15 text-info px-1.5 py-px rounded-sm">private</span>
                     )}
-                    {plan.nodeCount === 0 && <span className="text-warning shrink-0">no nodes</span>}
-                    {perGb !== null && <span className="ml-auto shrink-0">{formatPerGb(perGb)} P2P/GB</span>}
-                  </div>
-                </button>
-              )
-            })
-          )}
-        </div>
+                  </span>
+                </span>
+                <span className="text-sm font-semibold text-accent whitespace-nowrap">{formatBytes(plan.bytes)}</span>
+                <span className="text-sm text-text-secondary whitespace-nowrap">{formatDuration(plan.durationSeconds)}</span>
+                <span className="text-right font-mono text-xs text-text-primary truncate" title={price.amount ? `${price.amount} ${price.denomLabel}` : undefined}>
+                  {price.amount
+                    ? <>{price.amount}{price.denomLabel !== 'P2P' && <span className="text-text-tertiary"> {price.denomLabel}</span>}</>
+                    : <span className="text-text-tertiary">no price</span>}
+                </span>
+                <span className="text-right font-mono text-xs text-text-secondary">
+                  {perGb !== null ? formatPerGb(perGb) : '-'}
+                </span>
+                <span className={`text-right font-mono text-xs ${
+                  plan.nodeCount === null ? 'text-text-tertiary' : plan.nodeCount === 0 ? 'text-warning' : 'text-success'
+                }`}>
+                  {plan.nodeCount === null ? '?' : plan.nodeCount === 0 ? 'none' : plan.nodeCount}
+                </span>
+              </button>
+            )
+          })
+        )}
       </div>
 
-      {/* Detail pane */}
-      {selected ? (
-        <PlanDetailPane
-          key={selected.id}
-          plan={selected}
-          provider={providerByAddr.get(selected.provAddress) ?? null}
-          tokenPrice={tokenPrice}
-          activeSubscriptionId={activeSubByPlan.get(selected.id) ?? null}
-        />
-      ) : (
-        <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
-          Select a plan to see its details
-        </div>
-      )}
+      <div className="w-[42%] min-w-[380px] max-w-[560px] shrink-0 border-l border-border min-h-0">
+        {selected ? (
+          <PlanDetailPane
+            key={selected.id}
+            plan={selected}
+            provider={providerByAddr.get(selected.provAddress) ?? null}
+            tokenPrice={tokenPrice}
+            activeSubscriptionId={activeSubByPlan.get(selected.id) ?? null}
+            listedPerGb={listedPerGb}
+          />
+        ) : (
+          <div className="h-full flex items-center justify-center px-8 text-center text-text-tertiary text-sm">
+            Nothing to show: no plan matches these filters.
+          </div>
+        )}
+      </div>
     </div>
   )
 }
