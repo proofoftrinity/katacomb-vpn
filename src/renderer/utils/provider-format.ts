@@ -31,17 +31,21 @@ export function formatUdvpnAmount(udvpn: string | number): string {
 }
 
 /**
- * The dollar value of a udvpn amount, for display only — every figure that ends
- * up in a transaction stays in udvpn, priced from chain data. Sub-cent amounts
- * keep two significant digits instead of rounding to $0.00.
+ * The dollar value of a udvpn amount as a phrase ("about $2.05"), for display only:
+ * every figure that ends up in a transaction stays in udvpn, priced from chain data.
+ * Sub-cent amounts keep two significant digits instead of rounding to $0.00, down to
+ * a hundredth of a cent; below that it says "under $0.0001". The old `formatUsd`
+ * used `toPrecision`, which printed a 24 hour lease on a 0.0001 P2P/h node as
+ * `≈ $1.9e-7`. It returns the whole phrase so no caller writes "≈ under".
  */
-export function formatUsd(udvpn: string | number, usdPerP2p: number): string {
+export function usdEstimate(udvpn: string | number, usdPerP2p: number): string {
   const p2p = (typeof udvpn === 'number' ? udvpn : Number(udvpn)) / 1e6
   if (!isFinite(p2p)) return ''
   const usd = p2p * usdPerP2p
   if (usd === 0) return '$0.00'
-  if (usd < 0.01) return `$${usd.toPrecision(2)}`
-  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  if (usd < 0.0001) return 'under $0.0001'
+  if (usd < 0.01) return `about $${usd.toLocaleString('en-US', { maximumSignificantDigits: 2 })}`
+  return `about $${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 /**

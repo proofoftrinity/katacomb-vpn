@@ -79,6 +79,18 @@
     opacity: 0.9;
   }
 
+  /* A disabled filled button drops its fill and reads like a disabled secondary one.
+     The accent at the buttons' own `disabled:opacity-40` turned whole panes muddy brown
+     when a row of them shared one blocking reason (Provider tab, 2026-10-06). Every
+     filled button that can be disabled carries that opacity utility, which still
+     applies on top of this. */
+  .btn-primary:disabled,
+  .btn-primary:disabled:hover,
+  .btn-danger:disabled,
+  .btn-danger:disabled:hover {
+    @apply bg-transparent border-border text-text-secondary;
+  }
+
   .status-dot {
     @apply inline-block w-2 h-2 rounded-full;
   }
@@ -183,6 +195,14 @@
   .route-map-arc-clash { stroke: var(--color-danger); }
   .route-map-entry { fill: var(--color-bg-primary); stroke: var(--color-accent); stroke-width: 1.6; }
   .route-map-exit { fill: var(--color-accent); }
+
+  /* The Plans tab's coverage map (plans/PlanDetailPane.tsx): where a plan's nodes are,
+     one hue in three steps of the accent (1-2, 3-9, 10+ nodes) on the route map's land.
+     Each class is written out in full in PlanDetailPane's COVERAGE_CLASS (Tailwind). */
+  .coverage-1 { fill: color-mix(in srgb, var(--color-accent) 55%, var(--color-bg-primary)); }
+  .coverage-2 { fill: color-mix(in srgb, var(--color-accent) 80%, var(--color-bg-primary)); }
+  .coverage-3 { fill: var(--color-accent); }
+  .coverage-1, .coverage-2, .coverage-3 { stroke: var(--color-bg-primary); stroke-width: 0.4; }
 }
 
 @keyframes route-flow {

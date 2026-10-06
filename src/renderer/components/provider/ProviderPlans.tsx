@@ -6,7 +6,7 @@ import { displayConnectError } from '../../utils/connect-errors'
 import { useConfirm, type ConfirmOptions } from '../ConfirmModal'
 import Spinner from '../Spinner'
 import PlanNodesManager, { type NodeActionState } from './PlanNodesManager'
-import { STATUS_ACTIVE, formatUdvpnAmount, formatUsd } from '../../utils/provider-format'
+import { STATUS_ACTIVE, formatUdvpnAmount, usdEstimate } from '../../utils/provider-format'
 
 function formatSize(bytes: string): string {
   const gb = Number(bytes) / 1e9
@@ -32,7 +32,7 @@ function planPrice(plan: MyPlan): string {
 function planUsd(plan: MyPlan, price: TokenPrice | null): string | null {
   if (!price) return null
   const udvpn = plan.prices.find((p) => p.denom === 'udvpn')
-  return udvpn ? `≈ ${formatUsd(udvpn.quoteValue, price.usd)}` : null
+  return udvpn ? usdEstimate(udvpn.quoteValue, price.usd) : null
 }
 
 /**
@@ -548,7 +548,7 @@ function CreatePlanForm({ price: tokenPrice, economics, readOnly, requestConfirm
       <p className="text-text-tertiary text-xs">
         {valid && priceUdvpn !== null
           ? `${gb} GB for ${dayCount} days · ${formatUdvpnAmount(priceUdvpn)}` +
-            (tokenPrice ? ` ≈ ${formatUsd(priceUdvpn, tokenPrice.usd)}` : '')
+            (tokenPrice ? `, ${usdEstimate(priceUdvpn, tokenPrice.usd)}` : '')
           : 'Size and days must be whole numbers; price accepts up to 6 decimals.'}
       </p>
       {valid && breakEven && <BreakEvenHint {...breakEven} />}

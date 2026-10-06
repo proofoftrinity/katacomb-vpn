@@ -6,7 +6,7 @@ import { protocolMeta } from '../../utils/protocols'
 import CountryFlag from '../CountryFlag'
 import { useConfirm } from '../ConfirmModal'
 import Spinner from '../Spinner'
-import { formatUdvpn, formatUdvpnAmount, formatUsd } from '../../utils/provider-format'
+import { formatUdvpn, formatUdvpnAmount, usdEstimate } from '../../utils/provider-format'
 import { RENEWAL_POLICY_OPTIONS, renewalPolicyLabel } from '../../../shared/renewal-policy'
 import LeaseManageModal from './LeaseManageModal'
 
@@ -400,7 +400,7 @@ function NodePicker({ nodes, nodesLoading, nodesError, excluded, price, disabled
               </div>
               <div className="text-text-tertiary text-[10px] mt-0.5">
                 {formatUdvpn(hourly)} per hour
-                {price && ` ≈ ${formatUsd(hourly, price.usd)}`}
+                {price && `, ${usdEstimate(hourly, price.usd)}`}
               </div>
             </div>
             <button
@@ -581,7 +581,7 @@ function LeaseModal({ node, planId, price, economics, readOnly, onClose, onDone 
               <dt className="text-text-secondary">Total for {hourCount}h</dt>
               <dd className="text-text-primary font-medium">
                 {formatUdvpn(quote.totalUdvpn)}
-                {price && <span className="text-text-tertiary font-normal"> ≈ {formatUsd(quote.totalUdvpn, price.usd)}</span>}
+                {price && <span className="text-text-tertiary font-normal"> {usdEstimate(quote.totalUdvpn, price.usd)}</span>}
               </dd>
             </div>
             {nextDailyBurn && economics && (

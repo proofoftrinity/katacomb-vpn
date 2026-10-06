@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
-import type { PlanAllocation, PlanInfo, SubscriptionSummary } from '../../types'
+import type { PlanAllocation, PlanInfo, ProviderInfo, SubscriptionSummary } from '../../types'
 import { usePlansContext } from '../../contexts/PlansContext'
 import { useConnection } from '../../hooks/useConnection'
 import { formatBytes, formatDuration, formatDateUntil } from '../../utils/format'
+import { timeUsed } from '../../utils/plan-value'
+import { RefreshIcon } from '../Icons'
 import PlanConnectModal from './PlanConnectModal'
 import SubscriptionActionModal from './SubscriptionActionModal'
 
@@ -22,17 +24,22 @@ const STATUS_META: Record<number, { label: string; dot: string; text: string }> 
 }
 
 /**
- * The wallet's subscriptions as actionable rows: Connect (smart) as the
- * primary action on active plan subscriptions, a manual picker as secondary,
- * and Manage for renewal/cancel. Validity dates are shown; the old tab
- * fetched them and never rendered them.
+ * The wallet's subscriptions as cards in the Sessions tab's idiom: what it is, one
+ * gauge for what is being used up, then the actions. Connect (smart) is the primary
+ * action on active plan subscriptions, a manual picker the secondary, and Manage for
+ * renewal and cancel.
+ *
+ * The gauge is the subscription's VALIDITY (calendar time since purchase), not data:
+ * the chain's per-subscription byte allocation is not read yet, so there is no honest
+ * data figure to draw.
  */
-export default function MyPlansPanel({ onBrowse }: { onBrowse: () => void }) {
+export default function MyPlansPanel({ providers, onBrowse }: { providers: ProviderInfo[]; onBrowse: () => void }) {
   const { overview, loading } = usePlansContext()
   const { status } = useConnection()
   const tunnelUp = status.state === 'connected' || status.state === 'reconnecting'
   const [connectTarget, setConnectTarget] = useState<{ row: MyPlanRow; manual: boolean } | null>(null)
   const [manageTarget, setManageTarget] = useState<MyPlanRow | null>(null)
+  const providerName = useMemo(() => new Map(providers.map((p) => [p.address, p.name])), [providers])
 
   const rows = useMemo<MyPlanRow[]>(() => {
     const allocById = new Map(overview.allocations.map((a) => [a.subscriptionId, a]))
@@ -70,85 +77,112 @@ export default function MyPlansPanel({ onBrowse }: { onBrowse: () => void }) {
     )
   }
 
+  const now = Date.now()
+
   return (
-    <div className="flex-1 overflow-y-auto p-5 space-y-2">
-      {overview.stale && (
-        <p className="text-text-tertiary text-xs">
-          Showing cached data. The chain is not reachable while the VPN is connected.
-        </p>
-      )}
+    <div className="flex-1 overflow-y-auto p-5 space-y-2.5">
       {rows.map((row) => {
         const { subscription: sub, allocation } = row
         const meta = STATUS_META[sub.status] ?? STATUS_META[3]
         const isPlanSub = sub.planId !== '0'
         const size = allocation ? formatBytes(allocation.planBytes) : null
         const duration = allocation ? formatDuration(allocation.planDurationSeconds) : null
+        const provAddress = allocation?.planProvAddress ?? row.plan?.provAddress
+        const provider = provAddress ? providerName.get(provAddress) : undefined
         const canConnect = isPlanSub && sub.status === 1 && !tunnelUp && !overview.stale
+        const validity = isPlanSub && sub.status === 1 ? timeUsed(sub.startAt, sub.inactiveAt, now) : null
+        const pct = validity ? validity.fraction * 100 : 0
         return (
-          <div key={sub.id} className="bg-bg-tertiary border border-border rounded-md px-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  {size ? (
-                    <span className="text-accent text-sm font-semibold">{size}</span>
-                  ) : (
-                    <span className="text-text-primary text-sm font-medium">Node subscription</span>
-                  )}
-                  {isPlanSub && (
-                    <span className="text-text-secondary text-xs font-mono">plan #{sub.planId}</span>
-                  )}
-                  <span className="text-text-tertiary text-xs font-mono">sub #{sub.id}</span>
-                  <span className="flex items-center gap-1.5 ml-auto">
-                    <span className={`status-dot ${meta.dot}`} />
-                    <span className={`text-xs ${meta.text}`}>{meta.label}</span>
+          <div key={sub.id} className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
+            <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap">
+              {isPlanSub ? (
+                <span className="text-accent text-sm font-semibold">
+                  {size ?? 'Plan'}{duration ? ` · ${duration}` : ''}
+                </span>
+              ) : (
+                <span className="text-text-primary text-sm font-medium">Node subscription</span>
+              )}
+              {provider && <span className="text-text-secondary text-sm truncate max-w-[220px]">{provider}</span>}
+              {isPlanSub && <span className="text-text-tertiary text-xs font-mono">plan #{sub.planId}</span>}
+              <span className="text-text-tertiary text-xs font-mono">sub #{sub.id}</span>
+              <span className="flex items-center gap-1.5 ml-auto">
+                <span className={`status-dot ${meta.dot}`} />
+                <span className={`text-xs ${meta.text}`}>{meta.label}</span>
+              </span>
+            </div>
+
+            {validity ? (
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span
+                    className="text-text-secondary"
+                    title="Calendar time since the subscription was bought, out of its validity. It runs whether or not you connect."
+                  >
+                    Validity used: {formatDuration(validity.usedDays * 86400)} of {formatDuration(validity.totalDays * 86400)}
+                    <span className="text-text-tertiary"> · until {formatDateUntil(sub.inactiveAt)}</span>
+                  </span>
+                  <span className={`font-mono ${pct > 90 ? 'text-danger' : pct > 70 ? 'text-warning' : 'text-text-secondary'}`}>
+                    {pct >= 100 ? 'Used up' : `${pct.toFixed(0)}%`}
                   </span>
                 </div>
-                <div className="text-text-secondary text-xs mt-1">
-                  {isPlanSub
-                    ? `${duration ?? 'unknown period'}${sub.inactiveAt ? `, active until ${formatDateUntil(sub.inactiveAt)}` : ''}`
-                    : `Pay per use${sub.inactiveAt ? `, active until ${formatDateUntil(sub.inactiveAt)}` : ''}`}
-                  {sub.renewalPricePolicy === 0 ? ', will not renew' : ', renews automatically'}
+                <div className="h-1.5 bg-bg-hover overflow-hidden rounded-full">
+                  <div
+                    className={`h-full transition-all rounded-full ${pct > 90 ? 'bg-danger' : pct > 70 ? 'bg-warning' : 'bg-info'}`}
+                    style={{ width: `${pct}%` }}
+                  />
                 </div>
               </div>
-            </div>
-            <div className="flex gap-2 mt-2.5">
-              {isPlanSub && (
-                <>
-                  <button
-                    onClick={() => setConnectTarget({ row, manual: false })}
-                    disabled={!canConnect}
-                    title={tunnelUp ? 'Disconnect first to start a new session' : 'Start a new session on this plan (small network fee)'}
-                    className="btn btn-primary text-xs px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Connect
-                  </button>
-                  <button
-                    onClick={() => setConnectTarget({ row, manual: true })}
-                    disabled={!canConnect}
-                    className="btn btn-secondary text-xs px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Choose node
-                  </button>
-                </>
-              )}
-              {/*
-                Nothing in the manage modal applies once the subscription
-                leaves status 1: the chain refuses a renew or a cancel on an
-                inactive_pending row, and answers with a raw "invalid status"
-                error. Grey it out rather than let it be reopened.
-              */}
-              <button
-                onClick={() => setManageTarget(row)}
-                disabled={overview.stale || tunnelUp || sub.status !== 1}
-                title={sub.status !== 1
-                  ? 'This subscription is no longer active, so there is nothing left to manage'
-                  : tunnelUp
-                    ? 'Disconnect the VPN to manage subscriptions'
-                    : 'Renewal policy, renew now, or cancel'}
-                className="btn btn-secondary text-xs px-3 py-1 ml-auto disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Manage
-              </button>
+            ) : (
+              <div className="text-text-secondary text-xs mt-1.5">
+                {isPlanSub ? (duration ?? 'Unknown period') : 'Pay per use'}
+                {sub.inactiveAt ? `, ${sub.status === 1 ? 'active until' : 'ended'} ${formatDateUntil(sub.inactiveAt)}` : ''}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <span className="flex items-center gap-1.5 text-xs text-text-tertiary">
+                <RefreshIcon className="w-3 h-3" />
+                {sub.renewalPricePolicy === 0 ? 'Will not renew' : 'Renews automatically'}
+              </span>
+              <span className="ml-auto flex gap-2">
+                {isPlanSub && (
+                  <>
+                    <button
+                      onClick={() => setConnectTarget({ row, manual: false })}
+                      disabled={!canConnect}
+                      title={tunnelUp ? 'Disconnect first to start a new session' : 'Start a new session on this plan (small network fee)'}
+                      className="btn btn-primary text-xs px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Connect
+                    </button>
+                    <button
+                      onClick={() => setConnectTarget({ row, manual: true })}
+                      disabled={!canConnect}
+                      className="btn btn-secondary text-xs px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Choose node
+                    </button>
+                  </>
+                )}
+                {/*
+                  Nothing in the manage modal applies once the subscription
+                  leaves status 1: the chain refuses a renew or a cancel on an
+                  inactive_pending row, and answers with a raw "invalid status"
+                  error. Grey it out rather than let it be reopened.
+                */}
+                <button
+                  onClick={() => setManageTarget(row)}
+                  disabled={overview.stale || tunnelUp || sub.status !== 1}
+                  title={sub.status !== 1
+                    ? 'This subscription is no longer active, so there is nothing left to manage'
+                    : tunnelUp
+                      ? 'Disconnect the VPN to manage subscriptions'
+                      : 'Renewal policy, renew now, or cancel'}
+                  className="btn btn-secondary text-xs px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Manage
+                </button>
+              </span>
             </div>
           </div>
         )
