@@ -197,3 +197,43 @@ describe('[REL-11] nothing is bought until the preflight passes', () => {
     assert.match(err.message, /not charged/)
   })
 })
+
+describe('[REL-12] the connect flow rides one RPC connection, owned by the handler that opened it', () => {
+  /** openChainFlow, recording each flow it hands out and every close of it. */
+  function flows(): { opened: Array<{ signing: object; closed: number }>; fakes: FreshOptions } {
+    const opened: Array<{ signing: object; closed: number }> = []
+    return {
+      opened,
+      fakes: { fakes: { 'chain/chain-clients': { openChainFlow: async () => {
+        const f = { query: { flow: opened.length }, signing: { flow: opened.length }, closed: 0 }
+        opened.push(f)
+        return { query: f.query, signing: f.signing, disconnect: () => { f.closed++ } } as never
+      } } } },
+    }
+  }
+  const handed = (h: ReturnType<typeof ipc.fresh>) => purchases(h).map((c) => {
+    const p = c.args[0] as { client?: object; clients?: { signing: object } }
+    return p.clients?.signing ?? p.client
+  })
+
+  for (const key of SPEND) {
+    for (const outcome of ['succeeds', 'fails after paying'] as const) {
+      test(`[REL-12] ${key} ${outcome}: every flow it opens is closed exactly once, and the purchase rides it`, async (t) => {
+        const { opened, fakes } = flows()
+        const world = merge(worldFor(key), fakes)
+        const h = ipc.fresh(outcome === 'succeeds' ? world : merge(world, failingHandshake(key, () => httpError(500))))
+        t.after(() => h.dispose())
+        await h.settle(h.invoke(key, REQUEST[key])).catch(() => undefined)
+        assert.deepEqual(opened.map((f) => f.closed), opened.map(() => 1), 'closed once each, in the opener\'s finally')
+        if (key === 'CONNECTION_SUBSCRIBE_CHAIN') {
+          // A chain can pay its hops from two wallets, and a signing client is bound
+          // to one: its purchases open their own (docs: "stay in standalone mode").
+          assert.ok(handed(h).length > 0 && handed(h).every((c) => c === undefined))
+        } else {
+          assert.equal(opened.length, 1, 'one connection for the whole flow')
+          assert.deepEqual(handed(h), [opened[0].signing], 'the purchase was handed the flow, not left to open its own')
+        }
+      })
+    }
+  }
+})
