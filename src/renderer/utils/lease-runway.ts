@@ -30,3 +30,15 @@ export function leaseRunway<T extends RunwayLease>(leases: T[]): {
     axisHours,
   }
 }
+
+/**
+ * The soonest lease that stops within a day and will NOT renew, or null. Renewal
+ * policy 0 is RENEWAL_POLICY.UNSPECIFIED, "never renew" (shared/renewal-policy.ts),
+ * spelled as a literal so this file stays import-free. The Overview's warning line and
+ * the dot on the Provider tab label both read this, from the same chain read, so they
+ * always agree. Neither projects from the read's age: both mean "at the last read".
+ */
+export function leaseStopsSoon<T extends RunwayLease & { renewalPricePolicy: number }>(leases: T[]):
+  (T & { hoursLeft: number }) | null {
+  return leaseRunway(leases).rows.find((r) => r.renewalPricePolicy === 0 && r.hoursLeft < 24) ?? null
+}

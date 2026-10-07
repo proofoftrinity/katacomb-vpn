@@ -111,7 +111,7 @@ export default function ProviderIdentityCard({ provider, economics, stale, fetch
             {provider.name || 'Unnamed provider'}
           </span>
           <span className={`text-[10px] px-1.5 py-0.5 rounded-full leading-none ${
-            active ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'
+            active ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-warning'
           }`}>
             {active ? 'Active' : 'Inactive'}
           </span>

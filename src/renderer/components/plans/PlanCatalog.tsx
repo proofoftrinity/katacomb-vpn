@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PlanInfo, ProviderInfo, TokenPrice } from '../../types'
 import { usePlansContext } from '../../contexts/PlansContext'
 import { useNavigation } from '../../contexts/NavigationContext'
@@ -28,7 +28,7 @@ type SortKey = 'provider' | 'data' | 'duration' | 'price' | 'per-gb' | 'nodes'
  * biggest first for sizes and counts.
  */
 const COLUMNS: { key: SortKey; label: string; right?: boolean; dir: 1 | -1; title?: string }[] = [
-  { key: 'provider', label: 'Provider', dir: 1 },
+  { key: 'provider', label: 'Provider', dir: 1, title: 'Sort by provider. In the list, Up and Down move between plans and Enter opens the selected plan\'s review' },
   { key: 'data', label: 'Data', dir: -1 },
   { key: 'duration', label: 'Valid', dir: -1 },
   { key: 'price', label: 'Price', right: true, dir: 1, title: 'Plan price, in P2P unless marked' },
@@ -61,13 +61,18 @@ function numericValue(plan: PlanInfo, key: Exclude<SortKey, 'provider'>): number
  * by the detail pane, never as a bulk scan on load. The first row is selected on
  * arrival, so the right half of the tab is never an empty "select a plan".
  */
-export default function PlanCatalog({ filters, providers, tokenPrice, onCounts }: {
+export default function PlanCatalog({ filters, providers, tokenPrice, onCounts, focusPlanId }: {
   filters: CatalogFilters
   providers: ProviderInfo[]
   tokenPrice: TokenPrice | null
   onCounts: (counts: CatalogCounts) => void
+  /** A plan to select and scroll to as soon as the filters list it. */
+  focusPlanId: string | null
 }) {
-  const { overview } = usePlansContext()
+  const { overview, loading } = usePlansContext()
+  // Before the first overview there is nothing to say about the catalog yet: "no
+  // plans" would be false, so the table and the pane show placeholders instead.
+  const firstLoad = loading && overview.plans.length === 0
   const { plansNodeFilter } = useNavigation()
   const [sortKey, setSortKey] = useState<SortKey>('per-gb')
   const [sortDir, setSortDir] = useState<1 | -1>(1)
@@ -143,6 +148,17 @@ export default function PlanCatalog({ filters, providers, tokenPrice, onCounts }
   }, [listed.length, total, hiddenNodeless, onCounts])
 
   const selected = sorted.find((p) => p.id === selectedId) ?? sorted[0] ?? null
+  const listRef = useRef<HTMLDivElement>(null)
+  const paneRef = useRef<HTMLDivElement>(null)
+
+  // Select the focus plan once it is listed: on arrival, or after "Show it anyway"
+  // turns on the chips that hid it.
+  const focusListed = focusPlanId !== null && sorted.some((p) => p.id === focusPlanId)
+  useEffect(() => {
+    if (!focusPlanId || !focusListed) return
+    setSelectedId(focusPlanId)
+    listRef.current?.querySelector<HTMLElement>(`[data-plan-id="${focusPlanId}"]`)?.scrollIntoView({ block: 'center' })
+  }, [focusPlanId, focusListed])
   const listedPerGb = useMemo(
     () => sorted.flatMap((p) => {
       const v = pricePerGb(p)
@@ -150,6 +166,31 @@ export default function PlanCatalog({ filters, providers, tokenPrice, onCounts }
     }),
     [sorted],
   )
+
+  /**
+   * The rows as a list box: Up and Down (Home, End) move the selection and the focus
+   * together, and Enter on the selected row presses the pane's button. That button
+   * only opens the review window, and does nothing while it is disabled.
+   */
+  function onRowKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (e.key === 'Enter' && sorted[index].id === selected?.id) {
+      e.preventDefault()
+      paneRef.current?.querySelector<HTMLButtonElement>('[data-plan-cta]')?.click()
+      return
+    }
+    const next = e.key === 'ArrowDown' ? Math.min(sorted.length - 1, index + 1)
+      : e.key === 'ArrowUp' ? Math.max(0, index - 1)
+        : e.key === 'Home' ? 0
+          : e.key === 'End' ? sorted.length - 1
+            : null
+    if (next === null) return
+    e.preventDefault()
+    const id = sorted[next].id
+    setSelectedId(id)
+    const row = listRef.current?.querySelector<HTMLElement>(`[data-plan-id="${id}"]`)
+    row?.focus({ preventScroll: true })
+    row?.scrollIntoView({ block: 'nearest' })
+  }
 
   function toggleSort(col: (typeof COLUMNS)[number]) {
     if (sortKey === col.key) setSortDir((d) => (d === 1 ? -1 : 1))
@@ -161,7 +202,7 @@ export default function PlanCatalog({ filters, providers, tokenPrice, onCounts }
 
   return (
     <div className="flex-1 flex min-h-0">
-      <div className="flex-1 min-w-0 overflow-auto">
+      <div ref={listRef} className="flex-1 min-w-0 overflow-auto">
         <div className={`${GRID} sticky top-0 z-10 px-4 py-2 border-b border-border bg-bg-secondary text-text-secondary text-xs font-medium uppercase tracking-wide select-none`}>
           {COLUMNS.map((col) => (
             <button
@@ -181,14 +222,30 @@ export default function PlanCatalog({ filters, providers, tokenPrice, onCounts }
           ))}
         </div>
 
-        {sorted.length === 0 ? (
+        {firstLoad ? (
+          <div role="status" aria-label="Loading the plan catalog">
+            {Array.from({ length: 8 }, (_, i) => (
+              <div key={i} className={`${GRID} h-12 px-4 border-b border-border`}>
+                <span className="space-y-1.5">
+                  <span className="skeleton block h-3 w-3/5" />
+                  <span className="skeleton block h-2.5 w-10" />
+                </span>
+                <span className="skeleton h-3 w-12" />
+                <span className="skeleton h-3 w-8" />
+                <span className="skeleton h-3 w-16 justify-self-end" />
+                <span className="skeleton h-3 w-10 justify-self-end" />
+                <span className="skeleton h-3 w-6 justify-self-end" />
+              </div>
+            ))}
+          </div>
+        ) : sorted.length === 0 ? (
           <p className="text-text-secondary text-sm p-4">
             {overview.plans.length === 0
               ? 'No plans in the catalog yet. Rescan to load them from the chain.'
               : 'No plans match these filters.'}
           </p>
         ) : (
-          sorted.map((plan) => {
+          sorted.map((plan, index) => {
             const price = planPriceDisplay(plan.prices)
             const perGb = pricePerGb(plan)
             const subscribed = activeSubByPlan.has(plan.id)
@@ -197,10 +254,16 @@ export default function PlanCatalog({ filters, providers, tokenPrice, onCounts }
               <button
                 key={plan.id}
                 type="button"
+                data-plan-id={plan.id}
                 onClick={() => setSelectedId(plan.id)}
+                onKeyDown={(e) => onRowKeyDown(e, index)}
+                // One tab stop for the whole list, on the selected row: Tab enters the
+                // list and the next Tab leaves it, rather than walking every plan.
+                tabIndex={isSelected ? 0 : -1}
                 aria-pressed={isSelected}
-                className={`${GRID} w-full h-12 px-4 border-b border-border text-left transition-colors ${
-                  isSelected ? 'bg-accent/10' : 'hover:bg-bg-tertiary'
+                aria-keyshortcuts="ArrowUp ArrowDown Home End Enter"
+                className={`${GRID} w-full h-12 px-4 border-b border-border text-left transition-colors scroll-mt-9 ${
+                  isSelected ? 'bg-accent-subtle' : 'hover:bg-bg-tertiary'
                 }`}
               >
                 <span className="min-w-0 leading-tight">
@@ -208,13 +271,13 @@ export default function PlanCatalog({ filters, providers, tokenPrice, onCounts }
                   <span className="flex items-center gap-1.5 text-xs text-text-tertiary mt-0.5">
                     <span className="font-mono">#{plan.id}</span>
                     {subscribed && (
-                      <span className="text-[10px] font-mono uppercase bg-success/15 text-success px-1.5 py-px rounded-sm">subscribed</span>
+                      <span className="text-[10px] font-mono uppercase bg-success-subtle text-success px-1.5 py-px rounded-sm">subscribed</span>
                     )}
                     {plan.isTest && (
                       <span className="text-[10px] font-mono uppercase bg-warning-subtle text-warning px-1.5 py-px rounded-sm">test</span>
                     )}
                     {plan.private && (
-                      <span className="text-[10px] font-mono uppercase bg-info/15 text-info px-1.5 py-px rounded-sm">private</span>
+                      <span className="text-[10px] font-mono uppercase bg-info-subtle text-info px-1.5 py-px rounded-sm">private</span>
                     )}
                   </span>
                 </span>
@@ -239,7 +302,7 @@ export default function PlanCatalog({ filters, providers, tokenPrice, onCounts }
         )}
       </div>
 
-      <div className="w-[42%] min-w-[380px] max-w-[560px] shrink-0 border-l border-border min-h-0">
+      <div ref={paneRef} className="w-[42%] min-w-[380px] max-w-[560px] shrink-0 border-l border-border min-h-0">
         {selected ? (
           <PlanDetailPane
             key={selected.id}
@@ -249,6 +312,16 @@ export default function PlanCatalog({ filters, providers, tokenPrice, onCounts }
             activeSubscriptionId={activeSubByPlan.get(selected.id) ?? null}
             listedPerGb={listedPerGb}
           />
+        ) : firstLoad ? (
+          <div className="p-5 space-y-5" aria-hidden="true">
+            <span className="skeleton block h-4 w-2/5" />
+            <div className="grid grid-cols-2 gap-2.5">
+              <span className="skeleton block h-16" />
+              <span className="skeleton block h-16" />
+            </div>
+            <span className="skeleton block h-10" />
+            <span className="skeleton block h-[136px]" />
+          </div>
         ) : (
           <div className="h-full flex items-center justify-center px-8 text-center text-text-tertiary text-sm">
             Nothing to show: no plan matches these filters.

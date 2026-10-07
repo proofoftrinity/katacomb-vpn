@@ -10,7 +10,6 @@ import { providerSetupSteps, setupComplete, type SetupStep } from '../../utils/p
 import type { ProviderDetailsInput } from '../../types'
 import ChainUnreachable from '../ChainUnreachable'
 import { useConfirm } from '../ConfirmModal'
-import Spinner from '../Spinner'
 import ProviderDetailsFields from './ProviderDetailsFields'
 import ProviderIdentityCard, { useProviderStatus } from './ProviderIdentityCard'
 import { AlertIcon, CheckIcon } from '../Icons'
@@ -58,14 +57,34 @@ export default function ProviderConsole({
   // One status control for the bar's button and the workspace's "Activate provider".
   const status = useProviderStatus(plans, leases, refresh)
 
+  // The first read, in the shape of the tab it becomes: the bar, the plan list and
+  // the Overview. A re-read keeps the previous render, so this shows only once.
   if (loading && !provider) {
     return (
-      <Centered>
-        <span className="text-text-secondary text-sm flex items-center gap-2">
-          <Spinner />
-          Reading your provider from the chain…
-        </span>
-      </Centered>
+      <div className="h-full flex flex-col overflow-hidden" role="status" aria-label="Reading your provider from the chain">
+        <div className="border-b border-border bg-bg-secondary px-5 py-3 shrink-0 flex items-center gap-3.5">
+          <span className="skeleton h-2 w-2 rounded-full" />
+          <span className="skeleton h-4 w-36" />
+          <span className="skeleton h-3 w-24" />
+          <span className="skeleton h-3 w-44 ml-auto" />
+          <span className="skeleton h-6 w-20" />
+        </div>
+        <div className="flex-1 flex min-h-0">
+          <div className="w-[260px] min-[1180px]:w-[300px] shrink-0 border-r border-border">
+            <div className="px-4 py-3 border-b border-border"><span className="skeleton block h-3.5 w-24" /></div>
+            {Array.from({ length: 3 }, (_, i) => (
+              <div key={i} className="px-4 py-2.5 border-b border-border space-y-2">
+                <span className="skeleton block h-3 w-4/5" />
+                <span className="skeleton block h-2.5 w-3/5" />
+              </div>
+            ))}
+          </div>
+          <div className="flex-1 p-5 space-y-4">
+            <span className="skeleton block h-32 rounded-md" />
+            <span className="skeleton block h-40 rounded-md" />
+          </div>
+        </div>
+      </div>
     )
   }
 
@@ -306,7 +325,7 @@ function ProviderOnboarding({ address, steps, readOnly, onRegistered }: {
         </div>
 
         {readOnly && (
-          <div className="bg-warning/10 border border-warning/40 rounded-md px-3 py-2">
+          <div className="bg-warning-subtle border border-warning rounded-md px-3 py-2">
             <p className="text-warning text-xs">
               Registering needs the chain, which is not reachable while the VPN is connected. Disconnect first.
             </p>

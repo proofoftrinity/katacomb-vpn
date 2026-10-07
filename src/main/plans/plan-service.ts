@@ -14,6 +14,8 @@ import {
   subscriptionRenew,
   subscriptionUpdate,
 } from '@sentinel-official/sentinel-js-sdk'
+import { QueryServiceClientImpl as SubscriptionV2QueryServiceClientImpl } from '@sentinel-official/sentinel-js-sdk/dist/protobuf/sentinel/subscription/v2/querier.js'
+import type { ProtobufRpcClient } from '@cosmjs/stargate'
 import { BrowserWindow } from 'electron'
 import { openChainFlow, openChainQuery } from '../chain/chain-clients'
 import { collectPages } from '../chain/filtered-pages'
@@ -288,6 +290,17 @@ export interface PlanAllocationInfo {
   startAt: string | null
   inactiveAt: string | null
   status: number
+  /**
+   * The wallet's data allocation on this subscription, as the chain counts it. null
+   * when it was not read (not active) or the read failed: unknown, never zero.
+   */
+  usage: PlanUsage | null
+}
+
+/** sentinel.subscription.v2.Allocation for one subscription and one address. */
+interface PlanUsage {
+  grantedBytes: string
+  utilisedBytes: string
 }
 
 type ChainSubscription = {
@@ -467,8 +480,51 @@ async function resolvePlanDetails(client: SentinelClient, planIds: string[]): Pr
   return details
 }
 
-/** Plan-based subscriptions joined with their plan's size and validity. */
-function joinAllocations(planSubs: ChainSubscription[], planDetails: Map<string, CachedPlan>): PlanAllocationInfo[] {
+const ALLOCATION_CONCURRENCY = 4
+
+/**
+ * What the wallet has used of each ACTIVE plan subscription's data. Only the v2
+ * subscription service answers this (v3 has no allocation query), and
+ * utilised_bytes moves when a node reports a session's usage to the chain
+ * (sentinelhub v12 x/subscription SessionUpdatePreHook), so the figure trails the
+ * live session by one report. A subscription whose read fails is left out of the
+ * map, which the join turns into null: unknown, never zero.
+ */
+async function readUsage(
+  rpc: ProtobufRpcClient,
+  planSubs: ChainSubscription[],
+  walletAddress: string,
+): Promise<Map<string, PlanUsage>> {
+  const query = new SubscriptionV2QueryServiceClientImpl(rpc)
+  const usage = new Map<string, PlanUsage>()
+  const queue = planSubs.filter((s) => s.status === Status.STATUS_ACTIVE)
+  async function worker(): Promise<void> {
+    while (true) {
+      const s = queue.shift()
+      if (!s) return
+      try {
+        const resp = await withTimeout(
+          query.QueryAllocation({ id: s.id, address: walletAddress }),
+          QUERY_TIMEOUT_MS,
+          'subscription.allocation',
+        )
+        const a = resp.allocation
+        if (a) usage.set(s.id.toString(), { grantedBytes: a.grantedBytes, utilisedBytes: a.utilisedBytes })
+      } catch {
+        // Unknown, not zero: the card says the figure could not be read.
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: ALLOCATION_CONCURRENCY }, () => worker()))
+  return usage
+}
+
+/** Plan-based subscriptions joined with their plan's size and validity, and their usage. */
+function joinAllocations(
+  planSubs: ChainSubscription[],
+  planDetails: Map<string, CachedPlan>,
+  usage: Map<string, PlanUsage>,
+): PlanAllocationInfo[] {
   return planSubs.map((s) => {
     const pid = s.planId.toString()
     const plan = planDetails.get(pid)
@@ -481,6 +537,7 @@ function joinAllocations(planSubs: ChainSubscription[], planDetails: Map<string,
       startAt: s.startAt ? s.startAt.toISOString() : null,
       inactiveAt: s.inactiveAt ? s.inactiveAt.toISOString() : null,
       status: s.status,
+      usage: usage.get(s.id.toString()) ?? null,
     }
   })
 }
@@ -499,23 +556,26 @@ export interface PlanOverview {
 /**
  * Everything the Plans tab needs in one round-trip: cached plans plus ONE paged
  * subscriptionsForAccount read feeding both the subscription list and the
- * allocations join. Replaces the tab's separate PLAN_LIST_CACHED /
- * SUBSCRIPTION_LIST / PLAN_ALLOCATIONS calls (three connections, two of them
- * reading the same rows).
+ * allocations join, then each active plan subscription's usage over the same
+ * connection. Replaces the tab's separate PLAN_LIST_CACHED / SUBSCRIPTION_LIST /
+ * PLAN_ALLOCATIONS calls (three connections, two of them reading the same rows).
  */
 export async function getPlanOverview(walletAddress: string): Promise<PlanOverview> {
-  const { query, disconnect } = await openChainQuery()
+  const { query, protobufRpc, disconnect } = await openChainQuery()
   try {
     const subs = await fetchSubscriptionsForAccount(query, walletAddress)
     const planSubs = onlyPlanSubs(subs)
     const uniquePlanIds = Array.from(new Set(planSubs.map((s) => s.planId.toString())))
-    const planDetails = await resolvePlanDetails(query, uniquePlanIds)
+    const [planDetails, usage] = await Promise.all([
+      resolvePlanDetails(query, uniquePlanIds),
+      readUsage(protobufRpc, planSubs, walletAddress),
+    ])
     const { plans, fetchedAt } = listCachedPlans()
     return {
       plans,
       fetchedAt,
       subscriptions: subs.map(toSubscriptionInfo),
-      allocations: joinAllocations(planSubs, planDetails),
+      allocations: joinAllocations(planSubs, planDetails, usage),
     }
   } finally {
     disconnect()

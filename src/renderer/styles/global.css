@@ -115,6 +115,14 @@
     animation: pulse-subtle 1.5s ease-in-out infinite;
   }
 
+  /* A placeholder block in the shape of what is loading, for a FIRST load only: a
+     refetch keeps the previous render on screen (docs/renderer.md). Its container
+     carries role="status" and a label, so the wait is still announced. */
+  .skeleton {
+    @apply bg-bg-tertiary rounded-sm;
+    animation: pulse-subtle 1.6s ease-in-out infinite;
+  }
+
   /* The multi-hop route strip (multihop/RouteStrip.tsx): one picture of a chain
      through review, purchase and result. "plan" is a route not bought yet, a link
      flows while its hop is being set up, and a node pulses while it is busy. Both
@@ -218,6 +226,7 @@
   .route-disc-busy { animation: none; }
   .hop-pill { transition: none; }
   .route-link-flow { animation: none; background: var(--color-accent); }
+  .skeleton { animation: none; }
 }
 
 @keyframes pulse-subtle {

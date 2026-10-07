@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { leaseRunway } from './lease-runway.ts'
+import { leaseRunway, leaseStopsSoon } from './lease-runway.ts'
 
 test('leaseRunway: soonest end first, on one axis that fits the longest', () => {
   const { rows, axisHours } = leaseRunway([
@@ -26,4 +26,21 @@ test('leaseRunway: past thirty days the axis is the longest lease itself', () =>
 
 test('leaseRunway: no leases, no rows', () => {
   assert.deepEqual(leaseRunway([]), { rows: [], axisHours: 24 })
+})
+
+test('leaseStopsSoon: the soonest never-renew lease under a day; renewing ones do not count', () => {
+  const s = leaseStopsSoon([
+    { id: 'renews', hours: 23, maxHours: 24, renewalPricePolicy: 7 },
+    { id: 'a-day', hours: 0, maxHours: 24, renewalPricePolicy: 0 },
+    { id: 'soon', hours: 21, maxHours: 24, renewalPricePolicy: 0 },
+    { id: 'sooner', hours: 23, maxHours: 24, renewalPricePolicy: 0 },
+    { id: 'done', hours: 24, maxHours: 24, renewalPricePolicy: 0 },
+  ])
+  assert.equal(s?.id, 'sooner')
+  assert.equal(s?.hoursLeft, 1)
+})
+
+test('leaseStopsSoon: nothing ending within a day is null', () => {
+  assert.equal(leaseStopsSoon([{ hours: 0, maxHours: 24, renewalPricePolicy: 0 }]), null)
+  assert.equal(leaseStopsSoon([]), null)
 })
