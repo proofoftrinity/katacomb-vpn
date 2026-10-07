@@ -136,7 +136,7 @@ test('[REL-4] the active wallet cannot change while a session is live', () => {
  * Bring-ups and tear-downs in ipc-handlers.ts that run outside the connection lock.
  * A call is locked when it sits inside a withConnectionLock argument, or inside a
  * function every reference to which is itself locked. `known` lists references
- * (`caller->callee`) to treat as locked anyway.
+ * (`caller->callee`) to treat as locked anyway; it is empty, and should stay so.
  */
 function unlockedTunnelOps(known: Set<string>): string[] {
   const OPS = new Set([...BRING_UP_CALLS, 'disconnect'])
@@ -164,19 +164,8 @@ function unlockedTunnelOps(known: Set<string>): string[] {
     .map((c) => `${where(c)} ${calleeName(c)} in ${enclosingFn(ipc, c) ?? '<module>'}`)
 }
 
-// Found by this test (2026-10-07), waiting on the user's approval to fix: the
-// reconnect give-up path calls teardownToIdle outside the lock. The interface monitor
-// never reaches it (it skips while reconnectAttempt > 0), but the V2Ray exit callback
-// has no such guard, so a core dying during the last attempt tears down while the
-// locked attempt may still be bringing the tunnel up - and nothing bumps the epoch.
-const KNOWN_UNLOCKED = new Set(['attemptReconnect->teardownToIdle'])
-
 test('[REL-2] every tunnel bring-up and tear-down runs under the connection lock', () => {
-  assert.deepEqual(unlockedTunnelOps(KNOWN_UNLOCKED), [], 'wrap it in withConnectionLock, or call it only from code that holds the lock')
-})
-
-test.todo('[REL-2] the reconnect give-up tears down under the lock too (known gap, fix awaiting approval)', () => {
-  assert.deepEqual(unlockedTunnelOps(new Set()), [])
+  assert.deepEqual(unlockedTunnelOps(new Set()), [], 'wrap it in withConnectionLock, or call it only from code that holds the lock')
 })
 
 test('[REL-11] every purchase handler runs the preflight before its first purchase', () => {

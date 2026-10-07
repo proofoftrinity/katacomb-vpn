@@ -2157,7 +2157,16 @@ async function attemptReconnect(): Promise<void> {
       await standDownSession('hop-closed', activeExitSessionId)
       return
     }
-    await teardownToIdle(true)
+    // Under the lock, like every other teardown. The V2Ray exit callback can land here
+    // while the last attempt still holds the lock mid-bring-up; tearing down beside it
+    // raced that attempt. Queued behind it, the give-up is stale if the user
+    // disconnected meanwhile (the epoch moved) or the attempt succeeded (it zeroes
+    // reconnectAttempt), and then there is nothing left to tear down.
+    const epoch = connectionEpoch
+    await withConnectionLock(async () => {
+      if (connectionEpoch !== epoch || reconnectAttempt === 0) return
+      await teardownToIdle(true)
+    })
     return
   }
 

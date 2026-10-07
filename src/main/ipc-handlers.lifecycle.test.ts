@@ -150,6 +150,68 @@ describe('[REL-2] the lock and the epoch: a disconnect is final', () => {
     assert.equal(h.tunnel.up, false)
   })
 
+  // Found by the static lock check (2026-10-07), fixed with the user's approval: the
+  // reconnect give-up tore down outside the lock. The interface monitor never reaches
+  // it, but the V2Ray exit callback has no reconnectAttempt guard, so a core dying
+  // during the last attempt ran the teardown while that attempt was mid-bring-up.
+  test('[REL-2] a core dying during the last reconnect attempt cannot tear down under it', async (t) => {
+    let exitCb: () => void = () => undefined
+    let release: (() => void) | null = null
+    let spawns = 0
+    let hang = false
+    const h = ipc.fresh({
+      settings: { autoReconnect: true },
+      fakes: {
+        'nodes/node-tester': { fetchNodeServiceType: async () => 'v2ray' },
+        'chain/chain-service': { loadSessionConfig: () => SAVED('1001', { protocol: 'v2ray', configString: 'cfg-v2ray' }) },
+        'vpn/vpn-manager': {
+          onV2RayUnexpectedExit: (cb: () => void) => { exitCb = cb },
+          connectV2RayFromConfig: () => {
+            spawns++
+            // The first connect works; reconnect attempts 1-4 bring up dead tunnels; attempt 5 is slow.
+            h.tunnel.carries = spawns === 1 || spawns >= 6
+            hang = spawns >= 6
+            h.tunnel.bringUp('v2ray')
+          },
+          waitForChildProxyListener: async () => {
+            if (hang) { hang = false; await new Promise<void>((r) => { release = r }) }
+          },
+        },
+      },
+    })
+    t.after(() => h.dispose())
+    await h.settle(h.invoke('CONNECTION_SUBSCRIBE', { ...REQUEST.CONNECTION_SUBSCRIBE, nodeType: 2 }))
+    await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: 'v2ray' }))
+    h.tunnel.down()
+    exitCb() // the core died: the ladder starts
+    for (let t = 0; t < 180_000 && !release; t += 1_000) await h.advance(1_000)
+    assert.ok(release, 'reconnect attempt 5 is in flight, holding the lock')
+    const m = mark(h)
+    exitCb() // attempt 5's core reports an exit: the ladder is out of attempts, so this is a give-up
+    await h.advance(2_000)
+    assert.deepEqual(after(h.calls('vpn/vpn-manager', 'disconnect'), m), [], 'the give-up must wait for the attempt that holds the lock')
+    release!()
+    await h.advance(30_000)
+    assert.equal(h.tunnel.up, true, 'attempt 5 succeeded, so the stale give-up stands aside')
+    assert.deepEqual(h.sent('CONNECTION_STATE_CHANGE').at(-1), ['connected'])
+  })
+
+  test('when every attempt fails the ladder still gives up: tunnel down, idle, ready to connect again', async (t) => {
+    const h = ipc.fresh(reconnecting())
+    t.after(() => h.dispose())
+    await connectWireGuard(h)
+    h.tunnel.down()
+    h.tunnel.carries = false // every attempt brings up a tunnel that answers nothing
+    await h.advance(5_000 + 2_000 + 4_000 + 8_000 + 16_000 + 32_000 + 30_000)
+    assert.equal(h.sent('CONNECTION_RECONNECTING').length, 5)
+    assert.equal(h.tunnel.up, false)
+    assert.deepEqual(h.sent('CONNECTION_STATE_CHANGE').at(-1), ['idle'])
+    // The ladder is over, so a new connect is not refused as "already connected".
+    h.tunnel.carries = true
+    const outcome = await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: 'wireguard', configString: 'cfg-new' })).then(() => null, (e: Error) => e)
+    assert.equal(outcome, null)
+  })
+
   test('[REL-2] [REL-3] a connect queued behind another connect sees the first tunnel and is refused', async (t) => {
     let release: () => void = () => undefined
     const h = ipc.fresh({ fakes: { 'vpn/vpn-manager': {
