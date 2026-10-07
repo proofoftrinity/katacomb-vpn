@@ -251,9 +251,12 @@ from `src/main/`; `src/shared/` is the only overlap.
 - **Theme colours take no `/NN` opacity modifier.** Every colour in `tailwind.config.js`
   is a `var()`, and Tailwind 3 cannot put an alpha on one, so `bg-accent/10` generates no
   CSS at all. The catalog's selected row had no highlight for that reason, and a
-  `ring-accent/25` fell back to Tailwind's default blue (2026-10-07). Use the `-subtle`
-  tokens (12% tints) or a `color-mix` in `global.css`. App.tsx's tab badges and the
-  globe's legend still carry dead ones.
+  `ring-accent/25` fell back to Tailwind's default blue, and a `border` whose colour
+  class is dead draws preflight's light grey `#e5e7eb` (the globe's two panels), all
+  found 2026-10-07. Use the `-subtle` tokens (12% tints), `opacity-NN` on an element with
+  no children, or a `color-mix` class in `global.css` (`.map-overlay`). None are left; a
+  grep for `-(accent|success|danger|warning|info|bg-[a-z]+|text-[a-z]+|border)/[0-9]` in
+  `src/renderer` should stay empty.
 - **Placeholders are for a FIRST load only.** `.skeleton` blocks in the shape of what is
   coming, inside a `role="status"` with a label, replace a spinner line where nothing is
   on screen yet; a refetch keeps the previous render. While they show, nothing else
