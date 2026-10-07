@@ -13,6 +13,7 @@ import { invalidateAllPlanNodes, invalidatePlanNodes, listNodesForPlan } from '.
 import {
   getCachedProviders,
   getCachedProviderOverview,
+  patchCachedProvider,
   setCachedProviderOverview,
 } from '../provider/provider-cache'
 import {
@@ -218,6 +219,7 @@ export function registerProviderHandlers(handle: Handle): void {
     assertValidProviderDetails(details, { requireName: true })
     await assertSufficientFunds(0)
     await updateProviderDetails({ wallet, accountAddress: address, details }).catch(noteChainError)
+    patchCachedProvider({ address: toProviderAddress(address), ...details })
   })
 
   handle(IPC.PROVIDER_SET_STATUS, async (_event, params: { active: boolean }) => {

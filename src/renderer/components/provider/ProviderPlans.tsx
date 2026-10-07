@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import type { LeaseSummary, MyPlan, PlanStats, ProviderEconomics, SentNode, TokenPrice } from '../../types'
 import { computeBreakEven, isActiveLease, netOfStakingShare, parseDecShare } from '../../../shared/provider-economics'
 import { isTestPlan } from '../../../shared/test-plan'
 import { RENEWAL_POLICY, renewalPolicyLabel } from '../../../shared/renewal-policy'
 import { displayConnectError } from '../../utils/connect-errors'
-import { formatBytes, formatDuration } from '../../utils/format'
+import { formatBytes, formatDuration, formatPerGb, formatTimeAgo, pricePerGb } from '../../utils/format'
 import { leaseRunway, leaseStopsSoon } from '../../utils/lease-runway'
+import { nodeMedianPerGb } from '../../utils/plan-value'
 import { useNodesContext } from '../../contexts/NodesContext'
 import { useNavigation } from '../../contexts/NavigationContext'
+import { usePlansContext } from '../../contexts/PlansContext'
 import { useConfirm, type ConfirmOptions } from '../ConfirmModal'
-import { ChecksSection, Segmented, type CheckSpec } from '../ConnectReview'
+import { ChecksSection, FooterReason, Segmented, type CheckSpec } from '../ConnectReview'
 import CountryFlag from '../CountryFlag'
+import Spinner from '../Spinner'
+import { ValueStrip } from '../plans/PlanDetailPane'
 import { ChartIcon, EyeIcon, PlusIcon } from '../Icons'
 import PlanNodesManager, { type NodeActionState } from './PlanNodesManager'
 import { STATUS_ACTIVE, formatUdvpnAmount, usdEstimate } from '../../utils/provider-format'
@@ -279,6 +283,7 @@ export default function ProviderPlans({
           <CreatePlanForm
             price={price}
             economics={economics}
+            providerName={providerName}
             readOnly={readOnly}
             requestConfirm={requestConfirm}
             onCancel={() => setCreating(false)}
@@ -885,10 +890,18 @@ function visibilityChecks({ plan, stats, statsUnknown, providerName, providerAct
 /**
  * Create a plan. It lands INACTIVE on chain — activation is a separate tx, offered
  * in its workspace once it appears — so nothing here needs to track a half-created plan.
+ *
+ * Laid out as a plan's workspace (2026-10-07): the terms with their break-even, where
+ * the price sits among the plans a subscriber is shown, the workspace's "Will
+ * subscribers find it?" checks worked out for the draft, and the steps after it, with
+ * the buttons in a footer that does not scroll away. The checks replaced a line that
+ * said "Listed in the catalog once it is active", which was false for a provider
+ * whose name reads as a test account and for every plan created with no nodes.
  */
-function CreatePlanForm({ price: tokenPrice, economics, readOnly, requestConfirm, onCancel, onCreated }: {
+function CreatePlanForm({ price: tokenPrice, economics, providerName, readOnly, requestConfirm, onCancel, onCreated }: {
   price: TokenPrice | null
   economics: ProviderEconomics | null
+  providerName: string
   /** The console went read-only (tunnel up, or the chain read failed) after this form opened. */
   readOnly: boolean
   requestConfirm: (options: ConfirmOptions) => Promise<boolean>
@@ -901,14 +914,47 @@ function CreatePlanForm({ price: tokenPrice, economics, readOnly, requestConfirm
   const [isPrivate, setIsPrivate] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { overview } = usePlansContext()
+  const { allNodes } = useNodesContext()
 
   const gb = Number(gigabytes)
   const dayCount = Number(days)
   const priceUdvpn = p2pToUdvpn(price)
-  const valid =
-    Number.isInteger(gb) && gb > 0 &&
-    Number.isInteger(dayCount) && dayCount > 0 &&
-    priceUdvpn !== null
+  // The bounds are main's own (PROVIDER_PLAN_CREATE), said here before they cost a
+  // round-trip: past them the handler refused with a bare "Invalid gigabytes".
+  const gbOk = Number.isInteger(gb) && gb > 0 && gb <= 1_000_000
+  const daysOk = Number.isInteger(dayCount) && dayCount > 0 && dayCount <= 3650
+  const priceOk = priceUdvpn !== null && priceUdvpn <= 1_000_000_000_000
+  const valid = gbOk && daysOk && priceOk
+  const termsProblem = !gbOk ? 'Size must be a whole number of GB, from 1 to 1,000,000.'
+    : !daysOk ? 'Days must be a whole number, from 1 to 3,650.'
+      : !priceOk ? 'Price must be an amount in P2P with up to 6 decimals, at most 1,000,000.'
+        : null
+
+  // The draft as the catalog would hold it, for the value strip. Decimal GB, as main
+  // writes it (provider-msgs BYTES_PER_GB).
+  const draft = valid && priceUdvpn !== null
+    ? {
+        id: 'draft',
+        bytes: (BigInt(gb) * 1_000_000_000n).toString(),
+        durationSeconds: dayCount * 86400,
+        prices: [{ denom: 'udvpn', baseValue: '', quoteValue: String(priceUdvpn) }],
+      }
+    : null
+  const perGb = draft ? pricePerGb(draft) : null
+  const usd = valid && priceUdvpn !== null && tokenPrice ? usdEstimate(priceUdvpn, tokenPrice.usd) : null
+  const nodeMedian = useMemo(() => nodeMedianPerGb(allNodes), [allNodes])
+  // What a subscriber is shown with the catalog's DEFAULT filters, the same picture
+  // "See it as a subscriber" checks against.
+  const listedPerGb = useMemo(
+    () => overview.plans
+      .filter((p) => p.status === STATUS_ACTIVE && !p.private && !p.isTest && p.nodeCount !== 0)
+      .flatMap((p) => {
+        const v = pricePerGb(p)
+        return v === null ? [] : [{ id: p.id, perGb: v }]
+      }),
+    [overview.plans],
+  )
 
   // How many subscribers this price would need to cover the running lease burn.
   // Advisory only — it never gates the button, because pricing below cost to win
@@ -926,6 +972,42 @@ function CreatePlanForm({ price: tokenPrice, economics, readOnly, requestConfirm
       }),
     }
   }, [economics, priceUdvpn, dayCount])
+
+  const checks: CheckSpec[] = [
+    isPrivate
+      ? {
+          id: 'private',
+          tone: 'warning',
+          text: 'Private: only buyers who tick the Private filter will see it.',
+          tipLabel: 'About private plans',
+          tip: 'Private is a flag on chain, so other Sentinel apps should hide the plan too. You can change it later from the plan\'s page.',
+          action: (
+            <button type="button" onClick={() => setIsPrivate(false)} className="btn btn-secondary text-xs px-2.5 py-1">
+              Make public
+            </button>
+          ),
+        }
+      : { id: 'private', tone: 'success', text: 'Public: listed for everyone browsing plans.' },
+  ]
+  if (isTestPlan(providerName)) {
+    checks.push({
+      id: 'test',
+      tone: 'warning',
+      text: `"${providerName}" reads as a test account, so the catalog files the plan under Test plans, hidden by default.`,
+      tipLabel: 'Why the name matters',
+      tip: 'This is a guess this app makes from the provider name, not anything the chain records. Renaming the provider with Edit details, at the top, changes it.',
+    })
+  }
+  checks.push({
+    id: 'nodes',
+    tone: 'warning',
+    text: 'No nodes linked yet, so the catalog hides it by default until you link one.',
+    tipLabel: 'Why no nodes hides it',
+    tip: 'The catalog\'s "Ready to connect" filter is on by default and drops any plan counted at zero nodes. You lease and link nodes on the plan\'s own page once it exists.',
+  })
+
+  const hasLeases = economics !== null && economics.activeLeases > 0
+  const steps = ['Create it', hasLeases ? 'Link a node' : 'Lease and link a node', 'Activate it']
 
   async function handleCreate() {
     if (!valid || priceUdvpn === null) return
@@ -947,48 +1029,112 @@ function CreatePlanForm({ price: tokenPrice, economics, readOnly, requestConfirm
   }
 
   return (
-    <div className="p-5 max-w-xl space-y-4">
-      <div>
-        <h2 className="text-text-primary text-[17px] font-semibold">New plan</h2>
-        <p className="text-text-tertiary text-xs mt-1">What subscribers buy: gigabytes over a period, at your price, served by the nodes you link to it.</p>
+    <div className="h-full flex flex-col min-h-0">
+      <div className="flex-1 overflow-y-auto min-h-0 p-5 space-y-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
+            <h2 className="text-text-primary text-[17px] font-semibold">New plan</h2>
+            <Segmented
+              label="Visibility"
+              value={isPrivate ? 'private' : 'public'}
+              options={[['public', 'Public'], ['private', 'Private']]}
+              onChange={(v) => setIsPrivate(v === 'private')}
+            />
+            {draft && priceUdvpn !== null && (
+              <span className="ml-auto text-sm text-text-secondary whitespace-nowrap">
+                {formatBytes(draft.bytes)} · {formatDuration(draft.durationSeconds)} ·{' '}
+                <span className="text-text-primary">{formatUdvpnAmount(priceUdvpn)}</span>
+                {usd && <span className="text-text-tertiary"> {usd}</span>}
+              </span>
+            )}
+          </div>
+          <p className="text-text-tertiary text-xs mt-1">What subscribers buy: gigabytes over a period, at your price, served by the nodes you link to it.</p>
+        </div>
+
+        <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
+          <SectionTitle>Terms</SectionTitle>
+          <div className="space-y-2.5">
+            <TermRow label="Data" unit="GB" value={gigabytes} onChange={setGigabytes} presets={[10, 100, 1000]} invalid={!gbOk}
+              hint={gbOk && gb >= 1000 && draft ? formatBytes(draft.bytes) : null} />
+            <TermRow label="Valid for" unit="days" value={days} onChange={setDays} presets={[7, 30, 90, 365]} invalid={!daysOk} />
+            <TermRow label="Price" unit="P2P" value={price} onChange={setPrice} invalid={!priceOk}
+              hint={perGb !== null ? `${formatPerGb(perGb)} P2P per GB` : null} />
+          </div>
+          {valid && breakEven && (
+            <div className="border-t border-border mt-3.5 pt-3">
+              <BreakEvenHint {...breakEven} />
+            </div>
+          )}
+        </section>
+
+        <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
+          {draft ? (
+            <ValueStrip plan={draft} perGb={perGb} listed={listedPerGb} nodeMedian={nodeMedian}
+              headingClassName="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary" />
+          ) : (
+            <>
+              <SectionTitle>Value per GB</SectionTitle>
+              <p className="text-text-secondary text-sm">Fix the terms above to see where the price sits.</p>
+            </>
+          )}
+          {draft && <p className="text-text-tertiary text-[11px] mt-2">
+            {overview.fetchedAt === null
+              ? 'The plan catalog has not been read yet, so this compares against nodes only. Opening the Plans tab reads it.'
+              : listedPerGb.length === 0
+                ? `No plan a subscriber is shown with the catalog's default filters has a price per GB, so this compares against nodes only (catalog scan ${formatTimeAgo(overview.fetchedAt)}).`
+                : `Other listed plans: the ${listedPerGb.length.toLocaleString('en-US')} with a price per GB that a subscriber is shown with the catalog's default filters, from its scan ${formatTimeAgo(overview.fetchedAt)}.`}
+          </p>}
+        </section>
+
+        <div className="bg-bg-secondary border border-border rounded-md px-3 py-3">
+          <ChecksSection title="Will subscribers find it?" checks={checks} />
+        </div>
+
+        <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
+          <SectionTitle>What happens next</SectionTitle>
+          {/* The provider setup route's discs and links (ProviderConsole SetupRoute),
+              so the steps read as the same kind of picture. */}
+          <div role="list" aria-label="Steps to selling the plan" className="flex items-center max-w-2xl">
+            {steps.map((label, i) => (
+              <Fragment key={label}>
+                {i > 0 && <span className="route-link route-link-dim flex-1 min-w-[14px] mx-2" />}
+                <span role="listitem" className="flex items-center gap-2 shrink-0">
+                  <span className={`${i === 0 ? 'route-disc route-disc-done' : 'route-disc route-disc-waiting'} w-6 h-6`}>
+                    <span className={`font-mono text-[11px] ${i === 0 ? 'text-accent' : ''}`}>{i + 1}</span>
+                  </span>
+                  <span className={`text-xs whitespace-nowrap ${i === 0 ? 'text-text-primary font-medium' : 'text-text-tertiary'}`}>{label}</span>
+                </span>
+              </Fragment>
+            ))}
+          </div>
+          <p className="text-text-secondary text-xs mt-2.5">
+            It lands inactive, so nobody can buy it until step 3. Steps 2 and 3 are on the plan&apos;s own
+            page: select it in the list once it is created.
+          </p>
+        </section>
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <NumField label="Size (GB)" value={gigabytes} onChange={setGigabytes} />
-        <NumField label="Days" value={days} onChange={setDays} />
-        <NumField label="Price (P2P)" value={price} onChange={setPrice} />
-      </div>
-      <div className="flex items-center gap-3">
-        <Segmented
-          label="Visibility"
-          value={isPrivate ? 'private' : 'public'}
-          options={[['public', 'Public'], ['private', 'Private']]}
-          onChange={(v) => setIsPrivate(v === 'private')}
-        />
-        <span className="text-text-tertiary text-xs">
-          {isPrivate ? 'Not listed for public discovery.' : 'Listed in the catalog once it is active.'}
-        </span>
-      </div>
-      <p className="text-text-secondary text-xs">
-        {valid && priceUdvpn !== null
-          ? `${gb} GB for ${dayCount} days · ${formatUdvpnAmount(priceUdvpn)}` +
-            (tokenPrice ? `, ${usdEstimate(priceUdvpn, tokenPrice.usd)}` : '')
-          : 'Size and days must be whole numbers; price accepts up to 6 decimals.'}
-      </p>
-      {valid && breakEven && <BreakEvenHint {...breakEven} />}
-      {error && <p className="text-danger text-xs">{displayConnectError(error)}</p>}
-      {readOnly && <p className="text-text-tertiary text-xs">Disconnect the VPN to create this plan.</p>}
-      <div className="flex gap-2">
-        <button type="button" onClick={onCancel} disabled={busy} className="btn btn-secondary text-xs py-2 px-4 disabled:opacity-40 disabled:cursor-not-allowed">
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleCreate}
-          disabled={!valid || busy || readOnly}
-          className="btn btn-primary text-xs py-2 flex-1 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {busy ? 'Creating…' : 'Create plan'}
-        </button>
+
+      <div className="shrink-0 border-t border-border px-5 pt-3.5 pb-4 flex flex-wrap items-center gap-x-4 gap-y-2.5">
+        <div className="flex-1 min-w-[240px] space-y-1.5">
+          {error ? <FooterReason text={displayConnectError(error)} />
+            : readOnly ? <FooterReason tone="muted" text="Disconnect the VPN to create this plan." />
+              : termsProblem && <FooterReason text={termsProblem} />}
+          <p className="text-text-tertiary text-[11px]">This is an on-chain transaction, and costs the network fee only.</p>
+        </div>
+        <div className="flex gap-2">
+          <button type="button" onClick={onCancel} disabled={busy} className="btn btn-secondary text-sm py-2 px-4 disabled:opacity-40 disabled:cursor-not-allowed">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={!valid || busy || readOnly}
+            className="btn btn-primary text-sm py-2 px-6 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5"
+          >
+            {busy && <Spinner size="sm" />}
+            {busy ? 'Creating…' : 'Create plan'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1063,13 +1209,11 @@ function BreakEvenHint({ net, burnDailyUdvpn, result }: {
   result: ReturnType<typeof computeBreakEven>
 }) {
   // No leases yet, so there is no burn to break even against. Nothing is wrong and
-  // nothing is blocked, so this states the next steps rather than warning: the node
-  // picker lives inside the plan's own workspace, which does not exist until the plan does.
+  // nothing is blocked, so this says so plainly; the form's steps say what comes next.
   if (result.kind === 'no-burn') {
     return (
       <p className="text-text-tertiary text-xs">
-        Nothing to break even against yet, because you have no nodes leased. Create this plan first,
-        then select it to lease and link a node, and activate it once something can serve it.
+        No nodes leased yet, so there are no running costs to break even against.
       </p>
     )
   }
@@ -1095,17 +1239,54 @@ function BreakEvenHint({ net, burnDailyUdvpn, result }: {
   )
 }
 
-function NumField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+/** "Data  [ 100 | GB ]  10 100 1,000": one term of the plan, its unit, and presets. */
+function TermRow({ label, unit, value, onChange, presets, invalid, hint }: {
+  label: string
+  unit: string
+  value: string
+  onChange: (v: string) => void
+  presets?: number[]
+  invalid: boolean
+  hint?: string | null
+}) {
   return (
-    <label className="block">
-      <span className="text-text-tertiary text-[10px] uppercase tracking-wide">{label}</span>
-      <input
-        type="text"
-        inputMode="decimal"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-0.5 w-full bg-bg-tertiary border border-border text-text-primary text-sm px-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus"
-      />
-    </label>
+    <div className="flex items-center gap-x-2.5 gap-y-2 flex-wrap">
+      <span className="w-[72px] shrink-0 text-sm text-text-secondary">{label}</span>
+      <span className={`inline-flex items-stretch border rounded-sm overflow-hidden ${
+        invalid ? 'border-danger' : 'border-border focus-within:border-border-focus'
+      }`}>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={value}
+          aria-label={`${label}, in ${unit}`}
+          aria-invalid={invalid}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-24 bg-bg-primary text-text-primary text-right text-sm font-mono font-semibold px-2 py-1 focus:outline-none"
+        />
+        <span className="px-2 grid place-items-center bg-bg-tertiary text-text-secondary text-xs">{unit}</span>
+      </span>
+      {presets && (
+        <span className="flex gap-1">
+          {presets.map((p) => {
+            const on = value.trim() === String(p)
+            return (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={on}
+                onClick={() => onChange(String(p))}
+                className={`min-w-[28px] px-1.5 py-0.5 rounded-sm border font-mono text-xs transition-colors ${
+                  on ? 'border-accent text-accent bg-accent-subtle' : 'border-border text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                {p.toLocaleString('en-US')}
+              </button>
+            )
+          })}
+        </span>
+      )}
+      {hint && <span className="text-xs text-text-tertiary">{hint}</span>}
+    </div>
   )
 }
