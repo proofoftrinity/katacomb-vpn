@@ -97,6 +97,7 @@ func runCorpus(t *testing.T, proto string, validate func([]byte) error) {
 	}
 }
 
+// [NT-1] The root side re-validates node configs against the shared corpus.
 func TestWireguardCorpus(t *testing.T) { runCorpus(t, "wireguard", AssertWireguardConfig) }
 func TestAmneziaWgCorpus(t *testing.T) { runCorpus(t, "amneziawg", AssertAmneziaWgConfig) }
 func TestOpenVpnCorpus(t *testing.T)   { runCorpus(t, "openvpn", AssertOpenVpnConfig) }

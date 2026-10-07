@@ -74,7 +74,7 @@ test('chains exit through entry: exit is default egress and dials via the entry 
   assert.equal(outbounds[1].proxySettings, undefined)
 })
 
-test('exactly one outbound dials directly, and it is the entry (extractV2RayRemoteHost contract)', () => {
+test('[MH-2] exactly one outbound dials directly, and it is the entry (extractV2RayRemoteHost contract)', () => {
   const config = buildMultihopConfig(
     v2rayHop([V2RAY_TCP_TLS], ['entry.example.net']),
     v2rayHop([V2RAY_TCP_TLS_EXIT], ['exit.example.net']),
@@ -128,7 +128,7 @@ test('transport_protocol 1 builds tcp for an xray hop and is rejected for a v2ra
 
 // --- exit-hop transport rule --------------------------------------------------
 
-test('only plain TCP is accepted as the exit hop; the entry may use any transport', () => {
+test('[MH-3] only plain TCP is accepted as the exit hop; the entry may use any transport', () => {
   // Measured against xray 26.3.27 with two local vless servers chained via
   // proxySettings: entry tcp -> exit grpc FAILS, entry tcp -> exit ws FAILS,
   // entry grpc -> exit tcp WORKS. Both transports work as a DIRECT hop, so this is
@@ -217,7 +217,7 @@ test('a cleartext-only node is refused on either hop', () => {
   )
 })
 
-test('vmess without transport security is refused for a chain, though it is not cleartext', () => {
+test('[MH-4] vmess without transport security is refused for a chain, though it is not cleartext', () => {
   // The stricter CHAIN rule: VMess carries its own AEAD cipher, so this inbound is
   // encrypted and an ordinary single-hop connect still accepts it — but over gRPC
   // with no TLS it is cleartext HTTP/2 on the wire, which is exactly what a chain
@@ -344,7 +344,7 @@ test('normalizeTlsPin rejects anything that is not a 32-byte digest', () => {
   }
 })
 
-test('a TLS inbound without a usable pin is not selectable', () => {
+test('[MH-16] a TLS inbound without a usable pin is not selectable', () => {
   // Its self-signed cert could not be verified against anything, and xray no longer
   // has an "accept anything" mode, so this must never be built.
   const noPin: HopMetadataEntry = {
@@ -389,7 +389,7 @@ test('an empty short id is still a usable Reality inbound', () => {
   assert.equal(selectHopEntry(xrayHop([noShortId]), 'exit'), noShortId)
 })
 
-test('a Reality inbound without usable keys is not selectable', () => {
+test('[MH-16] a Reality inbound without usable keys is not selectable', () => {
   // The failure this prevents lands AFTER the money moves: the config builds fine
   // with publicKey '', xray refuses it at spawn, and establishChainOrRefund has
   // already returned, so neither deposit is refunded.
@@ -450,7 +450,7 @@ test('a Reality inbound on a transport the exit cannot use reports the transport
 
 // --- the entry-only provisioning config ---------------------------------------
 
-test('buildEntryOnlyConfig exposes only the entry, on its own loopback port', () => {
+test('[MH-13] buildEntryOnlyConfig exposes only the entry, on its own loopback port', () => {
   const config = buildEntryOnlyConfig(v2rayHop([V2RAY_TCP_TLS]), 1081)
   const outbounds = config.outbounds as Record<string, unknown>[]
   assert.equal(outbounds.length, 1, 'the exit must not be reachable from this config')
@@ -474,7 +474,7 @@ test('buildEntryOnlyConfig passes the same guard the real config does', () => {
   assert.doesNotThrow(() => assertSafeV2RayConfig(config))
 })
 
-test('buildEntryOnlyConfig grades the entry by the CHAIN rule, before any money moves', () => {
+test('[MH-5] buildEntryOnlyConfig grades the entry by the CHAIN rule, before any money moves', () => {
   // A node with nothing wrapped cannot be a chain entry, and failing here costs nothing.
   const cleartext: HopMetadataEntry = {
     port: '80', proxy_protocol: 1, transport_protocol: 7, transport_security: 1,

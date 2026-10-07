@@ -390,6 +390,7 @@ func TestKillswitchOnVariants(t *testing.T) {
 	}
 }
 
+// [REL-8] The daemon side: no killswitch-on without a real endpoint IP.
 func TestKillswitchOnRefusals(t *testing.T) {
 	cases := map[string]string{
 		`{"iface":"sntl0","remoteHost":"0.0.0.0"}`:                          "killswitch_on: remoteHost 0.0.0.0 whitelists nothing",

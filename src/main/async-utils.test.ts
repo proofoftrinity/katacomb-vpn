@@ -7,7 +7,7 @@ test('withTimeout resolves with the value when the promise settles first', async
   assert.equal(result, 'ok')
 })
 
-test('withTimeout rejects with the labelled error when the promise never settles', async () => {
+test('[REL-5] withTimeout rejects with the labelled error when the promise never settles', async () => {
   await assert.rejects(
     withTimeout(new Promise<never>(() => {}), 10, 'node handshake'),
     /node handshake timed out after 10ms/,

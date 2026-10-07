@@ -17,7 +17,7 @@ test('broadcastOrTimeout rethrows a non-timeout error unchanged (same instance)'
   await assert.rejects(broadcastOrTimeout(Promise.reject(boom), 'msg'), (e) => e === boom)
 })
 
-test('broadcastOrTimeout converts a CosmJS TimeoutError to the given message', async () => {
+test('[REL-5] broadcastOrTimeout converts a CosmJS TimeoutError to the given message', async () => {
   await assert.rejects(
     broadcastOrTimeout(Promise.reject(new TimeoutError('timed out', 'ABC123')), 'check the Session tab'),
     /check the Session tab/,
@@ -67,7 +67,7 @@ test('assertTxSucceeded keeps the raw code/log for any other failure', () => {
 // The hub answers a missing single-record lookup by THROWING gRPC NotFound rather
 // than returning nothing, so "I haven't registered a provider yet" — the normal
 // case for almost every wallet — arrives as an error and has to be recognised.
-test('isChainNotFound matches the real not-registered error the hub returns', () => {
+test('[PC-5] isChainNotFound matches the real not-registered error the hub returns', () => {
   assert.ok(isChainNotFound(
     'Query failed with (22): rpc error: code = NotFound desc = provider ' +
     'sentprov1xpqgazzucgx29htzvqpc8cfga06z09yw9sd8nq does not exist: key not found',
@@ -87,7 +87,7 @@ test('isChainNotFound does not swallow an unreachable RPC or any other failure',
 // A session that exhausts its paid quota flips to inactive_pending on its own, and
 // x/session refuses a cancel in any status but active — so "End" on a session that
 // just ran out fails with this, verbatim from the bug report.
-test('isSessionNotActive matches the status guard x/session rejects a late cancel with', () => {
+test('[REL-23] isSessionNotActive matches the status guard x/session rejects a late cancel with', () => {
   assert.ok(isSessionNotActive(
     'failed to execute message; message index: 0: invalid status inactive_pending ' +
     'for session 53089875: invalid session status ' +

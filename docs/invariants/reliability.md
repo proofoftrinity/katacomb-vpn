@@ -5,18 +5,18 @@ live incident; none is theoretical. Read this before touching `ipc-handlers.ts`,
 `vpn-manager.ts`, `chain-service.ts` or anything under `src/main/ipc/`.
 
 The connect path spends real on-chain funds, so these are enforced and must hold:
-- **Refund on any failure.** Any flow that creates an on-chain session
+- **[REL-1] Refund on any failure.** Any flow that creates an on-chain session
   (`subscribeToNode` / `subscribeToPlan` / `startSessionWithExistingSubscription`)
   MUST run its resolve-endpoint + handshake through `establishSessionOrRefund`
   (`ipc-handlers.ts`), which auto-cancels (refunds) the just-created session on *any*
   failure. Never create a session and then handshake without that wrapper.
-- **Serialize tunnel ops.** `CONNECTION_CONNECT`, `performDisconnect`, and the reconnect
+- **[REL-2] Serialize tunnel ops.** `CONNECTION_CONNECT`, `performDisconnect`, and the reconnect
   timer body run inside `withConnectionLock` (a mutex) and are guarded by
   `connectionEpoch` (bumped on disconnect, so an in-flight reconnect can't resurrect a
   tunnel the user tore down). Never add a tunnel bring-up/tear-down that bypasses both.
   Note `ipc-handlers`' `desiredProtocol` (intended) is deliberately distinct from
   `vpn-manager`'s `activeProtocol` (actual, cleared on interface drop) — don't merge them.
-- **One connection at a time, enforced in main.** Every entry point that creates a
+- **[REL-3] One connection at a time, enforced in main.** Every entry point that creates a
   session or brings up a tunnel calls `assertNotConnected()` (ipc-handlers.ts):
   `CONNECTION_SUBSCRIBE`, `CONNECTION_SUBSCRIBE_CHAIN`, `CONNECTION_RECONNECT`,
   `CONNECTION_CONNECT` (inside the lock, so a queued connect sees the one before it),
@@ -42,7 +42,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   fallback** — routing it through pkexec would put a password prompt in front of a
   warning nobody asked for. No daemon means no answer, and the check still informs
   rather than gates.
-- **The active wallet is frozen while a session is live.** `WALLET_SWITCH`, `WALLET_IMPORT`
+- **[REL-4] The active wallet is frozen while a session is live.** `WALLET_SWITCH`, `WALLET_IMPORT`
   (an import becomes active), `WALLET_DELETE`, `WALLET_DELETE_ALL` and `WALLET_DELETE_SEED`
   call `assertNotConnected('switching wallets')` and friends, and `activeWalletId` is not a
   `SETTINGS_SET` key: only `wallet.ts` writes it, which is what keeps the in-memory keys in
@@ -60,7 +60,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   provider and subscription forms take their opener's read-only gate as a prop so a form
   opened before a connect greys out with it, and Settings > Network pauses its RPC probes
   (tab open and Retest) while the RPC state is `suspended`/`blocked`.
-- **Bound every wait.** RPC connects go through `withTimeout`; session-creating broadcasts
+- **[REL-5] Bound every wait.** RPC connects go through `withTimeout`; session-creating broadcasts
   go through `broadcastOrTimeout` and set a `timeoutHeight`. `provider-service.ts` is the
   reference for the timeout pattern. (`node-tester.ts`'s `nodeFetch` now enforces ONE
   deadline across DNS, TCP connect, TLS and body. It used to set only
@@ -69,7 +69,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   and with the batch probe's `CONCURRENCY` of 3 that stalls a whole sweep. Three of the
   four call sites already wrapped it in `withTimeout`; `probeNode` did not, which was
   the live path. Those wraps stay as defence in depth but are no longer load-bearing.)
-  **Smart connect's ladder counts free failures too** (`MAX_FREE_FAILURES` = 10 in
+  **[REL-6] Smart connect's ladder counts free failures too** (`MAX_FREE_FAILURES` = 10 in
   `plan-connect.ts`): preflight and endpoint failures spend nothing, so they used to
   advance without limit, and that only looked bounded because every plan was read as at
   most 50 nodes (the hub paging defect in docs/provider-console.md). With the full list a
@@ -78,20 +78,20 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   arbitrary anyway. The ladder's error says when the cap stopped it, and says nothing was
   purchased when no session-creating tx went out. Each
   `nodesForPlan` page is also under `withTimeout` now that a plan can take many pages.
-- **Pin every node endpoint to an IPv4 literal, for EVERY protocol.** Nodes advertise
+- **[REL-7] Pin every node endpoint to an IPv4 literal, for EVERY protocol.** Nodes advertise
   themselves by hostname on chain (`remoteAddrs: ["helen.busur.cc:63115"]`), and two
   separate things break on that: the tunnel re-resolves it *through itself* (the v2ray
   DNS deadlock), and the kill switch has no IP to whitelist. v2ray/xray go through
   `pinV2RayNodeAddresses`, hysteria2/openvpn pin inline, and WireGuard/AmneziaWG go
   through `pinWireguardEndpoint` (pure, unit-tested) in all three connect paths —
   pin BEFORE the config-guard assert, so what is validated is what gets written.
-  **The kill switch is never armed without a real endpoint IP**: `-d 0.0.0.0/32 -j ACCEPT`
+  **[REL-8] The kill switch is never armed without a real endpoint IP**: `-d 0.0.0.0/32 -j ACCEPT`
   matches nothing, so the DROP-all rule swallows the tunnel's own outer UDP and the
   connection dies with the interface still up and the UI still saying "connected". That
   `|| '0.0.0.0'` fallback is what caused it; `applyPostConnectSettings` now skips arming
   and sets `killSwitchFailed`, and both the daemon and the bash helper reject `0.0.0.0`
   outright. Symptom to recognise: bytes out, ~zero bytes in, no DNS, IP unchanged.
-- **A node's DNS list is untrusted input, and its FIRST entry is the one that bites.**
+- **[REL-9] A node's DNS list is untrusted input, and its FIRST entry is the one that bites.**
   Nodes push a list (`DNS = 10.8.0.1, 1.0.0.1, 1.1.1.1`), wg-quick hands the whole thing
   to resolvconf, and systemd-resolved starts at entry one. When that entry is the node's
   own in-tunnel resolver and it never answers, every uncached lookup costs the glibc
@@ -110,7 +110,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   accepts everything out the tunnel interface and needs no public substitute. The rewrite
   happens BEFORE the config-guard assert, and `config-guard.test.ts` pins that the
   rewritten shape still passes both guards.
-- **`wg-quick down` ALWAYS fails for our tunnel, so its cleanup is ours to do.** It
+- **[REL-10] `wg-quick down` ALWAYS fails for our tunnel, so its cleanup is ours to do.** It
   resolves an interface name against `/etc/wireguard`, and our config lives in
   `SECURE_TMPDIR` — so the helper's `down` verb falls through to `ip link delete` on every
   disconnect (and `awg-down` only ever did that). That removes the interface and leaves
@@ -121,7 +121,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   the rules is left, deletes a fwmark table only inside wg-quick's own allocation range
   (so another VPN's table is untouched), and bounds every loop. Anything else that tears
   a tunnel down by deleting the link inherits this obligation.
-- **Preflight before paying.** The session-creating handlers call
+- **[REL-11] Preflight before paying.** The session-creating handlers call
   `preflightConnect(nodeType, apiField, tunnel)` BEFORE the tx: first
   `assertSystemReady` (`ipc/setup.ts`), then `protocolRuntimeError()` (binaries present
   + SHA-verified), then the node's own `service_type` — fetched from its ROOT path,
@@ -152,7 +152,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   is known (`resolvconfPackage`). Elsewhere the paid-session "Retry without VPN DNS" is
   the only way those protocols work on that machine, so refusing would remove them; the
   DNS-less retry itself (`dnsFallback`) skips the check.
-- **The connect flow rides ONE RPC connection, and its handshake retries a 404 —
+- **[REL-12] The connect flow rides ONE RPC connection, and its handshake retries a 404 —
   nothing else.** `chain-clients.ts` owns the speed path: `resolveRpcBase` follows the
   endpoint's 307/308 redirect once per launch (the default rpc.sentinel.co redirects
   EVERY request to another host, ~100ms each; fail-open, never persisted, never shown
@@ -172,14 +172,14 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   refunds immediately, and the RECONNECT path's handshake semantics (409 = normal,
   404 = session gone) are deliberately untouched. All three session-creating broadcasts
   now really do set a `timeoutHeight` (the plan paths used to skip it).
-- **Retry, don't re-buy.** A failed bring-up leaves the paid session's config stashed in
+- **[REL-13] Retry, don't re-buy.** A failed bring-up leaves the paid session's config stashed in
   main (cleared only by `performDisconnect`), so the connect modals offer "Retry
   connection" (`connectionConnect` alone) instead of resetting to the subscribe form.
   Shared UI: `ConnectErrorActions.tsx`.
-- **One instance.** `src/main/index.ts` takes `requestSingleInstanceLock()` and the loser
+- **[REL-14] One instance.** `src/main/index.ts` takes `requestSingleInstanceLock()` and the loser
   exits via `app.exit(0)` — `app.quit()` would fire before-quit and tear down the
   *primary's* tunnel.
-- **Quota is METERED, never wall-clock.** The chain accrues a session's `duration` from
+- **[REL-15] Quota is METERED, never wall-clock.** The chain accrues a session's `duration` from
   the node's usage proofs, so a session bought and left idle accrues *nothing* — mainnet
   #53647217 sat 53 minutes at `duration: 0`. Both caps are therefore scored the same way,
   "what the chain settled before this connect + what this tunnel has done since":
@@ -188,7 +188,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   half of the time sum and is surfaced as `ConnectionStatus.connectedAt` so the Sessions
   card draws the identical number. **Never reintroduce `Date.now() - startAt` as a usage
   measure** — it reads an untouched paid hour as spent and the watchdog then destroys it.
-- **Watch the paid quota.** Nothing else does: `startRootTunnelMonitor` polls whether the
+- **[REL-16] Watch the paid quota.** Nothing else does: `startRootTunnelMonitor` polls whether the
   INTERFACE exists, and a node that has stopped forwarding leaves it up, so an exhausted
   session used to sit on a dead tunnel. Every successful bring-up funnels through
   `finalizeTunnelConnect()` (ipc-handlers.ts), which calls `startQuotaWatchdog()` — all
@@ -202,7 +202,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   That "expired, traffic blocked" state deliberately does NOT survive a restart:
   `healStrandedKillSwitch()` reverts it at next launch and must not be weakened to
   preserve it.
-- **An interface is not a tunnel — prove it carries traffic.** `wg-quick up` reports
+- **[REL-17] An interface is not a tunnel — prove it carries traffic.** `wg-quick up` reports
   success whether or not the node ever answers a handshake, so nothing about a live
   `sntl0` implies a working tunnel. Mainnet #53647217 was verified dead by sending a
   well-formed WireGuard initiation with its own saved keys and getting silence, hours
@@ -262,7 +262,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     point and is still running when the samples are taken ends a session that would have
     healed. Past 180 s the keypair is refused, so nothing is flowing at that moment
     either, and the session stays open on chain with a reconnect offered.
-- **…and a live child proxy is not a tunnel either. Two predicates, two questions.**
+- **[REL-18] …and a live child proxy is not a tunnel either. Two predicates, two questions.**
   `getConnectionStatus().connected` means *traffic is being carried*;
   `isProxyChildAlive()` means *the spawned core survived startup*. They were one
   predicate, and that is a lie in exactly one window. In PROXY mode the core is the
@@ -285,7 +285,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   connect branches) MUST use `isProxyChildAlive()` — pointed at the traffic predicate it
   fails *every* tunnel-mode connect with "process exited immediately after starting",
   which is worse than the bug.
-- **Reconnect re-handshakes first, and a 409 back means the node kept the RECORD —
+- **[REL-19] Reconnect re-handshakes first, and a 409 back means the node kept the RECORD —
   it says nothing about the PEER.** `CONNECTION_RECONNECT` calls `performHandshake`
   for the session before falling back to `SavedSessionConfig.configString`. Read
   against the node's source (`sentinel-dvpnx`), what that buys is narrower than it
@@ -314,7 +314,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   Deliberately NOT wrapped in `establishSessionOrRefund`: there is no new session to
   refund, and cancelling the user's live session over a briefly unreachable node is
   the opposite of the intent.
-- **Usage time accrues only while the tunnel is alive.** `connectedSecondsAlive()`,
+- **[REL-20] Usage time accrues only while the tunnel is alive.** `connectedSecondsAlive()`,
   not `Date.now() - connectedAtMs`, feeds both the quota watchdog and
   `rememberSessionUsage` — it clamps at `aliveUntilMs`, the last confirmed sign of
   life. The chain meters `duration` from node proofs and a stalled node submits none,
@@ -325,7 +325,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   FLOOR, the chain overtakes it and wins, and entries are pruned once their session
   leaves `getActiveSessions()` — on a SUCCESSFUL read only, since an RPC failure
   returns no rows and must not read as "every session ended".
-- **…and the clock has to be STOPPED by something. An abort is not a teardown.** The
+- **[REL-21] …and the clock has to be STOPPED by something. An abort is not a teardown.** The
   rule above only holds if `connectedAtMs` / `aliveUntilMs` are cleared when the tunnel
   goes away, and for a whole class of drops nothing was doing it. With auto-reconnect
   OFF, `decideReconnect` returns `abort`, and that branch used to just
@@ -355,7 +355,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   time) sits BELOW what the chain settles, so once the proof lands the chain overtakes
   it and the gauge shows the larger, wall-clock figure. That is correct — the gauge must
   show what the user was CHARGED, not what we wish they had been.
-- **An empty session list is NOT proof of anything, because the failure is swallowed
+- **[REL-22] An empty session list is NOT proof of anything, because the failure is swallowed
   a layer down.** `getSessionsForAddress` catches every error and `return []`, so
   "the RPC is unreachable" and "this account has no sessions" arrive at every caller
   as the same value — the `try/catch` around `readAllSessions()` in WALLET_SESSIONS
@@ -377,7 +377,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   (see `chain-service.ts`, which would otherwise delete every reconnect config on a
   transient failure). Guard at the site that interprets the emptiness, and treat any
   other `[]` from that function the same way.
-- **A session row is not necessarily live.** `getActiveSessions()` returns `'active'` AND
+- **[REL-23] A session row is not necessarily live.** `getActiveSessions()` returns `'active'` AND
   `'inactive_pending'` — the state a session enters on its own when its quota runs out —
   so it can be labelled rather than vanishing mid-error. `decodeSession` maps the real
   enum (1/2/3), not `=== 1 ? 'active' : 'inactive'`. Anything offering a per-session
@@ -385,13 +385,13 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   `endSession` swallows exactly that guard (`isSessionNotActive`) for the poll-vs-click
   race. Anything **counting** sessions must gate on it too (the Sessions header and the
   tab badge do) — a settling row is not an active session.
-- **…and `'active'` does not mean *usable*.** The chain meters past the cap and leaves
+- **[REL-24] …and `'active'` does not mean *usable*.** The chain meters past the cap and leaves
   the row active until it is cancelled or reaped: #53647217 read `duration` 5673s against
   a paid 3600s, status 1. So a **Connect** action must additionally gate on the quota not
   being spent (`ActiveSessions`' `quotaUsedUp`) — otherwise it buys a handshake and a
   password prompt for a tunnel `startQuotaWatchdog` stands down at its next 15 s tick.
   **End** stays enabled there; it is the action that fits.
-- **Local network sharing is a firewall exception, not a routing one.** No protocol's
+- **[REL-25] Local network sharing is a firewall exception, not a routing one.** No protocol's
   routing captures the LAN (wg-quick/awg-quick use `suppress_prefixlength 0`, OpenVPN
   emits `redirect-gateway def1`, tun2socks uses the `/1` halves — a LAN route is more
   specific than all of them), so the only thing that blocks it is the kill switch's
@@ -409,7 +409,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   were both considered and rejected: the first goes stale on every dock or Wi-Fi roam, the
   second overloads one control with two meanings and accepts public CIDRs. `100.64.0.0/10`
   (CGNAT, Tailscale) is deliberately absent from the ranges.
-- **The kill switch DROPs, and that silence is the design — so diagnose this area with
+- **[REL-26] The kill switch DROPs, and that silence is the design — so diagnose this area with
   timings, never with error messages.** Nothing on the physical NIC gets an ICMP reject
   while the chain is armed, so every failure here surfaces as an unexplained hang in
   whatever was talking (a browser, a resolver, an app socket) rather than as an error
@@ -423,7 +423,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   flat at ~0.02s, which is what separated "DNS is broken" from "routing is broken" and
   killed the plausible-but-wrong "stale sockets black-holed by the kill switch" theory.
   Log per-link `resolvectl status` on every state change alongside it.
-- **`ConnectionStatus.state === 'connected'` means "traffic is redirected", and it flips
+- **[REL-27] `ConnectionStatus.state === 'connected'` means "traffic is redirected", and it flips
   on INTERFACE PRESENCE — deliberately. Do not add an intermediate "verifying" state.**
   For WG/AWG/OpenVPN the status is true from the moment the interface exists, which is
   BEFORE `applyPostConnectSettings` arms the kill switch and before
@@ -438,7 +438,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   progress needs surfacing, it belongs in the connect modal's own progress channel
   (`sendChainHopProgress` is the precedent), never in the status string every consumer
   reads as "is the tunnel up".
-- **The kill switch's `ESTABLISHED,RELATED` accept now scopes to the tunnel interface
+- **[REL-28] The kill switch's `ESTABLISHED,RELATED` accept now scopes to the tunnel interface
   only.** Was scoped to **any** interface, so a connection opened over the physical NIC
   *before* connecting would keep running while the chain was armed — latent but not
   defended against. Fixed 2026-08-15: both IPv4 (:570) and IPv6 (:289) rules now carry
@@ -453,13 +453,13 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   IP lookups dial a fresh, unpooled socket every time. Anything else in main that fetches
   the same host on both sides of a tunnel transition inherits this hazard.
 
-- **The tunnel never outlives the app, and NOTHING outside the app will end it.** A crash
+- **[REL-29] The tunnel never outlives the app, and NOTHING outside the app will end it.** A crash
   leaves everything running by construction: WG/AWG/OpenVPN interfaces are kernel-resident
   and root-created, tun2socks is spawned detached by the helper, and the daemon has no
   notion of whether a GUI is alive (the daemon's socket close carries no meaning, since
   `daemon-client` opens one connection per request by design, and the unit has no
   `ExecStop`). Teardown is therefore the app's job on both exit paths:
-  - **Quit** runs `cleanupOnQuit` → `performDisconnect()`, NOT a lighter copy of it. The
+  - **[REL-30] Quit** runs `cleanupOnQuit` → `performDisconnect()`, NOT a lighter copy of it. The
     copy skipped `rememberSessionUsage()` (a quit mid-session wrote no usage floor, so the
     gauge fell back to the lagging chain figure), `isIntentionalDisconnect` + clearing
     `activeSessionId` (so `disconnect()`'s SIGTERM to the core made `onV2RayUnexpectedExit`
@@ -469,7 +469,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     must run AFTER it. **Never pre-stop anything from the quit path.** Still capped by
     `before-quit`'s 5s race, so on the pkexec path an unanswered polkit prompt outlives the
     budget and the next launch's heal finishes the job.
-  - **Crash** is repaired by `healOrphanedTunnel()` at startup, ordered between
+  - **[REL-31] Crash** is repaired by `healOrphanedTunnel()` at startup, ordered between
     `detectExistingConnection()` (which sets `activeProtocol`, so `disconnect()` picks the
     matching teardown verb) and `healStrandedKillSwitch()` (which skips while a tunnel is
     up, so it must see the state this leaves, not the one it found). An adopted tunnel has
@@ -482,13 +482,13 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     watchdog properly. Traffic is deliberately NOT left blocked afterwards: full
     `revertPostConnectSettings`, per the rule that "expired, traffic blocked" must not
     survive a restart.
-  - **The teardown MUST tell the tray.** `createTrayIcon()` reads `getConnectionStatus()`
+  - **[REL-32] The teardown MUST tell the tray.** `createTrayIcon()` reads `getConnectionStatus()`
     synchronously at startup, i.e. BEFORE the teardown's privileged round-trip returns, so
     it caches "connected" off the very interface about to be deleted, and the tray only
     ever updates on a push, unlike the renderer, which also polls. `healOrphanedTunnel` therefore
     ends at `notifyTraySettled()`. Live symptom (2026-08-26): idle window, orphan banner
     and a green tray dot, all at once.
-  - **Proxy cores are reaped by pid, and an orphan does NOT die on its own.** Measured
+  - **[REL-33] Proxy cores are reaped by pid, and an orphan does NOT die on its own.** Measured
     2026-08-26 against the bundled xray: parent killed, child reparented to PID 1, still
     listening 20s later. The plausible escape (piped stdio, so a write should raise SIGPIPE)
     never fires, because at `loglevel: warning` an idle core writes nothing. It then holds

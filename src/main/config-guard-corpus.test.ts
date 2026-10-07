@@ -59,7 +59,7 @@ function loadCorpus(proto: string): CorpusCase[] {
 
 function runCorpus(proto: string, validate: (config: string) => void): void {
   for (const c of loadCorpus(proto)) {
-    test(`corpus ${proto}/${c.name} is ${c.expect}ed`, () => {
+    test(`[NT-1] corpus ${proto}/${c.name} is ${c.expect}ed`, () => {
       if (c.expect === 'accept') {
         assert.doesNotThrow(() => validate(c.body))
       } else {

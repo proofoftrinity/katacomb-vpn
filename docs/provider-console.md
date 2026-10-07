@@ -9,7 +9,7 @@ chain — see `useProvider().visible`) is the producer side. `provider-console.t
 holds the ops, `provider-msgs.ts` the pure/unit-tested message builders,
 `lease-query.ts` + `protobuf-query.ts` the queries the SDK doesn't provide.
 
-**`providerMode` is per-wallet, on the `WalletEntry` in `wallets-index.json` — NOT
+**[PC-1] `providerMode` is per-wallet, on the `WalletEntry` in `wallets-index.json` — NOT
 an app setting.** As one global boolean it followed the user onto every seed they
 imported after first switching it on, offering a provider console to wallets that
 have none. Written only via `PROVIDER_MODE_SET` (which targets the active wallet)
@@ -54,13 +54,13 @@ was always per-wallet and correct, and the global flag was the only leak.
   the message carries an empty one, but overwrites `identity`, `website` and
   `description` **unconditionally**. So the edit form MUST be pre-filled from the current
   record (`ProviderDetailsModal`) or a partial save wipes three fields on chain.
-- **ValidateBasic caps**, mirrored in `shared/provider-details.ts` so bad input fails
+- **[PC-2] ValidateBasic caps**, mirrored in `shared/provider-details.ts` so bad input fails
   before it costs gas: `name`/`identity`/`website` ≤ 64 **bytes** (Go `len()`, which is
   why the counter uses `TextEncoder`, not `.length`), `description` ≤ 256, `website` must
   parse the way Go's `url.ParseRequestURI` does (absolute URI **or** absolute path, so
   `/about` is valid and `example.com` is not), and `name` is required to register but
   optional to update. `MsgUpdateProviderStatus` accepts only active/inactive.
-- **The renewal price policy gates a MANUAL renew, not just the automatic one.**
+- **[PC-3] The renewal price policy gates a MANUAL renew, not just the automatic one.**
   `MsgRenewLease` runs the same `RenewalPricePolicy.Validate(current, stored)` the
   BeginBlocker does, so `UNSPECIFIED (0)` is a dead end: such a lease can never be
   extended by any route until `MsgUpdateLease` changes the policy. The conditional
@@ -75,7 +75,7 @@ was always per-wallet and correct, and the global flag was the only leak.
   status_at}`. `private` exists only on a **Plan** (`plan/v3` field 6). Don't invent
   either one in the UI.
 
-**SDK 2.0.4 defects worked around here — do NOT "simplify" back onto the SDK:**
+**[PC-4] SDK 2.0.4 defects worked around here — do NOT "simplify" back onto the SDK:**
 - `planCreate()` sends `{gigabytes, hours}`; the v3 msg wants `{bytes, duration}`. Both
   fields are dropped at encode time. `buildCreatePlanMsg` builds the EncodeObject by
   hand; `provider-msgs.test.ts` asserts the round-trip AND asserts the SDK is still
@@ -108,7 +108,7 @@ was always per-wallet and correct, and the global flag was the only leak.
 - Deep SDK imports need the `.js` extension (no `exports` map; Node's native test runner
   resolves them as ESM).
 
-**A missing record is THROWN, not empty.** A single-address lookup (`provider.provider`,
+**[PC-5] A missing record is THROWN, not empty.** A single-address lookup (`provider.provider`,
 `node.node`) for something that doesn't exist fails with gRPC NotFound (code 22), which
 CosmJS raises as an Error — so "I haven't registered a provider yet", the normal state
 for nearly every wallet, arrives as a crash unless translated. `isChainNotFound`
@@ -117,7 +117,7 @@ else must keep throwing, or an unreachable RPC gets reported as "you have no pro
 Don't assume a chain read returns undefined for a missing key — check it live against an
 address that really is absent, not just one that exists.
 
-**Two hub queries only page from a non-empty key** (sentinelhub v12.0.2, measured on
+**[PC-6] Two hub queries only page from a non-empty key** (sentinelhub v12.0.2, measured on
 mainnet 2026-10-06). `QueryNodesForPlan` and `QueryPlansForProvider` run the SDK's
 `FilteredPaginate` with a callback that opens `if !accumulate { return false, nil }`, so
 the empty-key (offset) branch never sees a hit past the page: no `next_key`, `total` equal

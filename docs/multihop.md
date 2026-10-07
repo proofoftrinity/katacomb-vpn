@@ -54,7 +54,7 @@ xray-core is a strict superset of what the builder emits, so it lands in
   the first `chainBuyBlocker` (`chain-node.ts`, unit-tested, the order is the test). The
   "I understand" box is kept, every time, by decision. The single-hop windows were rebuilt
   the same way from the same pieces (`ConnectReview.tsx`; see docs/renderer.md).
-- **The two ends must be apart, with no override** (decided 2026-10-05). `pairConflict`
+- **[MH-1] The two ends must be apart, with no override** (decided 2026-10-05). `pairConflict`
   (`utils/chain-diversity.ts`) refuses a pair that shares a country, an ASN, a /24 or an
   endpoint domain, and a node with no country or ASN on record (positive evidence again:
   0 of 650 healthy v9 nodes lacked either). One hosting network watches both ends whoever
@@ -64,32 +64,32 @@ xray-core is a strict superset of what the builder emits, so it lands in
   rank 0 still equals selectable); the modal and the rail's Review button are backstops.
   Measured cost that day: 9.6% of V2Ray/xray pairs share a country, 10.7% an ASN (AS16509,
   Amazon, alone hosts 390 nodes), roughly one pair in five combined.
-- **Only the ENTRY is dialled directly.** `extractV2RayRemoteHost` picks the outbound
+- **[MH-2] Only the ENTRY is dialled directly.** `extractV2RayRemoteHost` picks the outbound
   **without** `proxySettings`, and that one IP is the only bypass route and the only
   kill-switch whitelist. Whitelisting the exit strands the tunnel. Verify a live chain
   with `ip route get <exitIP>` (must be `dev sntl-tun`) — `ss` alone is NOT enough under
   tun2socks, where app sockets look direct because interception is at the IP layer.
-- **The EXIT must be plain TCP** (`EXIT_TRANSPORTS`). Measured against xray 26.3.27 with
+- **[MH-3] The EXIT must be plain TCP** (`EXIT_TRANSPORTS`). Measured against xray 26.3.27 with
   two local servers: entry tcp→exit grpc FAILS, →exit ws FAILS, entry grpc→exit tcp
   WORKS. Both work as a DIRECT hop, so it is chaining: only plain TCP delegates dialing
   to xray's detour dialer. The ENTRY may use any transport we can emit.
-- **BOTH hops require TLS or Reality** (`isChainGradeSecurity`) — stricter than the
+- **[MH-4] BOTH hops require TLS or Reality** (`isChainGradeSecurity`) — stricter than the
   single-hop rule, which still accepts VMess-without-TLS. VMess has its own AEAD so it
   is not cleartext, but VMess/gRPC/none is cleartext HTTP/2 on the wire: the entry hop
   announces the circuit to the user's own ISP, which is what a chain is bought to
   prevent. Cost measured: 211 of 241 healthy v9 nodes still qualify as entry, 140 as exit.
-- **Grade BEFORE paying.** `assertChainEligible` reads each node's own `service_metadata`
+- **[MH-5] Grade BEFORE paying.** `assertChainEligible` reads each node's own `service_metadata`
   from its ROOT path and applies the rule. `preflightConnect` does NOT cover this — it
   only checks the node runs the protocol the directory claims. The node list cannot
   answer it either: it publishes ONE transport per node, reporting tcp for 16 nodes
   network-wide while 138 of 241 serve one. Pre-9.0.0 nodes publish nothing and are
   refused rather than bought and refunded.
-- **`establishChainOrRefund` refunds BOTH sessions on any failure**, and the cancels
+- **[MH-6] `establishChainOrRefund` refunds BOTH sessions on any failure**, and the cancels
   MUST be sequential (`refundEachInTurn`, unit-tested): every cancel is a tx from one
   account, so parallel broadcasts collide on the account sequence number and the chain
   rejects the loser. `Promise.all` here cost a live refund — entry cancelled, exit left
   ACTIVE. Same constraint as the two purchases.
-- **Per-hop wallets** (`exitWalletId`), **REQUIRED since 2026-10-05**: a Session carries
+- **[MH-7] Per-hop wallets** (`exitWalletId`), **REQUIRED since 2026-10-05**: a Session carries
   `accAddress`, and `SessionsForAccount` is public, so one wallet lets EITHER node find the
   other hop. `CONNECTION_SUBSCRIBE_CHAIN` refuses a request without a second wallet, by id
   AND by derived address, before anything is checked or spent; the modal has no
@@ -121,7 +121,7 @@ xray-core is a strict superset of what the builder emits, so it lands in
   cannot see the exit hop, so `SavedSessionConfig.walletId` +
   `listSessionsOwnedByOtherWallets` + `getSessionsForAddress` exist to merge it back in;
   without them the exit hop vanishes from the Sessions tab with a live deposit against it.
-- **Every writer of `lastKnownSessions` goes through `primeSessionsCache`, fed by
+- **[MH-8] Every writer of `lastKnownSessions` goes through `primeSessionsCache`, fed by
   `readAllSessions()`** — never `getActiveSessions()`, and never a hand-rolled map.
   The helper exists because both halves of this rule were violated live: priming
   from the active wallet alone drops the exit hop of a per-hop-wallet chain for
@@ -131,10 +131,10 @@ xray-core is a strict superset of what the builder emits, so it lands in
   forgot it was a chain and "End" on one hop killed the tunnel and stranded the
   other's deposit. `WALLET_SESSIONS` returns the cache verbatim while a tunnel is
   up, which is why one bad writer poisons the whole connected session.
-- **Ending a chain hop leaves a TOMBSTONE** (`retireSessionConfig`): credentials cleared,
+- **[MH-9] Ending a chain hop leaves a TOMBSTONE** (`retireSessionConfig`): credentials cleared,
   pairing kept, so the two rows stay grouped for the ~2h they take to settle. A record
   with an empty `configString` must never be reconnected.
-- **A chain that has lost a hop is BROKEN, not ended** (Sessions tab `cardState`): one
+- **[MH-10] A chain that has lost a hop is BROKEN, not ended** (Sessions tab `cardState`): one
   hop still active, the other ended or already off the list. It is the normal way a
   chain dies (the exit closes ~2 h in, the entry lives on), and it used to be drawn as
   "Ended" with no buttons while the expiry banner said the other hop "can be ended from
@@ -157,7 +157,7 @@ xray-core is a strict superset of what the builder emits, so it lands in
   read of the second wallet looks exactly like that. User-facing copy around a chain
   says "blockchain" for the ledger: next to a two-hop chain, the bare word reads as the
   chain that broke.
-- **`nodeType` is the NODE's protocol, never the runtime.** A chain of two V2Ray nodes
+- **[MH-11] `nodeType` is the NODE's protocol, never the runtime.** A chain of two V2Ray nodes
   runs on xray; hardcoding 4 on the reconnect path put "XRAY" in the connected bar.
 - Reconnect replays the SAVED chained config and re-applies **no** policy, deliberately:
   a chain bought under older rules still reconnects, because the money is already spent.
@@ -168,7 +168,7 @@ xray-core is a strict superset of what the builder emits, so it lands in
   from `lastKnownSessions`: a Sessions-tab reconnect restores `activeExitSessionId` with
   no quota behind it, and scoring the entry alone leaves an exhausted exit to be caught
   only by `checkTunnelStalled`, 64 KB and 90 s later.
-- **In practice the EXIT hop meters NOTHING, so a chain has a hard ~2 h life from the
+- **[MH-12] In practice the EXIT hop meters NOTHING, so a chain has a hard ~2 h life from the
   exit's purchase.** Measured 2026-08-15 by pushing 30 MB through a live chain and polling
   both sessions for an hour: the entry reported `1201s / 58 371 970 B` (matching `sntl-tun`
   plus overhead, ending exactly at disconnect) while the exit reported `0s / 0 B`. Its
@@ -209,7 +209,7 @@ xray-core is a strict superset of what the builder emits, so it lands in
   the four markers to a monotonic per-hop stage. The phase is load-bearing: both hops are
   bought before either is handshaked, so keying off the role alone drove each hop's state
   BACKWARDS at the halfway point.
-- **The EXIT hop is provisioned THROUGH the entry, and must stay that way.** Its
+- **[MH-13] The EXIT hop is provisioned THROUGH the entry, and must stay that way.** Its
   eligibility gate, its preflight and its handshake are all session-bound and are
   followed seconds later by the user's traffic, so an exit that logs who asked could
   join the two — which is the one thing a chain is bought to prevent. So
@@ -236,13 +236,13 @@ xray-core is a strict superset of what the builder emits, so it lands in
   "Buy both hops" until the tunnel is up and read each node's API from the chain's
   `remoteAddrs` — the API port is NOT the VLESS port, so watching the config's address
   alone would miss a direct handshake entirely.
-- **The SDK cannot handshake through a proxy**, so `node-handshake.ts` rebuilds that one
+- **[MH-14] The SDK cannot handshake through a proxy**, so `node-handshake.ts` rebuilds that one
   POST (checked against 2.1.0's published `dist/utils.js`; the Go SDK's node client is
   the same, `WithInsecure`/`WithTimeout` only). The SDK still owns every DIRECT
   handshake. `node-handshake.test.ts` captures what the real SDK puts on the wire and
   asserts ours is byte-identical — that test is the whole safety argument for the
   reimplementation, so it must never be weakened to a hand-written fixture.
-- **`URL.port` is a STRING, and the SOCKS agent is the one place that notices.**
+- **[MH-15] `URL.port` is a STRING, and the SOCKS agent is the one place that notices.**
   `http.get(urlString)` launders it through Node's `urlToHttpOptions`, which coerces to a
   Number, so `node-tester`'s probes were fine; `postHandshake` built its options by hand
   from `new URL(...)` and passed the raw string. `SocksHttpsAgent.createConnection`
@@ -265,20 +265,20 @@ xray-core is a strict superset of what the builder emits, so it lands in
   that fails must never retry direct** — that is the silent leak this exists to prevent;
   the row reads as unknown instead. Don't route `probeNode` the same way: it measures
   latency, and through a proxy it would measure the wrong thing.
-- **Key material is validated before an inbound is selected, on both protocols.** TLS
+- **[MH-16] Key material is validated before an inbound is selected, on both protocols.** TLS
   needs a `tls_pin` that normalises; Reality needs a 32-byte `reality_public_key` AND a
   non-empty `reality_server_name` (`isUsableReality`, mirrored in `xray-config.ts` with a
   cross-check test). Reality is preferred first, so an unusable Reality entry used to
   shadow a good TLS one on the same node and emit `publicKey: ''` — a config xray rejects
   at SPAWN, which is after `establishChainOrRefund` returns, so nothing refunds it. Keep
   the check out of `classifyHopEligibility`: the public listing blanks those fields.
-- **The exit's address is resolved over DoH** in `performChainHandshake`, before the
+- **[MH-17] The exit's address is resolved over DoH** in `performChainHandshake`, before the
   tunnel exists, because `pinV2RayNodeAddresses` would otherwise hand the ISP the one
   fact a chain buys: which exit was chosen. Do NOT "simplify" this by leaving the exit a
   hostname for the entry to resolve unless it is proven that xray never resolves a
   detoured destination locally: if it does, the lookup happens through the tunnel and
   needs the exit to reach the exit. Falls back to the old `getent` pin on any failure.
-- **Record `walletId` on BOTH hops**, including the active wallet's. Absent means
+- **[MH-18] Record `walletId` on BOTH hops**, including the active wallet's. Absent means
   "whichever wallet is active now", so switching wallets hid a hop from the Sessions tab
   and made its cancel unsignable (x/session only accepts the session's own account).
 - Measured cost: ~20x latency vs single-hop on a long chain (ES→TR 1.75s), ~0.95s AU→JP,
@@ -313,7 +313,7 @@ each carries:
   the `?? []` fallback, shown even for the plan the user was connected through. The
   renderer words null as "cannot check right now" and falls back to the catalog's
   persisted `nodeCount`; only a real `[]` may claim the plan has no nodes.
-- **Smart connect (`PLAN_SMART_CONNECT`) spends the plan price AT MOST ONCE.** The
+- **[MH-19] Smart connect (`PLAN_SMART_CONNECT`) spends the plan price AT MOST ONCE.** The
   pure module `plan-connect.ts` (unit-tested) owns the decisions: `rankPlanCandidates`
   admits nodes on positive evidence only (directory row, active, healthy, runnable
   protocol, probe not failed; latency buckets, then `PROTOCOL_PREFERENCE`, then
@@ -327,7 +327,7 @@ each carries:
   `sessionFailureMessage`). A ladder that exhausts after a fresh purchase reports the
   surviving subscription instead of losing it. Progress rides `CONNECTION_PROGRESS`
   as `plan:rank/buy/session/handshake` (`sendPlanProgress`, the chain-hop precedent).
-- **Plan/subscription mutations fail fast while the tunnel is up** (`isVpnActive()`
+- **[MH-20] Plan/subscription mutations fail fast while the tunnel is up** (`isVpnActive()`
   throw in the handlers, wording per WALLET_END_SESSION) and ride `openChainFlow`
   with a `timeoutHeight` (raw msgs, not the SDK convenience methods, which never set
   one). Money figures still come from main's plan cache (`cachedPlanCost`), never the

@@ -20,7 +20,7 @@ assume a two-protocol world). The Nodes-tab protocol filter is a single-select
 `<select>` in `NodeFilters.tsx` driven by `PROTOCOL_FILTER_OPTIONS`; `NodeFilter.type`
 is `'all' | ProtocolType`.
 
-**All six protocols are connectable: WireGuard (1), V2Ray (2), OpenVPN (3), XRAY (4),
+**[PRO-1] All six protocols are connectable: WireGuard (1), V2Ray (2), OpenVPN (3), XRAY (4),
 AmneziaWG (5), Hysteria2 (6).** Only type 0 (unknown) is not. The main-process IPC
 guards (`nodeType` not in `{1,2,3,4,5,6}` → throw) plus `isProtocolSupported` in the
 connect UI are the enforcement. Any *future* protocol needs its own binary, config
@@ -38,7 +38,7 @@ What differs:
   `src/main/protocols/xray-config.ts` (`buildXRayConfig`, pure + unit-tested) builds the xray
   VLESS+Reality JSON from the node's handshake metadata. Enum decode confirmed via the
   aggregator: `proxy_protocol 1=vless`, `transport_protocol 1=tcp`, `transport_security
-  1=none/2=tls/3=reality`, `flow 2=xtls-rprx-vision`. It only ever selects reality/tls
+  1=none/2=tls/3=reality`, `flow 2=xtls-rprx-vision`. **[PRO-2]** It only ever selects reality/tls
   entries (never `none`), which is what keeps an xray tunnel from being cleartext.
 - The handshake is the generic one (VLESS peer material is a UUID, same as V2Ray);
   `performHandshake`'s `nodeType === 4` branch generates the uuid for it.
@@ -63,11 +63,11 @@ SOCKS5 listener (`isChildProxy()` narrows v2ray+xray+hysteria2 together). What d
   and `extractV2RayRemoteHost` was generalized to also read hysteria2's `server` field (for
   the tun2socks bypass route AND the kill-switch whitelist — the kill switch's
   `-d host -j ACCEPT` is protocol-agnostic, so QUIC/UDP works with no helper change).
-- **Security gate = the TLS pin** (hysteria2's Reality analog): self-signed cert, safe only
+- **[PRO-3] Security gate = the TLS pin** (hysteria2's Reality analog): self-signed cert, safe only
   when pinned via `tls.pinSHA256`; a pin-less node → `buildHysteria2Config` throws → refund.
 - Hysteria2 gets the `dns-set` (tun2socks needs a tunnel-routed resolver) but NOT the
   in-config DoH injection (v2ray-shaped only) → its DNS is plaintext-through-tunnel, like WG.
-- **UUID-format gotcha (cost a live 500):** the SDK's `V2Ray.getKey()` returns the uuid as a
+- **[PRO-4] UUID-format gotcha (cost a live 500):** the SDK's `V2Ray.getKey()` returns the uuid as a
   16-BYTE ARRAY, which v2ray/xray's node field (`uuid.UUID`) accepts but hysteria2's
   (`UUID string`) rejects (JSON array → Go string = unmarshal error → HTTP 500). The
   hysteria2 handshake mints a `randomUUID()` STRING and reuses it as the config `auth`. Only
@@ -111,7 +111,7 @@ SOCKS5 listener (`isChildProxy()` narrows v2ray+xray+hysteria2 together). What d
   a node can only offer them as a second, opt-in tier. dvpnd nodes do (see below); the
   network's other node software has no such tier, and its nodes get the plain request.
   The Go module proxy lists phantom `v1.0.x` tags that are not in the repo; ignore them.
-- **The AmneziaWG 3.1 tier (dvpnd nodes).** Such a node lists two blank inbounds in its
+- **[PRO-5] The AmneziaWG 3.1 tier (dvpnd nodes).** Such a node lists two blank inbounds in its
   root document's `service_metadata`, `awg_version: 2` and `awg_version: 3`.
   `performHandshake` reads that list (`fetchNodeServiceMetadata`, 10 s, failure = plain
   request) and, when 3 is offered, sends `{public_key, awg_version: 3}`. The node then
@@ -168,7 +168,7 @@ pins, so one implementation covers the whole network:
   (node:crypto), and the tls-crypt key must be exactly 256 bytes — all throw → refund.
   The endpoint is IPv4-pinned (a hostname `remote` would deadlock on reconnect with the
   kill switch armed). `management 127.0.0.1 2323` from the upstream template is dropped.
-- **The security boundary is the directive allow-list**, not a blocklist:
+- **[PRO-6] The security boundary is the directive allow-list**, not a blocklist:
   `up`/`down`/`route-up`/`ipchange`/`client-connect`/`tls-verify`/
   `auth-user-pass-verify`/`learn-address`/`plugin`/`script-security` all run code as
   root and are rejected by omission (`assertSafeOpenVpnConfig`, mirrored on the root
@@ -201,7 +201,7 @@ pins, so one implementation covers the whole network:
   transform is v2ray-JSON-shaped). Consequently there is **no `DNS_PROVISION_FAILED`
   path**: `dnsFallback`/`stripDnsLines` stay WG/AWG-only.
 
-**Connection modes.** `ConnectParams.mode` is `'tunnel'` (default, routes the whole
+**[PRO-7] Connection modes.** `ConnectParams.mode` is `'tunnel'` (default, routes the whole
 device) or `'proxy'`. Local-proxy mode applies ONLY to the child-proxy protocols
 (v2ray/xray/hysteria2 — the ones with a local SOCKS5 listener at `127.0.0.1:1080`):
 it spawns the core and stops there — no tun2socks, no root, no password prompt. The

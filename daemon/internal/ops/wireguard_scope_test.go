@@ -13,6 +13,7 @@ import (
 // These pin the scoped behaviour; nothing else covers it, because every golden
 // transcript was captured on a machine with only sntl0.
 
+// [REL-10]
 func TestWireguardDownLeavesForeignTunnelsAlone(t *testing.T) {
 	f := newFake(t)
 	f.addLink("sntl0")

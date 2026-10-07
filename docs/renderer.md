@@ -37,7 +37,7 @@ from `src/main/`; `src/shared/` is the only overlap.
   spinner until the app was restarted. Its `error` surfaces as a Retry pane, but
   only when there is no list at all; a failed refresh over a cached list just makes
   it stale, and blanking the table would be worse.
-- **Everything an IPC handler throws reaches the renderer wrapped.** `ipcRenderer.invoke`
+- **[RN-1] Everything an IPC handler throws reaches the renderer wrapped.** `ipcRenderer.invoke`
   rejects with ``Error invoking remote method '<channel>': Error: <our message>``, so a
   `startsWith(MARKER)` test against the raw `err.message` is always false — the
   `RPC_UNREACHABLE` / `INSUFFICIENT_FUNDS` / `DNS_PROVISION_FAILED` panes in
@@ -57,7 +57,7 @@ from `src/main/`; `src/shared/` is the only overlap.
   silent promise rejection and the button stayed lit. Pre-validation in the renderer
   (e.g. `parseSplitTunnelRoutes()`) prevents most rejections, but the catch is
   defense-in-depth for edge cases the main process still refuses.
-- **A session's usage gauges must never go backwards.** `ActiveSessions` builds each
+- **[RN-2] A session's usage gauges must never go backwards.** `ActiveSessions` builds each
   row's usage from two sources that do NOT hand over at the same instant: the live
   half (`useTrafficStats` + `status.connectedAt`) disappears the moment the 3 s status
   poll reports the tunnel down, while the row carrying main's remembered figure
@@ -69,7 +69,7 @@ from `src/main/`; `src/shared/` is the only overlap.
   states no more than the truth — it is main's `maxUsageBytes` rule applied to the
   view. Don't "simplify" it away by trusting a single source; both are needed (main's
   is authoritative but slow, the live one is fast but ends early).
-- **`isRpcConnectivityError` must know the wording of whoever produced the status.**
+- **[RN-3] `isRpcConnectivityError` must know the wording of whoever produced the status.**
   `rpc-monitor.ts` says `RPC returned N`; **@cosmjs/tendermint-rpc says
   `Bad status on response: N`**, and that is what every real chain call throws. Knowing
   only the first meant a rate-limited endpoint (429 from `as-rpc.sentineldao.com`) both
@@ -125,7 +125,7 @@ from `src/main/`; `src/shared/` is the only overlap.
   means the selection found no replacement); picking an endpoint in Settings flips the
   mode to manual in the same write, and `migrateRpcMode()` (settings.ts, must run before
   any `saveSettings`) turned pre-feature custom endpoints into `'manual'` once.
-- **The Map tab uses NO WebGL, and that is load-bearing history.** `CountryGlobe` draws
+- **[RN-4] The Map tab uses NO WebGL, and that is load-bearing history.** `CountryGlobe` draws
   an orthographic `d3-geo` projection as SVG `<path>` elements. It used to be
   `react-globe.gl`, and the three.js `WebGLRenderer` it built threw
   `Error creating WebGL context.` whenever the browser refused a context. `mainTab`
@@ -178,7 +178,7 @@ from `src/main/`; `src/shared/` is the only overlap.
   same /24, shared endpoint domain, same country. Since 2026-10-05 every one of them
   REFUSES the pair (`pairConflict`), with no override; see docs/multihop.md for why. Each
   issue still states the observation, not a verdict about the operator.
-- **A pure helper under `utils/` imports no sibling module, only types.** The native test
+- **[RN-5] A pure helper under `utils/` imports no sibling module, only types.** The native test
   runner cannot resolve an extensionless relative import, so `chain-node.ts` takes the
   pair rule as a parameter (`conflict`, i.e. `pairConflict`) instead of importing it.
 - **A component class in `global.css` must appear in the source spelled in full.**
@@ -226,7 +226,7 @@ from `src/main/`; `src/shared/` is the only overlap.
   tunnel up) is said ONCE with its fix, never as a disabled button on every row. The New
   plan form is a workspace page in cards with the money windows' footer pinned under it,
   and Edit details previews the catalog's heading for what is typed (2026-10-07).
-- **Graphs are plain SVG and CSS, never a chart library or WebGL.** The value strip,
+- **[RN-6] Graphs are plain SVG and CSS, never a chart library or WebGL.** The value strip,
   coverage map, lease runway, cost and income bars, break-even meter, and validity and
   data gauges are divs and `<svg>`, so they cost nothing at rest and draw with no GPU (checked with
   `--disable-gpu --disable-software-rasterizer`). Their maths lives in import-free
@@ -250,7 +250,7 @@ from `src/main/`; `src/shared/` is the only overlap.
 - **A table whose rows are separate grids has no `auto` column.** Each row sizes its own
   auto column from its buttons while the header's is empty, so the header drifted off its
   values (the Provider nodes table, 2026-10-06). Fixed or fractional tracks only.
-- **Theme colours take no `/NN` opacity modifier.** Every colour in `tailwind.config.js`
+- **[RN-7] Theme colours take no `/NN` opacity modifier.** Every colour in `tailwind.config.js`
   is a `var()`, and Tailwind 3 cannot put an alpha on one, so `bg-accent/10` generates no
   CSS at all. The catalog's selected row had no highlight for that reason, and a
   `ring-accent/25` fell back to Tailwind's default blue, and a `border` whose colour
@@ -283,7 +283,7 @@ from `src/main/`; `src/shared/` is the only overlap.
   require fails in Vite's renderer bundle. `MnemonicInput` imports `check.phrase` (NFKD,
   lowercase, single-spaced), not the raw textarea value: that is the form the checksum was
   verified against and the only one CosmJS's `EnglishMnemonic` accepts.
-- **Dark-only** — bg `#16181d`, accent `#e1bc99`. There is deliberately no theme switch:
+- **[RN-8] Dark-only** — bg `#16181d`, accent `#e1bc99`. There is deliberately no theme switch:
   `tokens.css` `:root` holds the only semantic tokens, and components read those (never
   primitives, never a `dark:` variant). Don't reintroduce a `.dark` selector.
 - **The palette is derived from the app icon** (`build/icons/1024x1024.svg`) and both

@@ -74,13 +74,12 @@ test('keypairs are fresh every call', () => {
   assert.notEqual(a.publicKey, b.publicKey)
 })
 
-test('uuidToBytes is byte-identical to the SDK V2Ray.getKey()', () => {
+test('[PRO-4] uuidToBytes is byte-identical to the SDK V2Ray.getKey()', () => {
   // The SDK mints its own uuid internally, so feed its uuid to our converter and
   // assert the arrays match: that is the piece the node field actually parses.
   for (let i = 0; i < 20; i++) {
     const sdk = new V2Ray()
-    // @ts-expect-error -- `uuid` is the SDK's own field, untyped in its .d.ts
-    const theirUuid = sdk.uuid as string
+    const theirUuid = sdk.uuid
     assert.deepEqual(uuidToBytes(theirUuid), sdk.getKey())
   }
 })

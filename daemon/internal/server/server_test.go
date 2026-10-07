@@ -211,6 +211,7 @@ func TestRejectionsAreLoggedWithoutTheConfigBody(t *testing.T) {
 	}
 }
 
+// [PH-4]
 func TestSocketPermissions(t *testing.T) {
 	r := newRec(t)
 	// getent fails → 0666 fallback.
@@ -242,6 +243,7 @@ func TestSocketPermissions(t *testing.T) {
 	}
 }
 
+// [PH-4]
 func TestDaemonModeRefusesUnprivileged(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root")

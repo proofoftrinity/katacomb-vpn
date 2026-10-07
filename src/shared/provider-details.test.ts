@@ -62,6 +62,6 @@ test('providerDetailsProblem returns null exactly when the chain would accept', 
   assert.notEqual(providerDetailsProblem({ ...OK_DETAILS, name: '' }, { requireName: true }), null)
 })
 
-test('the caps match the hub constants', () => {
+test('[PC-2] the caps match the hub constants', () => {
   assert.deepEqual({ ...PROVIDER_LIMITS }, { name: 64, identity: 64, website: 64, description: 256 })
 })

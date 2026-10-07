@@ -91,7 +91,7 @@ test('pairConflict allows two hops apart in country and network', () => {
   ), null)
 })
 
-test('pairConflict refuses a shared country, even on two networks', () => {
+test('[MH-1] pairConflict refuses a shared country, even on two networks', () => {
   const c = pairConflict(
     node({ api: '1.1.1.1:1', asn: '111', country: 'Germany' }),
     node({ api: '2.2.2.2:1', asn: '222', country: 'Germany' }),

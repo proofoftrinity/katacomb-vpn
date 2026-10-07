@@ -63,7 +63,7 @@ test('assertSafeWireguardConfig accepts a clean Interface/Peer config', () => {
 const HOSTNAME_WG = CLEAN_WG.replace('Endpoint = 203.0.113.7:51820', 'Endpoint = helen.busur.cc:63115')
 const resolveWg = (host: string): string | null => (host === 'helen.busur.cc' ? '203.0.113.9' : null)
 
-test('pinWireguardEndpoint replaces a hostname endpoint with its resolved IP', () => {
+test('[REL-7] pinWireguardEndpoint replaces a hostname endpoint with its resolved IP', () => {
   const out = pinWireguardEndpoint(HOSTNAME_WG, resolveWg)
   assert.match(out, /^Endpoint = 203\.0\.113\.9:63115$/m)
   assert.equal(extractWireguardEndpointHost(out), '203.0.113.9')
@@ -115,7 +115,7 @@ for (const directive of ['PostUp', 'PreUp', 'PostDown', 'PreDown', 'Table', 'Sav
   })
 }
 
-test('assertSafeWireguardConfig rejects PostUp regardless of case/spacing', () => {
+test('[NT-1] assertSafeWireguardConfig rejects PostUp regardless of case/spacing', () => {
   const evil = CLEAN_WG.replace('MTU = 1420', 'postup=touch /tmp/pwned')
   assert.throws(() => assertSafeWireguardConfig(evil), /not allowed|invalid/i)
 })
@@ -285,7 +285,7 @@ const HOSTNAME_V2RAY = {
 }
 const resolveFixed = (host: string): string | null => (host === 'oizys.busur.cc' ? '103.246.250.10' : null)
 
-test('pinV2RayNodeAddresses replaces a hostname endpoint with its resolved IP', () => {
+test('[REL-7] pinV2RayNodeAddresses replaces a hostname endpoint with its resolved IP', () => {
   const out = pinV2RayNodeAddresses(HOSTNAME_V2RAY, resolveFixed) as typeof HOSTNAME_V2RAY
   assert.equal(out.outbounds[0].settings.vnext[0].address, '103.246.250.10')
   assert.equal(out.outbounds[1].settings.vnext[0].address, '103.246.250.10')
@@ -295,7 +295,7 @@ test('pinV2RayNodeAddresses replaces a hostname endpoint with its resolved IP', 
 
 test('pinV2RayNodeAddresses leaves an IP endpoint untouched', () => {
   const out = pinV2RayNodeAddresses(CLEAN_V2RAY, () => { throw new Error('must not resolve an IP') }) as typeof CLEAN_V2RAY
-  assert.equal(out.outbounds[0].settings.vnext[0].address, '203.0.113.7')
+  assert.equal(out.outbounds[0].settings!.vnext[0].address, '203.0.113.7')
 })
 
 test('pinV2RayNodeAddresses leaves an unresolvable hostname as-is (best effort)', () => {
@@ -317,7 +317,7 @@ test('pinV2RayNodeAddresses does not mutate input and output passes the guard', 
 // Enum values mirror the SDK: ProxyProtocol VLess=1/VMess=2, TransportSecurity
 // None=1/TLS=2, TransportProtocol TCP=7.
 const VLESS = 1, VMESS = 2, SEC_NONE = 1, SEC_TLS = 2, TCP = 7
-const inbound = (proxy, security) => ({
+const inbound = (proxy: number, security: number) => ({
   port: '443', proxy_protocol: proxy, transport_protocol: TCP, transport_security: security,
 })
 

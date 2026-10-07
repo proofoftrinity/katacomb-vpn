@@ -103,6 +103,7 @@ func TestUnknownVerbPrintsUsage(t *testing.T) {
 	}
 }
 
+// [PH-5]
 func TestUpReadsOnceAndHandsWgQuickTheRootOwnedCopy(t *testing.T) {
 	r := newRec(t)
 	p := writeCfg(t, r, "sntl0.conf", cleanWG)
@@ -136,6 +137,7 @@ func TestUpRequiresTheSntl0Name(t *testing.T) {
 
 // Deviation 6: the caller's path is opened with O_NOFOLLOW and the message
 // carries no content, so a symlink to a root-only file is not a read oracle.
+// [PH-5]
 func TestUpRefusesASymlinkWithoutReadingIt(t *testing.T) {
 	r := newRec(t)
 	secret := writeCfg(t, r, "shadow", "root:$6$sekrit$hash:19000:0:99999:7:::\n")
