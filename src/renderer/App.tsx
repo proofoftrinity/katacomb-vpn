@@ -433,12 +433,12 @@ function AppInner() {
           >
             {TAB_LABELS[t]}
             {t === 'sessions' && sessionCount > 0 && (
-              <span className="text-[10px] font-mono bg-accent/15 text-accent px-1.5 py-0.5 rounded-full leading-none">
+              <span className="text-[10px] font-mono bg-accent-subtle text-accent px-1.5 py-0.5 rounded-full leading-none">
                 {sessionCount}
               </span>
             )}
             {t === 'multihop' && chainDraftCount > 0 && (
-              <span className="text-[10px] font-mono bg-accent/15 text-accent px-1.5 py-0.5 rounded-full leading-none">
+              <span className="text-[10px] font-mono bg-accent-subtle text-accent px-1.5 py-0.5 rounded-full leading-none">
                 {chainDraftCount}/2
               </span>
             )}

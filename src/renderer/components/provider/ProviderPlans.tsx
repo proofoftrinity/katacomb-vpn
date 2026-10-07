@@ -239,12 +239,14 @@ export default function ProviderPlans({
                   <span className="text-accent font-mono text-xs shrink-0">#{plan.id}</span>
                   <span className="text-text-primary text-xs whitespace-nowrap truncate">{planFacts(plan)}</span>
                 </span>
-                <span className="flex items-center gap-1.5 mt-1.5 text-[11px] text-text-tertiary whitespace-nowrap">
+                {/* Wraps rather than cutting the counters off: the list is 260px wide
+                    below 1180px, too narrow for both pills and all three counters. */}
+                <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1.5 text-[11px] text-text-tertiary">
                   <span className={`px-1.5 py-0.5 rounded-full leading-none ${active ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-warning'}`}>
                     {active ? 'Live' : 'Inactive'}
                   </span>
                   {plan.private && <span className="px-1.5 py-0.5 rounded-full leading-none bg-info-subtle text-info">Private</span>}
-                  <span className="truncate">
+                  <span className="max-w-full truncate">
                     {s ? `${s.nodes} node${s.nodes === 1 ? '' : 's'} · ${s.subscriptions} sold · ${s.truncated ? `${s.active}+` : s.active} active`
                       : s === null || statsFailed ? 'counters not readable'
                         : <span role="status" aria-label="Counting" className="skeleton inline-block h-2.5 w-36 align-middle" />}
@@ -402,7 +404,7 @@ function Overview({ plans, leases, stats, statsUnknown, economics, onSelectPlan 
             {/* Decorative: where the bars will be. The sentence says it. */}
             <div aria-hidden className="space-y-2.5">
               {[82, 46, 64].map((w) => (
-                <div key={w} className="h-2.5 rounded-full border border-dashed border-text-tertiary/25" style={{ width: `${w}%` }} />
+                <div key={w} className="h-2.5 rounded-full border border-dashed border-border" style={{ width: `${w}%` }} />
               ))}
             </div>
             <p className="text-text-secondary text-sm">

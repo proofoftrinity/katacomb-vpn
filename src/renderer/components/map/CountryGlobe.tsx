@@ -484,7 +484,7 @@ export default function CountryGlobe({ counts, onSelect }: Props) {
             onClick={recenter}
             title="Recenter map"
             aria-label="Recenter map"
-            className="absolute left-3 bottom-3 w-9 h-9 flex items-center justify-center rounded-sm bg-bg-secondary/80 border border-accent/40 text-accent hover:bg-bg-secondary hover:border-accent transition-colors backdrop-blur-sm"
+            className="absolute left-3 bottom-3 w-9 h-9 flex items-center justify-center rounded-sm map-overlay border text-accent hover:bg-bg-secondary hover:border-accent transition-colors backdrop-blur-sm"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="6" />
@@ -497,7 +497,7 @@ export default function CountryGlobe({ counts, onSelect }: Props) {
 
           {/* Aggregate stats chip — bottom-right summary of network size */}
           <div
-            className="absolute right-3 bottom-3 px-3 py-1.5 rounded-sm bg-bg-secondary/80 border border-accent/40 text-text-secondary text-[11px] uppercase tracking-wider flex items-baseline gap-2.5 pointer-events-none backdrop-blur-sm"
+            className="absolute right-3 bottom-3 px-3 py-1.5 rounded-sm map-overlay border text-text-secondary text-[11px] uppercase tracking-wider flex items-baseline gap-2.5 pointer-events-none backdrop-blur-sm"
           >
             <span className="flex items-baseline gap-1">
               <span className="text-accent text-[15px] font-semibold tabular-nums normal-case tracking-normal">
@@ -505,7 +505,7 @@ export default function CountryGlobe({ counts, onSelect }: Props) {
               </span>
               <span>nodes</span>
             </span>
-            <span className="h-3 w-px bg-accent/30" />
+            <span className="h-3 w-px bg-accent opacity-30" />
             <span className="flex items-baseline gap-1">
               <span className="text-accent text-[15px] font-semibold tabular-nums normal-case tracking-normal">
                 {fmtNum(litCountries)}

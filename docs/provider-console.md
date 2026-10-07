@@ -157,6 +157,10 @@ is disabled for an inactive plan, which the catalog never lists. The **amber dot
 Provider tab label** is `leaseStopsSoon` (`utils/lease-runway.ts`): a never-renew lease
 with under 24 hours left. The Overview's "stops in 3h" line calls the same helper on the
 same read, so the two always agree, and neither projects from the read's age.
+"Leased, not linked" is computed only against a linked-node list that was actually read:
+while it loads or when it cannot be read, every lease used to look unlinked, so an
+already-linked node was offered a Link button (2026-10-07). Unknown is never "not
+linked". A re-read keeps the previous table, and the acting row stays busy through it.
 
 **Design invariant:** the console is a **stateless view over chain state**. Every action
 is one tx and the multi-step flows (register→activate, create→activate, lease→link) are

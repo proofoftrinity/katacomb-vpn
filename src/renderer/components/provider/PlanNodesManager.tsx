@@ -84,9 +84,10 @@ export default function PlanNodesManager({
 
   const nodeIndex = useMemo(() => new Map(allNodes.map((n) => [n.address, n])), [allNodes])
 
+  // A re-read keeps the previous list on screen until the answer lands (the workspace
+  // remounts per plan, so only the first read starts from null). An action's row stays
+  // busy through the re-read, because `run` awaits it.
   const loadLinked = useCallback(async () => {
-    setLinked(null)
-    setLinkedUnknown(false)
     try {
       const addrs = await window.api.planNodes(plan.id)
       if (addrs === null) {
@@ -95,6 +96,7 @@ export default function PlanNodesManager({
         setLinkedUnknown(true)
       } else {
         setLinked(addrs)
+        setLinkedUnknown(false)
       }
     } catch {
       setLinked([])
@@ -107,7 +109,12 @@ export default function PlanNodesManager({
   useEffect(() => { void loadLinked() }, [loadLinked])
 
   const linkedSet = useMemo(() => new Set(linked ?? []), [linked])
-  const leasedNotLinked = leases.filter((l) => !linkedSet.has(l.nodeAddress))
+  // Only against a list we actually read. While it loads or cannot be read, every lease
+  // looked unlinked, so an already-linked node was offered a Link button: a transaction
+  // the chain would refuse. Unknown is never "not linked".
+  const leasedNotLinked = linked === null || linkedUnknown
+    ? []
+    : leases.filter((l) => !linkedSet.has(l.nodeAddress))
 
   // Resolves once BOTH re-reads have landed, so an action's busy state can span
   // the transaction and the refresh instead of ending between them.

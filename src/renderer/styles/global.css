@@ -115,6 +115,15 @@
     animation: pulse-subtle 1.5s ease-in-out infinite;
   }
 
+  /* The globe's floating controls: a translucent panel with an accent hairline. Here
+     rather than as utilities because Tailwind cannot put an alpha on a var() colour:
+     the /80 and /40 opacity forms generated nothing, and the border fell back
+     to preflight's light grey. Hover utilities still override it. */
+  .map-overlay {
+    background-color: color-mix(in srgb, var(--color-bg-secondary) 80%, transparent);
+    border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  }
+
   /* A placeholder block in the shape of what is loading, for a FIRST load only: a
      refetch keeps the previous render on screen (docs/renderer.md). Its container
      carries role="status" and a label, so the wait is still announced. */
