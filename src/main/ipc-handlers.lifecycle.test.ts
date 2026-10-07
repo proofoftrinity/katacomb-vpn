@@ -219,33 +219,35 @@ describe('reconnecting a saved session', () => {
     assert.equal(h.tunnel.bringUps, 0)
   })
 
-  // Found by this suite (2026-10-07), fix awaiting the user's approval. CONNECTION_CONNECT
-  // prefers the STASHED WireGuard config over the one it is handed (ipc-handlers.ts,
-  // the `activeWgConfig ?? params.configString` branch, taken with the default 'system'
-  // resolver), and RECONNECT re-points the session without clearing that stash. So:
-  // a connect of session A fails (its config stays stashed for Retry), the user
-  // reconnects session B from the Sessions tab, the node answers 409, and CONNECT
-  // brings up A's tunnel while the watchdog tracks B.
-  test.todo('a reconnect brings up the config it returned, not one stashed by an earlier failed connect (known bug)', async () => {
-    const h = ipc.fresh({ fakes: { 'chain/chain-service': {
-      loadSessionConfig: (id: string) => SAVED(id),
-      performHandshake: async (p: { sessionId: string }) => {
-        if (p.sessionId === '1001') return { protocol: 'wireguard', configString: 'cfg-A' } as never
-        throw Object.assign(new Error('conflict'), { response: { status: 409 } })
-      },
-    } } })
-    try {
-      await h.settle(h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE)) // session A = 1001
+  // Found by this suite (2026-10-07), fixed with the user's approval. CONNECTION_CONNECT
+  // preferred the STASHED WireGuard / V2Ray config over the one it was handed, and
+  // RECONNECT re-points the session without clearing that stash. So: a connect of
+  // session A failed (its config stays stashed for Retry), the user reconnected
+  // session B from the Sessions tab, the node answered 409, and CONNECT brought up
+  // A's tunnel while the watchdog tracked B.
+  for (const [protocol, nodeType] of [['wireguard', 1], ['v2ray', 2]] as const) {
+    test(`[REL-13] ${protocol}: a reconnect brings up the config it returned, not one stashed by an earlier failed connect`, async (t) => {
+      const h = ipc.fresh({ fakes: {
+        'nodes/node-tester': { fetchNodeServiceType: async () => protocol },
+        'chain/chain-service': {
+          loadSessionConfig: (id: string) => SAVED(id, { protocol }),
+          performHandshake: async (p: { sessionId: string }) => {
+            if (p.sessionId === '1001') return { protocol, configString: 'cfg-A' } as never
+            throw Object.assign(new Error('conflict'), { response: { status: 409 } })
+          },
+        },
+      } })
+      t.after(() => h.dispose())
+      await h.settle(h.invoke('CONNECTION_SUBSCRIBE', { ...REQUEST.CONNECTION_SUBSCRIBE, nodeType })) // session A = 1001
       h.tunnel.carries = false
-      await h.settleError(h.invoke('CONNECTION_CONNECT', { protocol: 'wireguard' })) // A fails, stays stashed
+      await h.settleError(h.invoke('CONNECTION_CONNECT', { protocol })) // A fails, stays stashed for Retry
       h.tunnel.carries = true
       const res = await h.settle(h.invoke('CONNECTION_RECONNECT', { sessionId: '2001' })) as { protocol: string; configString: string }
       await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: res.protocol, configString: res.configString }))
-      assert.equal(h.calls('vpn/vpn-manager', 'connectWireGuardFromConfig').at(-1)?.args[0], 'cfg-saved-2001')
-    } finally {
-      h.dispose()
-    }
-  })
+      const bringUp = protocol === 'wireguard' ? 'connectWireGuardFromConfig' : 'connectV2RayFromConfig'
+      assert.equal(h.calls('vpn/vpn-manager', bringUp).at(-1)?.args[0], 'cfg-saved-2001')
+    })
+  }
 })
 
 describe('what CONNECTION_CONNECT accepts', () => {
