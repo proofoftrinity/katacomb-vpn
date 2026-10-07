@@ -1,22 +1,15 @@
 {
   "pending": {
-    "MH-17": "P4: the exit's address is resolved over DoH before the exit handshake",
-    "MH-20": "P2: plan and subscription mutations refuse while the tunnel is up",
-    "NT-2": "P5: chain-service never writes session credentials under the basic_text backend",
-    "PC-1": "P5: the settings migration moves a global providerMode onto the wallet entry",
     "REL-24": "P7: the Sessions-tab gate on quotaUsedUp, once extracted from the component",
-    "REL-27": "P4: state flips to connected only after finalizeTunnelConnect",
     "RN-2": "P7: extract the usage floor from ActiveSessions and test it"
   },
   "partial": {
     "MH-5": "the entry is graded before the wrapper and the exit before its purchase (static), and the chain rule is pinned; nothing bought when grading refuses is not (P2)",
-    "MH-9": "a reconnect refuses a tombstone; retireSessionConfig writing one is not (P5)",
+    "MH-9": "a reconnect refuses a tombstone; retireSessionConfig writing one is not (it runs only after a real cancel tx)",
     "MH-10": "main refuses to rebuild a broken chain; the Sessions tab card state is not (P7)",
     "MH-12": "chainDeadlineStep is pinned; the checkChainExitDeadline wiring is not (P4)",
     "NT-1": "the guards, the root-side re-check, and the WireGuard and V2Ray sinks are pinned; the xray, hysteria2, AmneziaWG and OpenVPN sinks are not",
-    "NT-4": "signature verification and the version gate are pinned; signedHandshake refusing an unsigned reply is not (P5)",
     "PH-2": "the Go side is pinned; the TS readers of the op list are not (P6)",
-    "PRO-4": "uuidToBytes is pinned; the per-protocol peer request shape in chain-service is not (P5)",
     "PRO-7": "proxy mode is refused for the root protocols; the mode never being persisted, and reconnect replaying desiredMode, are not (P4)",
     "REL-2": "the lock, the epoch, the queued-connect refusal and the locked give-up are pinned; desiredProtocol staying distinct from vpn-manager's activeProtocol is not",
     "REL-5": "withTimeout, broadcastOrTimeout and the bounded refund are pinned; timeoutHeight on the three session txs is not (P5)",

@@ -1,0 +1,20 @@
+{
+  "rpcEndpoint": "https://rpc.mathnodes.com:443",
+  "activeWalletId": "w1",
+  "killSwitch": true,
+  "dnsResolver": "9.9.9.9",
+  "autoReconnect": true,
+  "bookmarkedNodes": [
+    "sentnode1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqwg"
+  ],
+  "splitTunnelRoutes": [
+    "10.0.0.0/8",
+    "192.168.1.0/24"
+  ],
+  "preferHourlyWhenCheaper": true,
+  "pollStatusSec": 3,
+  "pollIpSec": 60,
+  "pollBalanceSec": 300,
+  "pollAllocationSec": 120,
+  "planDiscoveryMaxId": 500
+}

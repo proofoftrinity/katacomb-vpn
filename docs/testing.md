@@ -110,6 +110,10 @@ count.
   and fakes without the IPC layer. `stubs` swaps a Node builtin for a harness file
   (`child_process` -> `test/harness/child-process.ts`, answered by
   `fakes.child_process`).
+- **Golden data files** (`test/fixtures/settings/`): the `settings.json` and
+  `wallets-index.json` each past release wrote. `settings.test.ts` runs the startup
+  migrations over every one ([ARCH-5]). They are what is on users' disks: never edit one
+  to make a test pass; a new settings generation gets a new pair.
 - **Cross-language corpus.** The TS config guard and the Go daemon guard read the same
   files, `daemon/internal/guard/testdata/corpus/` (format in its `README.md`), and both
   sides of the daemon wire protocol read

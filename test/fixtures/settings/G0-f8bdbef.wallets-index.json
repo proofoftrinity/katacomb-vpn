@@ -1,0 +1,12 @@
+[
+  {
+    "id": "w1",
+    "name": "Main",
+    "address": "sent1aaa"
+  },
+  {
+    "id": "w2",
+    "name": "Spare",
+    "address": "sent1bbb"
+  }
+]

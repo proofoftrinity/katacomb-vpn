@@ -1,0 +1,16 @@
+[
+  {
+    "id": "w1",
+    "name": "Main",
+    "address": "sent1aaa",
+    "accountIndex": 0,
+    "addressIndex": 0
+  },
+  {
+    "id": "w2",
+    "name": "Spare",
+    "address": "sent1bbb",
+    "accountIndex": 0,
+    "addressIndex": 1
+  }
+]
