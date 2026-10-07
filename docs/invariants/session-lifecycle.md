@@ -1,6 +1,7 @@
 # Session lifecycle
 
-Verified against live mainnet, not inferred from the protobufs.
+Verified against live mainnet, not inferred from the protobufs. `npm run check:chain`
+re-checks SL-2 to SL-4 against it (docs/testing.md).
 
 - **[SL-1] Ending a session is two phases, and cancel/expiry are ONE path.** `x/session` has only
   `MsgCancelSession` / `MsgUpdateSession` (the node's proofs) / `MsgUpdateParams` — there
@@ -16,7 +17,9 @@ Verified against live mainnet, not inferred from the protobufs.
   emphatically NOT `startAt + statusTimeout`. Each `MsgUpdateSession` jumps it back to
   2h out; between proofs it just ticks down in real time. #53647217 read `inactiveAt`
   06:24:52Z against a single proof at 04:24:52Z — the earlier "slid 74.5 min" reading was
-  that one jump, not a smooth slide. Since quota is metered, that is the only clock
+  that one jump, not a smooth slide. Seen again 2026-10-07: #66486462 and #66488552 sat
+  at start + 2h through an hour of use, until their node's report at 11:43:59Z moved
+  both, in the same block, to 13:43:59Z. Since quota is metered, that is the only clock
   running on an idle session. **It therefore keeps falling while the UI says "connected"
   if the node isn't seeing the traffic** — which makes it a usable dead-tunnel tell, and
   is why the card says "unless the node reports usage" rather than "if unused".

@@ -4,8 +4,8 @@
     "NT-3": "the limit is pinned on every unsigned connect review, and a deny-list of protection claims runs over all renderer copy; copy phrased outside the deny-list is still reviewed by hand"
   },
   "manual": {
-    "SL-2": "chain governance parameter, verified against live mainnet; re-check on a hub upgrade",
-    "SL-3": "chain fact verified against live mainnet; the app's use of it is pinned under MH-12",
-    "SL-4": "chain fact verified against live mainnet (pagination.total); re-check on a hub upgrade"
+    "SL-2": "chain governance parameter; re-check with `npm run check:chain` on a hub upgrade",
+    "SL-3": "chain fact; re-check with `npm run check:chain` (seen both ways on 2026-10-07); the app's use of it is pinned under MH-12",
+    "SL-4": "chain fact (settled rows deleted, pagination.total small); re-check with `npm run check:chain` on a hub upgrade"
   }
 }
