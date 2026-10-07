@@ -14,6 +14,11 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   timer body run inside `withConnectionLock` (a mutex) and are guarded by
   `connectionEpoch` (bumped on disconnect, so an in-flight reconnect can't resurrect a
   tunnel the user tore down). Never add a tunnel bring-up/tear-down that bypasses both.
+  That includes the reconnect give-up: it ran outside the lock until 2026-10-07, and the
+  V2Ray exit callback (which, unlike the interface monitor, does not skip while
+  `reconnectAttempt > 0`) could fire it while the last attempt was mid-bring-up. It now
+  queues behind the lock and stands aside if the epoch moved or the attempt succeeded.
+  `test/static/entry-points.test.ts` finds any bring-up or tear-down outside the lock.
   Note `ipc-handlers`' `desiredProtocol` (intended) is deliberately distinct from
   `vpn-manager`'s `activeProtocol` (actual, cleared on interface drop) — don't merge them.
 - **[REL-3] One connection at a time, enforced in main.** Every entry point that creates a
@@ -175,7 +180,10 @@ The connect path spends real on-chain funds, so these are enforced and must hold
 - **[REL-13] Retry, don't re-buy.** A failed bring-up leaves the paid session's config stashed in
   main (cleared only by `performDisconnect`), so the connect modals offer "Retry
   connection" (`connectionConnect` alone) instead of resetting to the subscribe form.
-  Shared UI: `ConnectErrorActions.tsx`.
+  Shared UI: `ConnectErrorActions.tsx`. The stash only answers a Retry, which passes no
+  config: a config handed to `CONNECTION_CONNECT` always wins. WireGuard (system DNS) and
+  V2Ray had it the other way round until 2026-10-07, so a Sessions-tab reconnect after a
+  failed connect of another session brought up THAT session's tunnel.
 - **[REL-14] One instance.** `src/main/index.ts` takes `requestSingleInstanceLock()` and the loser
   exits via `app.exit(0)` — `app.quit()` would fire before-quit and tear down the
   *primary's* tunnel.
