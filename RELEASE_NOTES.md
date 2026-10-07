@@ -1,58 +1,95 @@
-# Katacomb VPN 1.14.1
+# Katacomb VPN 1.15.0
 
 A desktop client for the Sentinel decentralized VPN network. Pick a node, pay for a
 session on-chain, and tunnel through WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY or
 Hysteria2.
 
-1.14.1 is a fixes release. The headline is what happens when a two-hop chain loses one
-of its hops: the app now sees it coming, tells you which hop ended, and lets you close
-the one that is still open. Also new: a tidier Sessions tab and a speed test that no
-longer contacts Google.
+1.15.0 rebuilds the Plans and Provider tabs to match the rest of the app, and reads
+plans with more than 50 nodes in full. It also fixes three reconnect bugs. In one, every
+automatic reconnect put you back on the node's own DNS servers.
 
 ## Highlights
 
-- **A chain no longer dies silently.** The exit hop of a chain reports no usage, so the
-  blockchain closes it about two hours after you buy it, while the entry carries on. Until
-  now the app did not notice: it kept saying Connected while nothing got through, and the
-  notice it eventually showed named the entry node and suggested a reconnect that could
-  not work. Now:
-  - about 10 minutes before the exit closes, a desktop notification says the chain is
-    about to stop;
-  - once the exit's time is up, the app tests the tunnel, and if nothing gets through it
-    disconnects and says the blockchain closed the exit hop, names that node, and says the
-    entry hop is still open, with a button to the Sessions tab. If the tunnel still works,
-    it stays connected and tests again a minute later;
-  - in local-proxy mode you get the warning, but the app does not test or disconnect,
-    because there is no tunnel to test.
-- **A chain that has lost a hop gets its own card.** It used to be drawn as Ended, with no
-  buttons, while its other hop was still open. The Sessions tab now marks it **Chain
-  broken**, shows which hop ended and when the blockchain will close the other one on its
-  own, and offers **End** for the open hop and **New chain**. It no longer offers
-  Reconnect, and the tray's Connect no longer tries to rebuild such a chain.
-- **Ending a chain yourself no longer looks like a failure.** End on a chain cancels two
-  sessions, one after the other, and between the two the card briefly read as if a hop had
-  broken. It now stays as it was until both are cancelled. If the second cancel fails, the
-  card says you ended the first hop and offers End for the rest.
-- **The Sessions tab hides ended sessions.** An ended session stays on chain for up to two
-  hours while it settles, and there is nothing to do with it. It is now hidden behind a
-  **Show ended** box, unchecked by default, with a count of what it hides beside it.
-  A chain with an open hop is never hidden.
-- **An open chain shows when it will stop.** Its card used to read "Expires in X unless the
-  nodes report usage", which suggested that using the chain would extend it. It now reads
-  "Chain stops in about X, when the blockchain closes the exit hop".
-- **The speed test no longer contacts Google.** Latency is now timed against
-  speed.cloudflare.com, the server the download test tries first, and the status bar
-  reads "Latency: N ms" instead of "Google: N ms". It also times a request on a connection
-  that is already open, so the figure no longer includes connection setup through a fresh
-  tunnel.
-- **Nothing else changes.** The packaging is the same as in 1.14.0.
+- **Plans are easier to compare.** The Plans tab is now a sortable table of every plan,
+  with a detail pane beside it. The pane shows the plan's value per GB against every
+  other listed plan and against paying a node directly. It also shows a map of the
+  countries its nodes cover and the protocols they run. Up, Down, Home and End move
+  through the table, and Enter opens the selected plan's review. Under My plans, each
+  active plan subscription shows how much of its time and its data you have used.
+- **Plans with more than 50 nodes are read in full.** A bug in the blockchain's own
+  query (sentinelhub v12.0.2) cut every plan's node list at 50: plan 41 showed 50 of its
+  more than 800 nodes. The app now works around it in the catalog, the plan's detail pane, smart
+  connect's list of candidates and the Provider tab. Smart connect now has the whole
+  list to work through, so it stops after 10 nodes fail the checks it runs before paying,
+  and says that nothing was bought.
+- **The Provider tab is rebuilt**, for anyone selling bandwidth:
+  - one bar at the top carries your provider, with its Burn, In escrow and Income
+    figures; the setup steps are laid out as a route below it;
+  - an Overview shows when each lease runs out (soonest first), what each node costs
+    per day, and the income from each plan;
+  - each plan gets a workspace:
+    - switches for its status and visibility;
+    - a break-even meter, showing how many active subscribers would cover your
+      running leases;
+    - a **Will subscribers find it?** checklist;
+    - **See it as a subscriber**, which opens the catalog on that plan and names any
+      filter that hides it;
+  - a plan's nodes are listed with a bar for each lease, and an **Add nodes** drawer
+    leases and links more;
+  - an amber dot on the Provider tab warns while a lease set never to renew has less
+    than a day left.
+- **New plan and Edit details follow the same layout.**
+  - **New plan** shows:
+    - the terms, with presets and their break-even;
+    - the draft's value against the plans subscribers see;
+    - the same checklist;
+    - the limits on size, days and price.
+  - **Edit details** previews the catalog heading as you type, and warns when a name
+    will be filed under Test plans.
+  - **Renaming your provider shows in the catalog at once.** Before, a provider renamed
+    away from a test-looking name stayed under Test plans for up to an hour.
+- **Lease and link asks once.** It no longer stacks a second confirmation on top of its
+  own review window.
+- **Automatic reconnect keeps your DNS choice.** On WireGuard and AmneziaWG, the
+  resolver you pick in Settings replaces the node's own DNS servers when you connect.
+  Every automatic reconnect brought the node's servers back, for the rest of that
+  connection. It now applies your choice again. With System Default selected, nothing
+  changes.
+- **Reconnecting from the Sessions tab brings up the session you clicked.** After a
+  connect to one session failed, reconnecting a different session from the Sessions tab
+  could bring up the first session's tunnel, while the app counted usage against the
+  second. This affected WireGuard with System Default DNS, and V2Ray.
+- **Giving up on reconnecting no longer races the last attempt.** Automatic reconnect
+  could run out of attempts just as a V2Ray, XRAY or Hysteria2 core exited. Its cleanup
+  then ran alongside the last attempt while that attempt was still bringing the tunnel
+  up. The cleanup now waits its turn, and does nothing if you have disconnected or the
+  attempt succeeded.
+- **A bundled binary without a recorded checksum is refused.** Before running a bundled
+  protocol binary, the app checks it against a SHA-256 checksum recorded in the app. A
+  binary with no recorded checksum used to be let through; it is now refused. Every
+  binary in 1.15.0 has one, so nothing changes in use.
+- **Smaller fixes:**
+  - dollar estimates no longer print as "$1.9e-7";
+  - disabled buttons look disabled in every tab;
+  - the Sessions and Multi-hop tab badges have their tint back, and the globe's
+    recenter button and stats chip have their panel back;
+  - "Leased, not linked" no longer offers Link on a node that is already linked;
+  - the Provider plan list no longer cuts off its counters.
+- **A test suite now guards the app's rules.** 95 of the app's 98 documented rules now
+  have a test that goes red if a change breaks it. The other three are facts about the
+  blockchain, re-checked against it by a separate script. The tested rules include:
+  - refunds after a failed connection;
+  - one connection at a time;
+  - the kill switch's life cycle;
+  - what may reach root.
 
-## Fixes in 1.14.1
+  Each money, root and privacy rule is also broken on purpose to prove its tests catch
+  it. The suite found the three reconnect bugs above. Nothing changes in use.
+- **Nothing else changes.** The packaging is the same as in 1.14.1.
 
-- Multihop: a chain the user ended is not a broken chain
-- Multihop: handle a chain that loses one hop
-- Sessions: hide ended cards behind a Show ended box
-- Speed test: time latency against Cloudflare, not Google
+## Fixes in 1.15.0
+
+<!-- regenerated by release.sh from v1.14.1..HEAD at cut time; leave the heading -->
 
 ## Known limitations
 
