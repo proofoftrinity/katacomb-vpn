@@ -33,7 +33,10 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
   enough to be checked (9.0.0+) are listed. Candidates are graded for eligibility before
   you can pick them; what a chain does and does not buy you is under *Connecting* below.
 - **Plans**: discover provider plans, subscribe, then start sessions on any node in the
-  plan. Includes a subscription manager for cancelling and for the auto-renewal policy.
+  plan. The catalog is a sortable table. A detail pane sets each plan's value per GB
+  against every listed plan and against paying a node directly, and maps the countries
+  its nodes cover. *My plans* shows how much time and data each subscription has used,
+  and manages cancelling and the auto-renewal policy.
 - **Sessions**: every active session with usage, price and remaining allowance;
   reconnect or end it from here. Ended sessions, which stay listed while the blockchain
   settles them, are hidden behind *Show ended*. A chain that has lost a hop is marked
@@ -43,11 +46,11 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
 
 - **Kill switch**: iptables rules that drop everything outside the tunnel, armed on
   connect and torn down on disconnect (with a self-healing marker if the app dies mid-way).
-- **DNS**: pick a resolver (Cloudflare, Quad9, NextDNS, …) applied on connect. On
-  WireGuard and AmneziaWG your choice *replaces* the list the node pushed rather than
-  joining it, so a node cannot install itself as your first resolver. On the
-  V2Ray-family protocols the queries additionally go out over DoH, so the node can't
-  read them.
+- **DNS**: pick a resolver (Cloudflare, Quad9, NextDNS, …) applied on connect and on every
+  automatic reconnect. On WireGuard and AmneziaWG your choice *replaces* the list the node
+  pushed rather than joining it, so a node cannot install itself as your first resolver.
+  On the V2Ray-family protocols the queries additionally go out over DoH, so the node
+  can't read them.
 - **Split tunneling**: CIDR routes that bypass the tunnel; private ranges are excluded
   by default.
 - **Local Network Sharing**: reach other devices on your network (SSH, printers, NAS)
@@ -86,6 +89,9 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
   has a provider registered on chain.
 - Register a provider, create plans and activate them, lease nodes from their operators
   and link them into a plan, and read per-plan subscriber counts off the chain.
+- An Overview shows when each lease runs out, what each node costs a day and what each
+  plan earns. Each plan's workspace has a break-even meter (the active subscribers its
+  leases need), a *Will subscribers find it?* checklist, and *See it as a subscriber*.
 - An economics strip across the top: daily burn from running leases, funds escrowed (yours
   again when you end a lease) and revenue net of the hub's cut. You pay nodes **by the
   hour** whether anyone connects or not, but sell plans **by the gigabyte**.
