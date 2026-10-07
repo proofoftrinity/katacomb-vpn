@@ -57,6 +57,7 @@ func TestCorpusOpsAllDispatch(t *testing.T) {
 // The capability probe must actually carry the op list, or the client silently
 // falls back to post-hoc `unknown op` detection and the pre-purchase check that
 // this exists for never fires.
+// [PH-2]
 func TestProtocolVersionReportsOps(t *testing.T) {
 	c := loadOpsCorpus(t)
 	r := newRec(t)

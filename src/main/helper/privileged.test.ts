@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { buildSync } from 'esbuild'
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { LAN_SHARING_ARG } from '../config-guard.ts'
 
@@ -167,7 +167,7 @@ describe('killswitch-on sentinel handling', () => {
     assert.deepEqual(H.calls[0].args, { iface: 'sntl0', remoteHost: '1.2.3.4', dnsIp: '9.9.9.9', lanSharing: false })
   })
 
-  test('with the sentinel, it is stripped and never read as the dnsIp', async () => {
+  test('[REL-25] with the sentinel, it is stripped and never read as the dnsIp', async () => {
     reset()
     await H.runPrivileged(['killswitch-on', 'sntl0', '1.2.3.4', '9.9.9.9', LAN_SHARING_ARG])
     assert.deepEqual(H.calls[0].args, { iface: 'sntl0', remoteHost: '1.2.3.4', dnsIp: '9.9.9.9', lanSharing: true })
@@ -182,14 +182,14 @@ describe('killswitch-on sentinel handling', () => {
 
 // The security rule this module exists to enforce.
 describe('daemon failure routing', () => {
-  test('a REJECTED op propagates and is never retried under pkexec', async () => {
+  test('[PH-9] a REJECTED op propagates and is never retried under pkexec', async () => {
     reset()
     H.set({ fail: new Error('invalid config: line 3 rejected'), helperInstalled: true })
     await assert.rejects(() => H.runPrivileged(['up', '/tmp/c.conf']), /line 3 rejected/)
     assert.equal(H.execCalls.length, 0, 'a validation failure must NOT become a pkexec run')
   })
 
-  test('an UNREACHABLE daemon falls back to the pkexec one-shot', async () => {
+  test('[PH-9] an UNREACHABLE daemon falls back to the pkexec one-shot', async () => {
     reset()
     H.set({ fail: new H.Unreachable('ECONNREFUSED'), helperInstalled: true })
     await H.runPrivileged(['down'])

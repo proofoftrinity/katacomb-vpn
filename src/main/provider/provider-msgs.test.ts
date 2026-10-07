@@ -102,7 +102,7 @@ test('buildCreatePlanMsg survives a registry encode/decode round-trip with bytes
   assert.equal(back.private, false)
 })
 
-test("the SDK's own planCreate() drops bytes and duration — this is why buildCreatePlanMsg exists", () => {
+test("[PC-4] the SDK's own planCreate() drops bytes and duration — this is why buildCreatePlanMsg exists", () => {
   // PlanCreate's arg type is {gigabytes, hours}; the v3 wire message is
   // {bytes, duration}. The builder passes args through verbatim, so the fields
   // the chain actually reads are never populated. If this test ever fails, the

@@ -43,7 +43,7 @@ socket and silently falls back to `pkexec`. The AppImage and `npm run dev` have 
 daemon, so they fall back to the per-op `pkexec` one-shot (one cached prompt);
 `npm run dev` builds the helper (`predev`), and Settings, System (or the setup pane a
 refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/katacomb-vpn-helper daemon`.
-- **The helper is asked for when a connect needs it, never at launch.** Until 1.10.0 two
+- **[PH-1] The helper is asked for when a connect needs it, never at launch.** Until 1.10.0 two
   blocking native dialogs (`checkSystemDeps`, `ensurePolkitSetup`) ran before the window
   existed, each wanting an admin password before the user could have connected at all.
   Skip left no way back but a restart, the package install was `pkexec apt` only and
@@ -76,7 +76,7 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   `protocol/corpus_test.go`, `server/corpus_test.go` and
   `src/main/daemon-protocol-corpus.test.ts`) — the same arrangement the guard corpus
   has always had, which the "byte for byte" claim previously lacked.
-  **`protocol_version` now reports `{version, ops}` and IS called.** The version
+  **[PH-2] `protocol_version` now reports `{version, ops}` and IS called.** The version
   integer alone could never detect the skew that actually happens, because adding an
   op is deliberately not a version bump (`amneziawg_*` and `openvpn_*` were both
   additive) — so a daemon left running across an upgrade was found by `unknown op`
@@ -85,7 +85,7 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   false whenever the answer is uncertain (no daemon, old daemon, failed probe), so it
   can only ever add a refusal we are sure of. `ops` is additive on the wire and the
   `unknown op` match stays as the fallback for a daemon too old to answer.
-- **The exact command lines are pinned by golden transcripts**
+- **[PH-3] The exact command lines are pinned by golden transcripts**
   (`daemon/internal/ops/testdata/transcripts/`), captured from the ORIGINAL bash helper
   by `scripts/capture-helper-transcripts.sh` in a `debian:bookworm` container with every
   tool shimmed, and replayed by `transcript_test.go` against a recording Env that answers
@@ -93,7 +93,7 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   after `--config`, `cleanup_wg_rules`' scoping, every state file's bytes: a diff there
   is a bug or one of the deviations below. Regenerate only by hand, like the wire corpus
   `node-handshake.test.ts` keeps; the script reads the bash helper back from git history.
-- **Deliberate deviations from the bash helper**, each small and each tested: daemon
+- **[PH-4] Deliberate deviations from the bash helper**, each small and each tested: daemon
   mode refuses euid ≠ 0; the socket is bound under `umask 077`; `null` / non-object /
   non-numeric-id requests get `{"id":0,"ok":false,"error":"invalid request"}` instead of
   killing the daemon (any group member could bounce it with `null\n`); the pid-less
@@ -104,7 +104,7 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   lookup at their resolver (the SHA pins used to sit here as well; they went with the
   vendored binaries root no longer runs, and `binary-integrity.ts` is now the only pin
   table, for the user-run cores);
-  **one-shot configs are read ONCE**, via `O_NOFOLLOW` + `fstat` (regular file, owned by
+  **[PH-5] one-shot configs are read ONCE**, via `O_NOFOLLOW` + `fstat` (regular file, owned by
   `PKEXEC_UID` when set, ≤ 256 KiB), and the tool is handed the root-owned
   `/run/katacomb-vpn/{sntl0,openvpn}.conf` copy, never the caller's path (the bash
   helper validated the caller's path and let wg-quick re-open it — a TOCTOU, and with a
@@ -126,14 +126,14 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   content, per the guard rule that a refusal names a reason. Value-checking moved OUT
   of `dispatch` into `ops`: filtering in both meant `ops`, the trust boundary, never
   saw a rejected entry and so could not report one.
-- **The unit keeps `/run/katacomb-vpn` across restarts** (`RuntimeDirectoryPreserve=restart`).
+- **[PH-6] The unit keeps `/run/katacomb-vpn` across restarts** (`RuntimeDirectoryPreserve=restart`).
   postinstall runs `systemctl restart` on every upgrade, and without it every upgrade
   wiped `tun.state`/`openvpn.pid`, so the next `tun-down` found no pid and no remote
   host and left the `/32` and bypass routes behind. `KillMode` is untouched: an upgrade
   while connected still SIGTERMs the daemon's detached children (tun2socks,
   `openvpn --daemon`, the embedded AmneziaWG device), so only kernel WireGuard survives one —
   pre-existing, and a separate decision.
-- **Install the helper through a temp name + `mv -f`** (postinstall and
+- **[PH-7] Install the helper through a temp name + `mv -f`** (postinstall and
   `installHelper`'s pkexec script): the daemon now runs FROM
   `/usr/local/bin/katacomb-vpn-helper`, and `cp` onto a running executable fails with
   `ETXTBSY`, which would abort every upgrade's postinst and leave the old daemon running.
@@ -164,7 +164,10 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   until the user answers it or the 60 s timeout fires (measured: zero event-loop
   ticks over a bare `sleep 2`). Live symptom, 2026-08-16: Disconnect froze the
   entire app, then reported the kill switch could not be turned off, leaving no
-  internet and no way to retry. Never make a privileged call synchronous.
+  internet and no way to retry. **[PH-8] Never make a privileged call synchronous.**
+  **[PH-9] A daemon that REJECTED an op is never retried under `pkexec`**: that would
+  re-run a validation failure with a password prompt in front of it. A daemon that is
+  UNREACHABLE does fall back, or a stale socket after a crash leaves no route to root.
 - Packaging: `postinstall.sh` installs the helper, policy and unit, then enables and
   restarts the unit. The `/opt/katacomb-vpn` symlink only ever gave the old Electron-run
   daemon a space-free `ExecStart`; it is gone since 1.9.0, the postinst removes a stale

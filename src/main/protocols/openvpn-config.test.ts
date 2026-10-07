@@ -61,7 +61,7 @@ test('buildOpenVpnConfig emits a self-contained full-tunnel client config', () =
   assert.ok(!config.includes('ca.crt'), 'must not reference external PKI files')
 })
 
-test('buildOpenVpnConfig re-armors node blobs itself, so injection cannot survive', () => {
+test('[PRO-6] buildOpenVpnConfig re-armors node blobs itself, so injection cannot survive', () => {
   const config = buildOpenVpnConfig(handshake(), ADDRS)
 
   // Bodies are OUR encoding of the decoded DER, not the node's string.

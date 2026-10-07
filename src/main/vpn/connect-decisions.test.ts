@@ -4,7 +4,7 @@ import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideRec
 
 // --- isChildProxyCarryingTraffic (the spawn-to-tun-up window) ---
 
-test('isChildProxyCarryingTraffic: tunnel mode needs the tun, not just a live child', () => {
+test('[REL-18] isChildProxyCarryingTraffic: tunnel mode needs the tun, not just a live child', () => {
   // The live regression: between spawnV2Ray() and a successful tun-up the child
   // is alive and NOTHING is redirected, because the polkit dialog is still open.
   // Reporting connected there showed the user their own IP under a green banner.
@@ -179,7 +179,7 @@ test('decideReconnect: aborts on an intentional disconnect', () => {
   assert.deepEqual(decideReconnect({ ...base, intentional: true }), { action: 'abort', reason: 'intentional' })
 })
 
-test('decideReconnect: aborts when auto-reconnect is off', () => {
+test('[REL-21] decideReconnect: aborts when auto-reconnect is off', () => {
   assert.deepEqual(decideReconnect({ ...base, autoReconnect: false }), { action: 'abort', reason: 'auto-reconnect-off' })
 })
 
@@ -235,7 +235,7 @@ test('serviceTypeToNodeType: separator and case variants nodes actually report',
   assert.equal(serviceTypeToNodeType('hy2'), 6)
 })
 
-test('serviceTypeToNodeType: numeric passthrough only inside 1-6', () => {
+test('[PRO-1] serviceTypeToNodeType: numeric passthrough only inside 1-6', () => {
   assert.equal(serviceTypeToNodeType(1), 1)
   assert.equal(serviceTypeToNodeType(6), 6)
   assert.equal(serviceTypeToNodeType('4'), 4)
@@ -321,7 +321,7 @@ test('evaluateQuota: a session with NO cap never expires, however long it runs',
 // for 53 minutes without being connected: chain `duration` 0, 0 bytes. Measured by
 // wall-clock since startAt that reads 88% and the watchdog tears it down, throwing
 // away a full paid hour that was never used.
-test('evaluateQuota: an idle unused session reads 0%, no matter how old it is', () => {
+test('[REL-15] evaluateQuota: an idle unused session reads 0%, no matter how old it is', () => {
   assert.deepEqual(
     evaluateQuota({ ...CAPLESS, maxDurationSeconds: 3600, baselineDurationSeconds: 0, connectedSeconds: 0 }),
     { level: 'ok', pct: 0 },
@@ -389,7 +389,7 @@ test('evaluateQuota: a node metering slightly past the cap still reads as expire
 
 // --- isTunnelOneWay ---
 
-test('isTunnelOneWay: traffic leaving with no reply, for long enough, is a dead tunnel', () => {
+test('[REL-17] isTunnelOneWay: traffic leaving with no reply, for long enough, is a dead tunnel', () => {
   assert.equal(isTunnelOneWay(ONE_WAY_TX_FLOOR_BYTES, ONE_WAY_SILENCE_MS), true)
   assert.equal(isTunnelOneWay(5 * 1024 * 1024, 10 * 60_000), true)
 })
@@ -404,7 +404,7 @@ test('chainDeadlineStep: nothing to do while the deadline is far off', () => {
   assert.equal(step(DEADLINE - CHAIN_DEADLINE_WARN_MS - 1), 'none')
 })
 
-test('chainDeadlineStep: warns once inside the last ten minutes', () => {
+test('[MH-12] chainDeadlineStep: warns once inside the last ten minutes', () => {
   assert.equal(step(DEADLINE - CHAIN_DEADLINE_WARN_MS), 'warn')
   assert.equal(step(DEADLINE - 60_000), 'warn')
   assert.equal(step(DEADLINE - 60_000, true), 'none')
@@ -434,7 +434,7 @@ test('prunableUsageIds: forgets a session the chain no longer lists', () => {
   assert.deepEqual(prunableUsageIds(['1', '2'], ['2'], null), ['1'])
 })
 
-test('prunableUsageIds: an empty chain read prunes NOTHING', () => {
+test('[REL-22] prunableUsageIds: an empty chain read prunes NOTHING', () => {
   // getSessionsForAddress returns [] for an unreachable RPC as well as for "none",
   // and the kill switch left armed by standDownSession guarantees the unreachable
   // case right after the usage is recorded. Live: #56152782 lost 462s and 37.5MB
@@ -456,7 +456,7 @@ test('usageAccruesWithoutTunnelInterface: proxy mode keeps spending the session 
   assert.equal(usageAccruesWithoutTunnelInterface('proxy'), true)
 })
 
-test('usageAccruesWithoutTunnelInterface: in tunnel mode a missing interface stops the clock', () => {
+test('[REL-21] usageAccruesWithoutTunnelInterface: in tunnel mode a missing interface stops the clock', () => {
   // The node stops metering the moment the tunnel drops (mainnet #56141731 settled
   // 148.03s against 147s of interface uptime and was still 148.03s twenty-four
   // minutes later, session still active), so counting wall-clock past that point
@@ -581,7 +581,7 @@ test('describeNodeApiError: survives shapes it was never given', () => {
 
 // --- shouldRetrySessionHandshake ---
 
-test('shouldRetrySessionHandshake: retries a 404 (node RPC lag) up to the cap', () => {
+test('[REL-12] shouldRetrySessionHandshake: retries a 404 (node RPC lag) up to the cap', () => {
   // The node answers 404 when its own RPC has not seen our session's block yet
   // (dvpnx handlers.go queries the chain live) — retryable, twice.
   assert.equal(shouldRetrySessionHandshake(404, 0), true)
@@ -589,7 +589,7 @@ test('shouldRetrySessionHandshake: retries a 404 (node RPC lag) up to the cap', 
   assert.equal(shouldRetrySessionHandshake(404, HANDSHAKE_RETRY_MAX_RETRIES), false)
 })
 
-test('shouldRetrySessionHandshake: every other outcome is a real verdict, never retried', () => {
+test('[REL-12] shouldRetrySessionHandshake: every other outcome is a real verdict, never retried', () => {
   // 409 = the node holds a record; 400/401 = the session or signer is wrong;
   // 500 = the node itself failed; null = no HTTP response at all (timeout etc.).
   for (const status of [409, 400, 401, 500, 502, null]) {
@@ -599,7 +599,7 @@ test('shouldRetrySessionHandshake: every other outcome is a real verdict, never 
 
 // --- deadTunnelMessage ---
 
-test('deadTunnelMessage: a replayed config that carries nothing is unrecoverable, not retryable', () => {
+test('[REL-19] deadTunnelMessage: a replayed config that carries nothing is unrecoverable, not retryable', () => {
   // Mainnet #53670474: the node answered 409 (record present, no new peer), the
   // saved config was replayed, and the tunnel moved nothing. Verified by sending a
   // real WireGuard initiation with that config's own keys — no answer at all.
@@ -623,7 +623,7 @@ test('deadTunnelMessage: a freshly issued peer that carries nothing is worth one
   assert.match(msg, /still open/i)
 })
 
-test('deadTunnelMessage: neither wording promises money back', () => {
+test('[SL-1] deadTunnelMessage: neither wording promises money back', () => {
   // Ending a session forfeits the remainder (the confirm dialog says so); the panel
   // must not contradict it.
   for (const msg of [deadTunnelMessage(true), deadTunnelMessage(false)]) {
@@ -646,7 +646,7 @@ test('decideFirewallAction disarms an armed chain even with no tunnel up', () =>
   }), 'disarm')
 })
 
-test('decideFirewallAction re-arms when LAN sharing changes under an armed chain', () => {
+test('[REL-25] decideFirewallAction re-arms when LAN sharing changes under an armed chain', () => {
   assert.equal(decideFirewallAction({
     killSwitch: true, lanSharing: true, armed: true, armedLanSharing: false, tunnelActive: true,
   }), 'rearm')
@@ -733,7 +733,7 @@ test('a stranded chain session is named individually, a refunded one is not', ()
 // live: entry #55122441 came back, exit #55122449 did not, leaving a paid session
 // stranded. These tests pin the property that prevents it.
 
-test('refundEachInTurn never has two cancels in flight at once', async () => {
+test('[MH-6] refundEachInTurn never has two cancels in flight at once', async () => {
   let inFlight = 0
   let maxInFlight = 0
   const order: string[] = []
@@ -799,7 +799,7 @@ test('deadTunnelMessage keeps both single-hop variants intact', () => {
 // 10s ceiling (5s x 2 attempts). Honouring the user's own resolver removes the
 // dead server from the list entirely.
 
-test('replaceDnsLines swaps the node DNS list for the chosen resolver', () => {
+test('[REL-9] replaceDnsLines swaps the node DNS list for the chosen resolver', () => {
   const config = [
     '[Interface]',
     'PrivateKey = abc123',

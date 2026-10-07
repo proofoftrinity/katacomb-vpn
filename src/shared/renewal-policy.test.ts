@@ -15,7 +15,7 @@ test('renewalPolicyAllows refuses UNSPECIFIED unconditionally', () => {
   }
 })
 
-test('renewalPolicyAllows mirrors the hub comparison for every policy', () => {
+test('[PC-3] renewalPolicyAllows mirrors the hub comparison for every policy', () => {
   const cases: [number, string, string, boolean][] = [
     // IF_LESSER (1): only when the node's price dropped
     [1, '50', '100', true], [1, '100', '100', false], [1, '200', '100', false],

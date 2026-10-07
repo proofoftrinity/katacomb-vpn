@@ -151,7 +151,7 @@ test('rankPlanCandidates: empty input ranks nothing and excludes nothing', () =>
 
 // --- shouldTryNextCandidate: the failure ladder ---
 
-test('shouldTryNextCandidate: nothing-spent failures (preflight, endpoint) advance until MAX_FREE_FAILURES', () => {
+test('[REL-6] shouldTryNextCandidate: nothing-spent failures (preflight, endpoint) advance until MAX_FREE_FAILURES', () => {
   for (const failure of ['preflight', 'endpoint'] as const) {
     assert.equal(isFreeFailure(failure), true)
     assert.equal(shouldTryNextCandidate(failure, 0, 1), true)
@@ -187,7 +187,7 @@ test('shouldTryNextCandidate: funds and chain failures stop immediately', () => 
 
 // --- ladderNextTx: the plan price is spent at most once ---
 
-test('ladderNextTx: the first attempt subscribes, every attempt after a committed subscription is session-only', () => {
+test('[MH-19] ladderNextTx: the first attempt subscribes, every attempt after a committed subscription is session-only', () => {
   // Walk the real sequence: fresh purchase commits, its handshake fails and is
   // refunded, the ladder advances. The next attempt must ride the subscription
   // that already exists, not buy the plan again.

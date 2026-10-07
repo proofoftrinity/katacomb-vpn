@@ -321,7 +321,7 @@ test('pickAutoRpc never returns the current endpoint itself', () => {
   assert.equal(pickAutoRpc([candidate('https://current', { latencyMs: 1 })], 'https://current'), null)
 })
 
-test('isRpcConnectivityError matches the shapes these calls actually produce', () => {
+test('[RN-3] isRpcConnectivityError matches the shapes these calls actually produce', () => {
   assert.ok(isRpcConnectivityError('RPC connect timed out after 10000ms'))
   assert.ok(isRpcConnectivityError('fetch failed'))
   assert.ok(isRpcConnectivityError('connect ECONNREFUSED 127.0.0.1:443'))

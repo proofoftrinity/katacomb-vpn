@@ -44,7 +44,7 @@ test('selectHysteria2Entry picks the first entry carrying a valid pin', () => {
   assert.equal(selectHysteria2Entry(md)?.port, 2)
 })
 
-test('buildHysteria2Config rejects an unpinned (MITM-able) node', () => {
+test('[PRO-3] buildHysteria2Config rejects an unpinned (MITM-able) node', () => {
   const noPin: HysteriaMetadataEntry[] = [{ port: '34567', obfs_password: 'x' }]
   assert.equal(selectHysteria2Entry(noPin), null)
   assert.throws(() => buildHysteria2Config(noPin, ADDRS, UUID), /MITM-able/)

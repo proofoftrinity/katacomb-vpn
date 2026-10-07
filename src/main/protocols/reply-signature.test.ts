@@ -82,7 +82,7 @@ test('a hot key counts only with the node account grant, asked for the right pai
   )
 })
 
-test('a reply changed on the way, or meant for another session, is refused', async () => {
+test('[NT-4] a reply changed on the way, or meant for another session, is refused', async () => {
   const nodeAddress = await nodeAddressOf(NODE_KEY)
   const header = await sign(NODE_KEY)
   const tampered = [
@@ -100,7 +100,7 @@ test('a reply changed on the way, or meant for another session, is refused', asy
   }
 })
 
-test('a malformed header is refused, never read as unsigned', async () => {
+test('[NT-4] a malformed header is refused, never read as unsigned', async () => {
   const nodeAddress = await nodeAddressOf(NODE_KEY)
   for (const header of ['secp256k1:abc', 'ed25519:AAAA;BBBB', 'secp256k1:AAAA;BBBB']) {
     await assert.rejects(

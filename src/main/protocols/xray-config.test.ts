@@ -84,7 +84,7 @@ test('a node offering only an unpinnable TLS entry is refused, not built', () =>
   assert.throws(() => buildXRayConfig(md, ADDRS, UUID))
 })
 
-test('buildXRayConfig rejects cleartext-only (VLESS+none) nodes', () => {
+test('[PRO-2] buildXRayConfig rejects cleartext-only (VLESS+none) nodes', () => {
   const md: XRayMetadataEntry[] = [
     { port: '9000', proxy_protocol: 1, transport_protocol: 1, transport_security: 1, flow: 1 },
   ]

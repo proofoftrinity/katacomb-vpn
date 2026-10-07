@@ -11,17 +11,19 @@ npm run preview      # Preview production build
 npm run dist         # Build + package for Linux (AppImage + deb)
 npm run dist:deb     # Build + package deb only
 npm run dist:appimage # Build + package AppImage only
-npm test             # Node unit tests (built-in TS test runner, zero deps) + `go test ./...` in daemon/
+npm test             # Node tests (src/**, test/**; built-in runner) + `go test ./...` in daemon/
 npm run test:daemon  # The Go tests alone
 npm run build:daemon # Build the privileged helper (daemon/ → resources/linux/privileged/katacomb-vpn-helper)
-npm run typecheck    # tsc --noEmit on both projects (must pass clean)
+npm run typecheck    # tsc --noEmit on both projects + the tests (must pass clean)
+npm run verify       # typecheck + test: the definition of done
 ```
 
-Tests use Node's native `--test` runner against `src/**/*.test.ts` (no Vitest/Jest,
-no extra dependency — Node 22+ strips TS types and runs the tests directly). Cover
-the pure security/IO helpers (`config-guard.ts`, `fs-utils.ts`). Test files are
-excluded from the build tsconfigs and import the module-under-test with a `.ts`
-extension (required by the native runner). No linter is configured; `tsc` is
+Tests use Node's native `--test` runner against `src/**/*.test.ts` and `test/**/*.test.ts`
+(no Vitest/Jest — Node 22.18+ strips TS types and runs the tests directly; esbuild is
+the one test-only dependency, for bundling modules the runner cannot load). Test files
+are excluded from the build tsconfigs, typechecked by `tsconfig.test.json`, and import
+the module-under-test with a `.ts` extension (required by the native runner).
+`docs/testing.md` says how to write each kind. No linter is configured; `tsc` is
 `strict` with `noUnusedLocals`/`noUnusedParameters` on. The privileged helper is a
 Go module in `daemon/` (toolchain pinned by `daemon/go.mod`; `scripts/build-daemon.sh`
 refuses any other version and `go vet`s before it builds); `npm run dev`, `build` and
@@ -36,6 +38,7 @@ is an incident log, not a description, and the reasoning is the point.
 
 | Read this first | Before touching |
 |---|---|
+| [docs/testing.md](docs/testing.md) - **the suite is the invariant** | any change: what to run, how to add a test, what never to weaken |
 | [docs/invariants/reliability.md](docs/invariants/reliability.md) - **the connect path spends real funds** | `ipc-handlers.ts`, `src/main/ipc/`, `src/main/vpn/`, `chain-service.ts` |
 | [docs/invariants/node-trust.md](docs/invariants/node-trust.md) - **node data reaches root** | anything turning node data into a config, a spawn or a route |
 | [docs/invariants/session-lifecycle.md](docs/invariants/session-lifecycle.md) | sessions, quotas, refunds, the Sessions tab |
@@ -51,9 +54,24 @@ Two rules that outrank convenience, stated here so they are never missed:
 
 - **Never make a privileged call synchronous.** `runPrivileged` is async because the
   pkexec path is a polkit dialog; `execFileSync` there freezes the whole main process
-  until the user answers it. See `docs/invariants/reliability.md`.
+  until the user answers it. See [PH-8] in `docs/privileged-helper.md`.
 - **Any flow that creates an on-chain session must run through
-  `establishSessionOrRefund`**, or a failure strands money. See the same file.
+  `establishSessionOrRefund`**, or a failure strands money. See [REL-1] in
+  `docs/invariants/reliability.md`.
+
+## The suite is the invariant
+
+`npm run verify` green is the definition of done, for every change; a Claude Code hook
+runs it before any commit Claude makes. `docs/testing.md` is the map.
+
+- Every rule in `docs/` carries an ID (`**[REL-n] …**`), and a test that pins a rule
+  carries its ID in its title. `test/invariants/registry.test.ts` goes red when a rule
+  loses its last test.
+- A bug fix lands with a test that failed before the fix. A new rule gets an ID and a
+  test, and that test is seen to fail with the rule broken before it merges.
+- Never delete, skip or loosen a test, weaken a fake, or add an entry to
+  `test/invariants/status.json`, without the user's explicit approval.
+- When a refactor breaks a test, the refactor is wrong until shown otherwise.
 
 ## Architecture
 
@@ -90,7 +108,7 @@ Strict Electron security isolation with three process boundaries:
 
 - **Main process** (`src/main/`): Node.js context. Wallet crypto, blockchain RPC, VPN tunnel management, OS-level operations. All sensitive operations live here.
 - **Preload** (`src/preload/index.ts`): contextBridge exposing `window.api` — the only IPC channel between main and renderer. Channel constants in `src/shared/ipc-channels.ts`.
-- **Renderer** (`src/renderer/`): Browser context with React. `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. No Node.js access.
+- **Renderer** (`src/renderer/`): Browser context with React. **[ARCH-1]** `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. No Node.js access.
 
 ### Main process layout
 
@@ -119,7 +137,7 @@ src/main/
 is the trust boundary the whole node-trust invariant rests on, and burying it one
 level down weakens the signal.
 
-IPC handler groups take the `handle` trust wrapper as a parameter rather than
+**[ARCH-2]** IPC handler groups take the `handle` trust wrapper as a parameter rather than
 importing `ipcMain`, so there is exactly one door into main. The connection state
 machine (the module-level `let`s, the quota watchdog, the reconnect loop) stays in
 `ipc-handlers.ts` as one unit - splitting that state across files would make it a
@@ -129,7 +147,7 @@ side channel between modules, which is the antipattern below.
 
 `electron.vite.config.ts` must bundle the entire CosmJS/dVPN SDK dependency tree (listed in `DEPS_TO_BUNDLE`). Electron loads main process output as CJS, but these deps have ESM-only transitive dependencies (`@scure/base`, `@noble/*`). Only `bufferutil` and `utf-8-validate` are externalized (ws optional native deps that gracefully no-op).
 
-**If you add a new `@cosmjs/*` or dVPN SDK dependency, add it to `DEPS_TO_BUNDLE` or the build will fail at runtime with `ERR_REQUIRE_ESM`.**
+**[ARCH-3] If you add a new `@cosmjs/*` or dVPN SDK dependency, add it to `DEPS_TO_BUNDLE` or the build will fail at runtime with `ERR_REQUIRE_ESM`.**
 
 ### Architecture diagram (docs/architecture/)
 

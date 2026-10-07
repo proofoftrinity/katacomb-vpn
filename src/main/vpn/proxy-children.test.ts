@@ -98,7 +98,7 @@ test('a tracked child is recorded, then untracked when it exits', async () => {
   assert.deepEqual(readProxyChildRecords(p), [], 'exit handler should clear the record')
 })
 
-test('isRecordedProxyChild accepts a live match and refuses a reused pid', async () => {
+test('[REL-33] isRecordedProxyChild accepts a live match and refuses a reused pid', async () => {
   const cfg = join(dir, 'identity-v2ray.json')
   const child = spawnFakeCore(cfg)
   await until(() => isPidAlive(child.pid!))
@@ -133,7 +133,7 @@ test('reap kills a core that outlived its run, and clears the file', async () =>
   assert.equal(existsSync(p), false, 'the spent record should be cleared')
 })
 
-test('reap leaves a process it cannot positively identify alone', async () => {
+test('[REL-33] reap leaves a process it cannot positively identify alone', async () => {
   const p = statePath('stranger')
   const cfg = join(dir, 'stranger-v2ray.json')
   const child = spawnFakeCore(cfg)

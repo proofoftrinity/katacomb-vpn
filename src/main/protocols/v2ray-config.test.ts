@@ -19,8 +19,7 @@ async function sdkConfig(metadata: unknown[], addrs: string[]): Promise<{ cfg: R
   const cfg = sdk.config as Record<string, unknown>
   const inbounds = cfg.inbounds as { tag: string; port: number }[]
   const apiPort = inbounds.find((i) => i.tag === 'api')!.port
-  // @ts-expect-error -- `uuid` is the SDK's own field, untyped in its .d.ts
-  return { cfg, uuid: sdk.uuid as string, apiPort }
+  return { cfg, uuid: sdk.uuid, apiPort }
 }
 
 test('byte-identical to the SDK for every transport x proxy x security', async () => {

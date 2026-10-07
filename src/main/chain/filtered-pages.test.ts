@@ -53,7 +53,7 @@ test('collectPages reads every node of a plan bigger than one page', async () =>
   assert.equal(all[872], 'sentnode0872')
 })
 
-test('collectPages starts at key 0x00, never an empty key (the empty key is the 50-cap)', async () => {
+test('[PC-6] collectPages starts at key 0x00, never an empty key (the empty key is the 50-cap)', async () => {
   const hub = fakeHub(120, 50)
   await collectPages(hub.fetchPage, 5000)
   assert.deepEqual([...hub.keysSent[0]], [0])

@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { versionSignsReplies } from './node-signing.ts'
 
-test('dvpnd 9.4.0 and later sign; everything before, and anything unreadable, does not', () => {
+test('[NT-4] dvpnd 9.4.0 and later sign; everything before, and anything unreadable, does not', () => {
   for (const v of ['9.4.0', '9.4.1', '9.10.0', '10.0.0', 'v9.4.0', '9.4.0-3-gabc1234']) {
     assert.equal(versionSignsReplies(v), true, v)
   }

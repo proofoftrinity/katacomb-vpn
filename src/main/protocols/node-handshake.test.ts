@@ -50,7 +50,7 @@ test('a non-numeric session id is refused rather than signed', async () => {
 
 // --- the one that matters ------------------------------------------------------
 
-test('our body is byte-for-byte what the SDK puts on the wire', async () => {
+test('[MH-14] our body is byte-for-byte what the SDK puts on the wire', async () => {
   // The whole justification for reimplementing this: the SDK cannot take a proxy
   // agent, so the multihop path builds the request itself. If the two ever diverge —
   // signature encoding, low-S normalisation, key compression, field names — a node

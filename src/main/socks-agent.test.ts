@@ -110,7 +110,7 @@ function stubProxy(
   const server = net.createServer((socket) => {
     live.push(socket)
     let stage: 'greet' | 'connect' | 'done' = 'greet'
-    socket.on('data', (chunk) => {
+    socket.on('data', (chunk: Buffer) => {
       if (stage === 'greet') {
         socket.write(Buffer.from([0x05, 0x00]))
         stage = 'connect'
@@ -227,7 +227,7 @@ function targetAskedFor(
   })
 }
 
-test('the agent accepts a STRING port, which is what URL.port and http options give it', async () => {
+test('[MH-15] the agent accepts a STRING port, which is what URL.port and http options give it', async () => {
   const proxy = await stubProxy(() => 0x00)
   try {
     const asked = await targetAskedFor(proxy.port, { host: 'exit.example.net', port: '6636' }, proxy.targets)

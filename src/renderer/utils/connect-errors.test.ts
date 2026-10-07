@@ -22,7 +22,7 @@ test('the inlined markers have not drifted from the shared ones', () => {
   assert.deepEqual(setupItemsRequired(`${SYSTEM_SETUP_REQUIRED}:helper: x`), ['helper'])
 })
 
-test('markers are detected through the Electron IPC wrapper', () => {
+test('[RN-1] markers are detected through the Electron IPC wrapper', () => {
   assert.ok(isRpcUnreachable(viaIpc('connection:subscribe', `${RPC_UNREACHABLE}: Couldn't reach the blockchain`)))
   assert.ok(isInsufficientFunds(viaIpc('connection:subscribe', `${INSUFFICIENT_FUNDS}: You need 50 P2P`)))
   assert.ok(isDnsProvisionFailure(viaIpc('connection:connect', `${DNS_PROVISION_FAILED}: resolvconf missing`)))

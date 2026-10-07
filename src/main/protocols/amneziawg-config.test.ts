@@ -166,7 +166,7 @@ const META3: AwgMetadataEntry = {
   mtu: 1280,
 }
 
-test('buildAmneziaWgConfig emits the 3.1 tier keys for an awg_version 3 entry', () => {
+test('[PRO-5] buildAmneziaWgConfig emits the 3.1 tier keys for an awg_version 3 entry', () => {
   const cfg = parseIni(buildAmneziaWgConfig([META3], ADDRS, ASSIGNED, PRIVKEY))
   assert.equal(cfg.interface.MTU, '1280')
   assert.equal(cfg.interface.HeaderProtectionKey, META3.header_protection_key)
