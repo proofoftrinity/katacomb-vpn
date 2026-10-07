@@ -15,6 +15,7 @@ wrong until shown otherwise. The rules for changing the suite itself are in
 | `npm run test:daemon` | the Go tests alone |
 | `npm run test:canaries` | every mutation canary must turn its tests red (about 20 s) |
 | `npm run test:fuzz` | each Go fuzz target for `FUZZTIME` (default 10 s); CI also runs the daemon under `-race` |
+| `npm run check:chain [address…]` | the live-chain facts the `manual` rules SL-2..SL-4 rest on, read from mainnet; never part of `verify` (see below) |
 | `npx electron-vite build && node scripts/check-bundle-requires.mjs` | CI: builds the app, then checks the bundles require no npm package ([ARCH-3]) |
 
 - Node 22.18+ (native type stripping, `engines` in `package.json`); Go is the
@@ -65,6 +66,15 @@ needs the user's explicit approval.
 - `partial` - pinned, but part of the rule is not; the reason says which part.
 - `manual` - only checkable by hand or in the release VM (`fullcycle`): systemd and
   maintainer-script behaviour, live-chain facts, UI copy.
+
+The live-chain facts (SL-2, SL-3, SL-4) are re-checked with `npm run check:chain`:
+after a hub upgrade, and whenever a change leans on one of them. It reads the app's own
+wallets (or the addresses given), queries mainnet without signing anything, and prints
+PASS, FAIL or NOT SEEN per fact; NOT SEEN means no session in those accounts was in the
+state that shows it, so run it again while one is (a session the node has not reported
+on yet, then one it has). The verdicts are `test/live/chain-facts.ts`, tested offline by
+`chain-facts.test.ts` against two real reads; those tests prove the checker, not the
+chain, which is why the rules stay `manual`.
 
 The registry fails when a rule is in neither a test nor `pending`/`manual`, when a
 pinned rule is still listed as `pending`/`manual`, and when a `partial` rule has no

@@ -18,6 +18,7 @@ npm run test:fuzz    # Go fuzz targets, FUZZTIME each (default 10s)
 npm run build:daemon # Build the privileged helper (daemon/ → resources/linux/privileged/katacomb-vpn-helper)
 npm run typecheck    # tsc --noEmit on both projects + the tests (must pass clean)
 npm run verify       # typecheck + test: the definition of done
+npm run check:chain  # Re-check the live-chain facts behind SL-2..SL-4 on mainnet (read-only; not in verify)
 ```
 
 Tests use Node's native `--test` runner against `src/**/*.test.ts` and `test/**/*.test.ts`

@@ -20,6 +20,7 @@
     "test:fuzz": "bash scripts/fuzz-daemon.sh",
     "test:canaries": "node --test test/canaries/run.canary.ts",
     "check:architecture": "bash scripts/check-architecture-doc.sh",
+    "check:chain": "node test/live/check-chain.ts",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.test.json",
     "verify": "npm run typecheck && npm test && npm run test:canaries",
     "postinstall": "electron-builder install-app-deps",
