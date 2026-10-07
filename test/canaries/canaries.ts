@@ -315,6 +315,72 @@ export const CANARIES: Canary[] = [
     run: [SINKS],
   },
 
+  // --- durable data and the node reply (P5) ----------------------------------------
+  {
+    name: '[NT-2] tunnel credentials are written without a real keyring',
+    file: 'src/main/chain/chain-service.ts',
+    find: '  if (!isSecureStorageAvailable()) {\n    console.warn(\'[session] secure OS keyring unavailable',
+    replace: '  if (false) {\n    console.warn(\'[session] secure OS keyring unavailable',
+    run: ['src/main/chain/chain-service.test.ts'],
+  },
+  {
+    name: '[NT-4] an unsigned reply is accepted from a node that must sign',
+    file: 'src/main/chain/chain-service.ts',
+    find: "  if (signer === 'unsigned' && requireSigned) {",
+    replace: "  if (signer === 'unsigned' && requireSigned && false) {",
+    run: ['src/main/chain/chain-service.test.ts'],
+  },
+  {
+    name: "[ARCH-5] a pre-feature custom RPC endpoint is handed to Smart RPC",
+    file: 'src/main/settings.ts',
+    find: "  raw['rpcMode'] = 'manual'",
+    replace: "  raw['rpcMode'] = 'auto'",
+    run: ['src/main/settings.test.ts'],
+  },
+  {
+    name: '[PC-1] the global provider mode is dropped instead of moved onto the wallet',
+    file: 'src/main/settings.ts',
+    find: '  if (activeId && listWallets().some((w) => w.id === activeId)) {\n    setWalletProviderMode(activeId, true)\n  }',
+    replace: '',
+    run: ['src/main/settings.test.ts'],
+  },
+  {
+    name: '[ARCH-5] the dedupe keeps the copy that no longer unlocks',
+    file: 'src/main/settings.ts',
+    find: '    const survivor = group.find((w) => canUnlockWallet(w.id)) ?? group[0]',
+    replace: '    const survivor = group[0]',
+    run: ['src/main/settings.test.ts'],
+  },
+  {
+    name: '[ARCH-5] a seed is written under basic_text',
+    file: 'src/main/settings.ts',
+    find: '  if (!isSecureStorageAvailable()) {\n    throw new Error(INSECURE_STORAGE_MESSAGE)\n  }',
+    replace: '',
+    run: ['src/main/settings.test.ts'],
+  },
+  {
+    name: '[REL-27] "connected" goes out before the tunnel is proven',
+    file: IPC_TS,
+    find: "        await applyPostConnectSettings('wireguard')\n        await assertTunnelCarriesTraffic()\n\n        finalizeTunnelConnect('wireguard', 'tunnel')",
+    replace: "        await applyPostConnectSettings('wireguard')\n        finalizeTunnelConnect('wireguard', 'tunnel')\n        await assertTunnelCarriesTraffic()",
+    run: [LIFE],
+  },
+  {
+    name: '[MH-20] a subscription cancel is attempted through the tunnel',
+    file: IPC_TS,
+    find: "    if (isVpnActive()) {\n      throw new Error('Disconnect the VPN before managing subscriptions. The chain is unreachable through the tunnel.')\n    }\n    // Same gap as WALLET_END_SESSION",
+    replace: '    // Same gap as WALLET_END_SESSION',
+    run: [LIFE],
+  },
+
+  {
+    name: "[MH-17] the exit's address goes to the ISP's resolver",
+    file: 'src/main/chain/chain-service.ts',
+    find: '  const exitPinned: HopSpec = { ...exitSpec, addrs: await withPrivatelyResolvedAddrs(exitSpec.addrs) }',
+    replace: '  const exitPinned: HopSpec = { ...exitSpec }\n  void withPrivatelyResolvedAddrs',
+    run: ['src/main/chain/chain-service.test.ts'],
+  },
+
   // --- startup and the renderer ----------------------------------------------------
   {
     name: '[REL-14] the second instance quits through before-quit',

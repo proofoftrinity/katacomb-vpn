@@ -312,6 +312,42 @@ describe('reconnecting a saved session', () => {
   }
 })
 
+test('[REL-27] "connected" is announced only after the tunnel is proven, never during the bring-up', async (t) => {
+  let release: () => void = () => undefined
+  const h = ipc.fresh({ fakes: { 'net-fetch': {
+    // The traffic proof is the last step of a bring-up; hold it there.
+    fetchFreshSocket: async () => { await new Promise<void>((r) => { release = r }); return { status: 200 } as never },
+  } } })
+  t.after(() => h.dispose())
+  await h.settle(h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE))
+  const connecting = h.invoke('CONNECTION_CONNECT', { protocol: 'wireguard' })
+  await h.advance(1_000)
+  assert.equal(h.tunnel.up, true, 'the interface is up')
+  assert.deepEqual(h.sent('CONNECTION_STATE_CHANGE').filter(([s]) => s === 'connected'), [], 'but nothing has claimed "connected" yet')
+  release()
+  await h.settle(connecting)
+  assert.deepEqual(h.sent('CONNECTION_STATE_CHANGE').at(-1), ['connected'])
+})
+
+describe('[MH-20] plan and subscription changes refuse while the tunnel is up', () => {
+  const MUTATIONS: Array<[string, unknown]> = [
+    ['SUBSCRIPTION_CANCEL', { subscriptionId: '77' }],
+    ['SUBSCRIPTION_RENEW', { subscriptionId: '77', planId: '42', denom: 'udvpn' }],
+    ['SUBSCRIPTION_UPDATE_POLICY', { subscriptionId: '77', policy: 1 }],
+  ]
+  for (const [key, req] of MUTATIONS) {
+    test(`[MH-20] ${key} fails fast through the tunnel instead of hanging on the RPC`, async (t) => {
+      const h = ipc.fresh({})
+      t.after(() => h.dispose())
+      await connectWireGuard(h)
+      const m = mark(h)
+      const err = await h.settleError(h.invoke(key as Parameters<typeof h.invoke>[0], req))
+      assert.match(err.message, /Disconnect the VPN before managing subscriptions/)
+      assert.deepEqual(after(h.world.log, m).filter((c) => c.mod === 'plans/plan-service' || c.fn === 'openChainFlow').map((c) => c.fn), [])
+    })
+  }
+})
+
 describe('what CONNECTION_CONNECT accepts', () => {
   for (const protocol of ['wireguard', 'amneziawg', 'openvpn']) {
     test(`[PRO-7] local-proxy mode is refused for ${protocol}, which routes the whole device`, async (t) => {

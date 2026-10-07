@@ -56,6 +56,8 @@ function isConstExpr(n: ts.Expression): boolean {
   if (ts.isPrefixUnaryExpression(n)) return isConstExpr(n.operand)
   if (ts.isBinaryExpression(n)) return isConstExpr(n.left) && isConstExpr(n.right)
   if (ts.isAsExpression(n) && n.type.getText() === 'const') return isConstExpr(n.expression)
+  if (ts.isArrayLiteralExpression(n)) return n.elements.every(isConstExpr)
+  if (ts.isObjectLiteralExpression(n)) return n.properties.every((p) => ts.isPropertyAssignment(p) && isConstExpr(p.initializer))
   return false
 }
 
@@ -116,7 +118,8 @@ export async function bundle(spec: BundleSpec): Promise<Bundle> {
         const stub = spec.stubs?.[args.path] ?? spec.stubs?.[args.path.replace(/^node:/, '')]
         if (stub && !args.importer.startsWith(HARNESS)) return { path: resolve(ROOT, stub) }
         if (builtins.has(args.path) || args.path === 'electron' || args.importer.startsWith(HARNESS)) return undefined
-        if (allowed.has(packageOf(args.path))) return undefined
+        // Only the repo's own imports are policed; an allowed package brings its own tree.
+        if (args.importer.includes('/node_modules/') || allowed.has(packageOf(args.path))) return undefined
         return { errors: [{ text: `unexpected npm import '${args.path}' from ${relative(ROOT, args.importer)}: fake its importer, or allow the package` }] }
       })
       b.onLoad({ filter: /.*/, namespace: 'kv-fake' }, (args) => ({
