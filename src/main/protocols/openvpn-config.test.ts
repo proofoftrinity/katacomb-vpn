@@ -86,7 +86,7 @@ test('buildOpenVpnConfig omits explicit-exit-notify for tcp', () => {
   assert.ok(!config.includes('explicit-exit-notify'))
 })
 
-test('buildOpenVpnConfig prefers an IPv4 endpoint over IPv6 and hostnames', () => {
+test('[REL-7] buildOpenVpnConfig prefers an IPv4 endpoint over IPv6 and hostnames', () => {
   const config = buildOpenVpnConfig(handshake(), ['2001:db8::1', 'node.example.com', '198.51.100.7'])
   assert.ok(config.includes('remote 198.51.100.7 1194'))
 })

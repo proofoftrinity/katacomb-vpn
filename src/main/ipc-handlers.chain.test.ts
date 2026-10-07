@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { loadIpcHandlers, WALLET_ADDRESS, type FreshOptions, type IpcHarness } from '../../test/harness/ipc.ts'
+import { loadIpcHandlers, WALLET_ADDRESS, T0, type FreshOptions, type IpcHarness } from '../../test/harness/ipc.ts'
 import { REQUEST, merge, worldFor, NODE_WG, NODE_ENTRY, NODE_EXIT } from '../../test/harness/requests.ts'
 
 // Signed replies and the two-hop chain's privacy rules (docs/invariants/node-trust.md,
@@ -121,5 +121,88 @@ describe('the chain never shows the exit hop who the user is', () => {
     const s = await h.settle(h.invoke('CONNECTION_STATUS')) as { nodeType: number; nodeAddress: string }
     assert.equal(s.nodeType, 2)
     assert.equal(s.nodeAddress, NODE_ENTRY, 'clicking the exit hop still makes the entry the entry')
+  })
+})
+
+describe('[MH-5] each hop is graded before it is bought, and a refusal buys nothing', () => {
+  // A vless/tcp inbound with no TLS: fine for a single hop, no use as either end of a chain.
+  const PLAIN = { port: '', proxy_protocol: 1, transport_protocol: 7, transport_security: 1 }
+  const TLS = { port: '', proxy_protocol: 1, transport_protocol: 7, transport_security: 2 }
+  const listing = (entry: unknown[] | Error, exit: unknown[] | Error): FreshOptions => ({ fakes: { 'nodes/node-tester': {
+    fetchNodeServiceMetadata: async (api: string) => {
+      const answer = api.includes('entry') ? entry : exit
+      if (answer instanceof Error) throw answer
+      return answer as never
+    },
+  } } })
+  const bought = (h: IpcHarness) => h.calls('chain/chain-service', 'subscribeToNode').map((c) => (c.args[0] as { nodeAddress: string }).nodeAddress)
+
+  test('[MH-5] an entry that cannot be wrapped in TLS is refused before anything is bought', async (t) => {
+    const h = ipc.fresh(chainWorld(listing([PLAIN], [TLS])))
+    t.after(() => h.dispose())
+    const err = await h.settleError(h.invoke('CONNECTION_SUBSCRIBE_CHAIN', REQUEST.CONNECTION_SUBSCRIBE_CHAIN))
+    assert.match(err.message, /not charged/)
+    assert.deepEqual(bought(h), [])
+  })
+
+  test('[MH-5] a pre-9.0.0 entry that publishes no listing is refused, not bought and refunded', async (t) => {
+    const h = ipc.fresh(chainWorld(listing(new Error('404'), [TLS])))
+    t.after(() => h.dispose())
+    const err = await h.settleError(h.invoke('CONNECTION_SUBSCRIBE_CHAIN', REQUEST.CONNECTION_SUBSCRIBE_CHAIN))
+    assert.match(err.message, /not charged.*9\.0\.0/s)
+    assert.deepEqual(bought(h), [])
+  })
+
+  test('[MH-5] an exit that fails its grading (asked through the entry) is never bought; the entry is refunded', async (t) => {
+    const h = ipc.fresh(chainWorld(listing([TLS], [PLAIN])))
+    t.after(() => h.dispose())
+    await h.settleError(h.invoke('CONNECTION_SUBSCRIBE_CHAIN', REQUEST.CONNECTION_SUBSCRIBE_CHAIN))
+    assert.deepEqual(bought(h), [NODE_ENTRY], 'only the entry, which the exit has to be asked through')
+    assert.deepEqual(h.calls('chain/chain-service', 'endSession').map((c) => (c.args[0] as { sessionId: string }).sessionId), ['1001'])
+  })
+})
+
+describe('[MH-12] the exit never proves, so the chain has a deadline: warned before it, stood down after it only if dead', () => {
+  const row = (id: string, inactiveAtMs: number) => ({
+    id, nodeAddress: id === '1001' ? NODE_ENTRY : NODE_EXIT, status: 'active', downloadBytes: '0', uploadBytes: '0',
+    maxBytes: String(1024 ** 3), durationSeconds: 0, maxDurationSeconds: null, inactiveAt: new Date(inactiveAtMs).toISOString(),
+    startAt: new Date(T0).toISOString(), subscriptionId: null, priceDenom: 'udvpn', priceValue: '5000000',
+  })
+  const DEADLINE = T0 + 20 * 60_000 // the exit's inactiveAt: purchase + statusTimeout, never moved
+  async function chainUp(h: IpcHarness): Promise<void> {
+    await h.settle(h.invoke('CONNECTION_SUBSCRIBE_CHAIN', REQUEST.CONNECTION_SUBSCRIBE_CHAIN))
+    await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: 'xray' }))
+    assert.equal(h.tunnel.up, true)
+  }
+  const world = () => chainWorld({ chainSessions: [row('1001', T0 + 3 * 3600_000), row('1002', DEADLINE)] })
+  const warnings = (h: IpcHarness) => h.world.notifications.filter((n) => /chain stops in about/.test(n.body ?? ''))
+
+  test('[MH-12] one warning inside the last ten minutes; past the deadline, a tunnel carrying nothing is stood down as hop-closed', async (t) => {
+    const h = ipc.fresh(world())
+    t.after(() => h.dispose())
+    await chainUp(h)
+    await h.advance(DEADLINE - 11 * 60_000 - Date.now())
+    assert.deepEqual(warnings(h), [], 'nothing yet, eleven minutes out')
+    await h.advance(2 * 60_000)
+    assert.equal(warnings(h).length, 1)
+    await h.advance(5 * 60_000)
+    assert.equal(warnings(h).length, 1, 'warned once, not on every tick')
+    assert.equal(h.tunnel.up, true, 'nothing torn down before the deadline')
+    await h.advance(DEADLINE + 30_000 - Date.now()) // the chain's EndBlocker has had its slack
+    h.tunnel.carries = false
+    await h.advance(60_000)
+    assert.equal(h.tunnel.up, false)
+    const status = await h.settle(h.invoke('CONNECTION_STATUS')) as { expired?: { reason: string; chainRole?: string } }
+    assert.deepEqual([status.expired?.reason, status.expired?.chainRole], ['hop-closed', 'exit'])
+  })
+
+  test('[MH-12] control: past the deadline, a chain still carrying traffic is left alone (the exit proved after all)', async (t) => {
+    const h = ipc.fresh(world())
+    t.after(() => h.dispose())
+    await chainUp(h)
+    await h.advance(DEADLINE + 5 * 60_000 - Date.now())
+    assert.equal(h.tunnel.up, true)
+    const status = await h.settle(h.invoke('CONNECTION_STATUS')) as { state: string; expired?: unknown }
+    assert.deepEqual([status.state, status.expired], ['connected', undefined])
   })
 })

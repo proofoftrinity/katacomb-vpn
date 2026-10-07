@@ -1,7 +1,7 @@
 import { describe, test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { availableParallelism, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -30,11 +30,37 @@ before(() => {
 })
 after(() => rmSync(template, { recursive: true, force: true }))
 
+/**
+ * Give a canary a private copy of its file when the file sits under a LINKED tree:
+ * written through the link, the mutation would land in the real checkout. Each
+ * directory on the way down becomes real (its other entries still links), and the
+ * file itself a copy.
+ */
+function privatize(dir: string, rel: string): void {
+  const parts = rel.split('/')
+  let cur = dir
+  for (let i = 0; i < parts.length; i++) {
+    const p = join(cur, parts[i])
+    if (lstatSync(p).isSymbolicLink()) {
+      const real = realpathSync(p)
+      unlinkSync(p)
+      if (i === parts.length - 1) {
+        copyFileSync(real, p)
+        return
+      }
+      mkdirSync(p)
+      for (const e of readdirSync(real)) symlinkSync(join(real, e), join(p, e))
+    }
+    cur = p
+  }
+}
+
 async function ranRed(c: Canary): Promise<{ red: boolean; output: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'kv-canary-'))
   try {
     for (const p of COPY) cpSync(join(template, p), join(dir, p), { recursive: true })
     for (const p of LINK) symlinkSync(join(ROOT, p), join(dir, p))
+    privatize(dir, c.file)
     const path = join(dir, c.file)
     const src = readFileSync(path, 'utf-8')
     const hits = src.split(c.find).length - 1

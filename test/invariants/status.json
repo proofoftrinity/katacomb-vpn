@@ -1,26 +1,10 @@
 {
   "pending": {},
   "partial": {
-    "MH-5": "the entry is graded before the wrapper and the exit before its purchase (static), and the chain rule is pinned; nothing bought when grading refuses is not (P2)",
-    "MH-9": "a reconnect refuses a tombstone; retireSessionConfig writing one is not (it runs only after a real cancel tx)",
-    "MH-12": "chainDeadlineStep is pinned; the checkChainExitDeadline wiring is not (P4)",
-    "NT-1": "the guards, the root-side re-check, and the WireGuard and V2Ray sinks are pinned; the xray, hysteria2, AmneziaWG and OpenVPN sinks are not",
-    "PRO-7": "proxy mode is refused for the root protocols; the mode never being persisted, and reconnect replaying desiredMode, are not (P4)",
-    "REL-2": "the lock, the epoch, the queued-connect refusal and the locked give-up are pinned; desiredProtocol staying distinct from vpn-manager's activeProtocol is not",
-    "REL-5": "withTimeout, broadcastOrTimeout and the bounded refund are pinned; timeoutHeight on the three session txs is not (P5)",
-    "REL-7": "the WireGuard and V2Ray pinners, and pin-before-guard at the WireGuard sink, are pinned; the hysteria2 pin and the other sinks' order are not",
-    "REL-9": "replaceDnsLines is pinned; the call-site condition (WG/AWG only, not with the system resolver) is not (P2)",
-    "REL-12": "the 404-only retry rule is pinned; one RPC flow per handler is not",
-    "REL-17": "pinned for a WireGuard connect and the quota-loop stall; the other protocol branches and the reconnect success path are not",
-    "REL-18": "the predicate is pinned; assertProxyChildStarted using it is not (P4)",
-    "REL-23": "isSessionNotActive is pinned; decodeSession and the renderer gates are not (P5/P7)",
-    "REL-25": "the helper argv and decideFirewallAction are pinned; reapplyFirewall under the connection lock is not (P2)",
-    "SL-1": "the dead-tunnel wording is pinned; the Sessions-tab End copy is not"
+    "NT-3": "the limit is pinned on every unsigned connect review, and a deny-list of protection claims runs over all renderer copy; copy phrased outside the deny-list is still reviewed by hand",
+    "REL-9": "the connect paths are pinned (WG/AWG only, replaced not appended, 'system' keeps the node's list); the auto-reconnect replays the saved config with the node's list (found 2026-10-07, todo test in ipc-handlers.protocols.test.ts, fix awaiting approval)"
   },
   "manual": {
-    "NT-3": "UI-copy rule: reviewed by hand whenever copy about TLS or Reality changes",
-    "PH-6": "systemd unit property: verified by scripts/verify-deb-containers.sh and the VM fullcycle",
-    "PH-7": "maintainer-script behaviour: verified by scripts/verify-deb-containers.sh and the VM fullcycle",
     "SL-2": "chain governance parameter, verified against live mainnet; re-check on a hub upgrade",
     "SL-3": "chain fact verified against live mainnet; the app's use of it is pinned under MH-12",
     "SL-4": "chain fact verified against live mainnet (pagination.total); re-check on a hub upgrade"

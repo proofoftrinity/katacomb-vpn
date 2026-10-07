@@ -108,9 +108,16 @@ count.
     rejection.
 - **One main-process module on its own** (`vpn-manager.test.ts`, `kill-switch.test.ts`):
   `loadModule({ entries, fake, stubs })` from `test/harness/module.ts`, the same bundling
-  and fakes without the IPC layer. `stubs` swaps a Node builtin for a harness file
-  (`child_process` -> `test/harness/child-process.ts`, answered by
-  `fakes.child_process`).
+  and fakes without the IPC layer. `stubs` swaps an import for a harness file:
+  `child_process` -> `test/harness/child-process.ts` (answered by `fakes.child_process`),
+  `fs` -> `test/harness/fs.ts` (the real filesystem, but `fakes.fs.existsSync` decides
+  paths outside the test's temp dirs, such as the system openvpn), and the SDK root ->
+  `test/harness/sentinel-sdk.ts` (the real SDK, but `fakes.sdk.connectWithSigner` answers
+  the signing connection a module opens on its own, as `endSession` does).
+- **Scripts that run as root** (`test/static/privileged-install.test.ts`): the install
+  steps are RUN in a temp sandbox, against a helper that is executing at the time, with
+  only `chown`/`systemctl` stood in for. A string match would not show that `cp` onto a
+  running binary fails.
 - **Golden data files** (`test/fixtures/settings/`): the `settings.json` and
   `wallets-index.json` each past release wrote. `settings.test.ts` runs the startup
   migrations over every one ([ARCH-5]). They are what is on users' disks: never edit one
@@ -155,6 +162,8 @@ RED; a canary the suite survives means nothing guards that rule any more.
 - `find` must match exactly once. When a refactor moves the anchor, the canary fails
   with "re-aim it": re-aim it at the new code, never delete it.
 - A canary may name several test files (`run`), or `go:<package>` for the daemon.
+- A canary may target a file under a linked tree (`resources/`): the runner gives that
+  file a private copy first, so the mutation never reaches the real checkout.
 
 ## Writing a test that guards a rule
 

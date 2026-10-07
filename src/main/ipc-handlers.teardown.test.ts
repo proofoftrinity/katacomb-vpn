@@ -46,6 +46,34 @@ describe('the kill switch, from the main side', () => {
     assert.equal(marker(h), true)
   })
 
+  test('[REL-25] control: a LAN Sharing toggle re-arms the live chain at once, with the sentinel', async (t) => {
+    const h = ipc.fresh({ settings: { killSwitch: true } })
+    t.after(() => h.dispose())
+    await connect(h)
+    await h.settle(h.invoke('SETTINGS_SET', { lanSharing: true }))
+    await h.advance(100)
+    assert.deepEqual(privileged(h).filter((a) => a.startsWith('killswitch-on')), ['killswitch-on sntl0 203.0.113.7', 'killswitch-on sntl0 203.0.113.7 lan-sharing'])
+  })
+
+  test('[REL-25] a firewall toggle queues behind the connection lock: it never re-arms a chain a disconnect is tearing down', async (t) => {
+    let release: () => void = () => undefined
+    const h = ipc.fresh({ settings: { killSwitch: true }, fakes: { 'helper/privileged': {
+      runPrivileged: async (argv: string[]) => { if (argv[0] === 'killswitch-off') await new Promise<void>((r) => { release = r }) },
+    } } })
+    t.after(() => h.dispose())
+    await connect(h)
+    const disconnecting = h.invoke('CONNECTION_DISCONNECT')
+    await h.advance(1_000)
+    assert.ok(privileged(h).includes('killswitch-off'), 'the disconnect is mid-teardown, holding the lock')
+    await h.settle(h.invoke('SETTINGS_SET', { lanSharing: true })) // returns at once: the reapply is queued
+    await h.advance(1_000)
+    release()
+    await h.settle(disconnecting)
+    await h.advance(1_000)
+    assert.deepEqual(privileged(h).filter((a) => a.startsWith('killswitch-on')), ['killswitch-on sntl0 203.0.113.7'], 'armed once, by the connect')
+    assert.equal(marker(h), false)
+  })
+
   test('[REL-29] a disconnect reverts what the MARKER says is armed, not what the setting says now', async (t) => {
     const h = ipc.fresh({ settings: { killSwitch: true } })
     t.after(() => h.dispose())

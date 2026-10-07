@@ -73,3 +73,53 @@ test('[REL-24] [RN-2] the Sessions tab uses the tested decisions: Connect gates 
   assert.ok(called.has('isQuotaUsedUp'), 'quotaUsedUp comes from utils/session-card')
   assert.ok(called.has('flooredUsage'), 'the gauges are floored by utils/session-card')
 })
+
+test('[REL-23] the tab badge and the Sessions header count active rows only, never the ones settling', () => {
+  const COUNTS: Array<[string, string]> = [['src/renderer/App.tsx', 'sessionCount'], ['src/renderer/components/ActiveSessions.tsx', 'activeCount']]
+  for (const [file, name] of COUNTS) {
+    const decl = nodes(parse(file)).filter(ts.isVariableDeclaration).find((d) => d.name.getText() === name)
+    assert.ok(decl?.initializer, `${name} moved in ${file}: re-aim this test`)
+    assert.match(decl.initializer.getText(), /\.filter\(\(s\) => s\.status === 'active'\)\.length$/, `${file}: ${name}`)
+  }
+})
+
+/** The text a renderer file can put on screen: string and template literals and JSX text, minus imports and classNames. */
+function shownText(file: string): string[] {
+  const sf = parse(file)
+  return nodes(sf).filter((n): n is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral | ts.TemplateLiteralLikeNode | ts.JsxText =>
+    ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n) || ts.isJsxText(n))
+    .filter((n) => !ts.isImportDeclaration(n.parent) && !(ts.isJsxAttribute(n.parent) && n.parent.name.getText() === 'className'))
+    .map((n) => n.text.replace(/\s+/g, ' ').trim())
+    .filter((t) => t.length > 0)
+}
+
+test('[SL-1] the Sessions tab never words End as a refund: End is phase 1, and the remainder is forfeited', () => {
+  const shown = shownText('src/renderer/components/ActiveSessions.tsx')
+  assert.deepEqual(shown.filter((t) => /refund|money back|get .* back|returned to you|reimburs/i.test(t)), [])
+  assert.ok(shown.some((t) => /forfeit/i.test(t)), 'the End confirmation says what is given up')
+})
+
+// [NT-3] The channel that delivers a node's keys authenticates nothing, so no copy may
+// claim the wrapping defends against the network the user is on. What this can read
+// off the source: no such claim in any shown string, and the limit itself stated on
+// every connect review where the node does not sign its replies.
+const DEFEATS_THE_NETWORK = /(protect|secure|shield|safe)\w*\s+(you\s+)?(from|against)\s+(your\s+)?(ISP|local network|the network|wi-?fi|on-path|man-in-the-middle|MITM|intercept)|can(no|')t be (intercepted|tampered)|immune to|MITM[- ]proof|tamper[- ]proof|impossible to intercept/i
+
+test('[NT-3] no renderer copy claims the TLS/Reality wrapping defeats the local network', () => {
+  const claims = rendererFiles.filter((f) => /\.tsx?$/.test(f) && !f.endsWith('.test.ts'))
+    .flatMap((f) => shownText(f).filter((t) => DEFEATS_THE_NETWORK.test(t)).map((t) => `${f}: ${t}`))
+  assert.deepEqual(claims, [])
+})
+
+test('[NT-3] every connect review states the limit unless the node signs: keysLimit is silent only for signs === true', () => {
+  const sf = parse('src/renderer/components/ConnectReview.tsx')
+  const fn = nodes(sf).filter(ts.isFunctionDeclaration).find((f) => f.name?.text === 'keysLimit')
+  assert.ok(fn?.body, 'keysLimit moved: re-aim this test')
+  const nulls = nodes(fn.body).filter((n): n is ts.ReturnStatement => ts.isReturnStatement(n) && n.expression?.kind === ts.SyntaxKind.NullKeyword)
+  assert.equal(nulls.length, 1)
+  assert.ok(ts.isIfStatement(nulls[0].parent) && nulls[0].parent.expression.getText() === 'signs === true')
+  assert.match(fn.body.getText(), /whoever can intercept the setup request can answer it/)
+  for (const review of ['ConnectionModal', 'plans/PlanConnectModal', 'multihop/ChainReviewModal']) {
+    assert.match(read(`src/renderer/components/${review}.tsx`), /keysLimit\(\{/, `${review} shows the limit`)
+  }
+})
