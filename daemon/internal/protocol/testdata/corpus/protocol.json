@@ -30,7 +30,7 @@
     "xfrm_policies",
     "wireguard_handshake"
   ],
-  "_requests": "Framing and parse taxonomy. `outcome` is one of valid | invalidJSON | invalidRequest | blank. The two invalid outcomes get a fixed {\"id\":0,...} reply and the connection STAYS OPEN \u2014 deviation 3 from the bash helper, because any group member could otherwise bounce the daemon with a single `null` line.",
+  "_requests": "Framing and parse taxonomy. `outcome` is one of valid | invalidJSON | invalidRequest | blank. The two invalid outcomes get a fixed {\"id\":0,...} reply and the connection STAYS OPEN — deviation 3 from the bash helper, because any group member could otherwise bounce the daemon with a single `null` line.",
   "requests": [
     {
       "name": "status",
@@ -41,7 +41,7 @@
     },
     {
       "name": "with-args",
-      "line": "{\"id\":7,\"op\":\"dns_set\",\"args\":{\"ip\":\"1.1.1.1\"}}",
+      "line": "{\"id\":7,\"op\":\"dns_set\",\"args\":{\"dnsIp\":\"1.1.1.1\"}}",
       "outcome": "valid",
       "id": 7,
       "op": "dns_set"
@@ -171,5 +171,27 @@
     }
   ],
   "_staleDaemonMarker": "What an OLD daemon replies to an op it does not know. vpn-manager matches this prefix to detect a daemon left running across an upgrade; it is the fallback for daemons too old to answer protocol_version.",
-  "unknownOpPrefix": "unknown op: "
+  "unknownOpPrefix": "unknown op: ",
+  "_limits": "Values both sides enforce and must agree on: the split-tunnel cap (ops.MaxBypassRoutes / config-guard's sanitizeBypassRoutes) and the argv word that turns LAN sharing on (guard.LanSharingArg / LAN_SHARING_ARG). They were two hand-kept literals each.",
+  "limits": {
+    "maxBypassRoutes": 64,
+    "lanSharingArg": "lan-sharing"
+  },
+  "_results": "What the read-only ops answer with. server/corpus_test.go marshals the real producers and compares keys and JSON types; daemon-client's readers are tested against these and against malformed variants, which must read as 'cannot know'.",
+  "results": {
+    "protocol_version": {
+      "version": 1,
+      "ops": [
+        "protocol_version",
+        "status"
+      ]
+    },
+    "xfrm_policies": {
+      "count": 2
+    },
+    "wireguard_handshake": {
+      "kernel": true,
+      "ageSeconds": 42
+    }
+  }
 }

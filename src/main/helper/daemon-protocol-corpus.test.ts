@@ -10,6 +10,7 @@ import {
   type DaemonRequest,
   type DaemonResponse,
 } from './daemon-protocol.ts'
+import { LAN_SHARING_ARG, sanitizeBypassRoutes } from '../config-guard.ts'
 
 // daemon-protocol.ts says the Go side "mirrors these shapes byte for byte", and
 // until this file existed nothing checked it — unlike the config-guard pair,
@@ -32,6 +33,7 @@ interface Corpus {
   requests: { name: string; line: string; outcome: string; id?: number; op?: string }[]
   responses: { name: string; response: DaemonResponse; encoded: string }[]
   unknownOpPrefix: string
+  limits: { maxBypassRoutes: number; lanSharingArg: string }
 }
 
 const corpus = JSON.parse(readFileSync(CORPUS, 'utf-8')) as Corpus
@@ -60,10 +62,13 @@ test('the client serialises requests the way the corpus says the daemon parses t
     // daemon-client.ts builds its line as JSON.stringify({id, op, args}) + '\n'.
     // Rebuild each valid fixture the same way and assert it round-trips to the
     // id/op the Go parser is pinned to produce.
+    // Byte for byte: each valid fixture must be exactly what that serializer emits for
+    // its id/op/args, so the lines the Go parser is pinned on are the lines the client
+    // sends (daemon-readers.test.ts checks the client really writes this form).
     const parsed = JSON.parse(c.line) as DaemonRequest
-    const rebuilt = JSON.parse(JSON.stringify(parsed)) as DaemonRequest
-    assert.equal(rebuilt.id, c.id, `${c.name}: id`)
-    assert.equal(rebuilt.op, c.op, `${c.name}: op`)
+    assert.equal(JSON.stringify({ id: parsed.id, op: parsed.op, args: parsed.args }), c.line, `${c.name}: not the client's own serialization`)
+    assert.equal(parsed.id, c.id, `${c.name}: id`)
+    assert.equal(parsed.op, c.op, `${c.name}: op`)
   }
 })
 
@@ -92,4 +97,12 @@ test('the stale-daemon marker is the string vpn-manager matches', () => {
     corpus.unknownOpPrefix.includes('unknown op'),
     'vpn-manager matches on "unknown op"; the corpus prefix must contain it',
   )
+})
+
+test('[PH-4] the limits both sides enforce agree with the corpus', () => {
+  // The split-tunnel cap, read off the TS sanitizer's behaviour; Go's ops.MaxBypassRoutes
+  // is held to the same corpus value in server/corpus_test.go.
+  const many = Array.from({ length: corpus.limits.maxBypassRoutes + 10 }, (_, i) => `10.${i}.0.0/16`)
+  assert.equal(sanitizeBypassRoutes(many).length, corpus.limits.maxBypassRoutes)
+  assert.equal(LAN_SHARING_ARG, corpus.limits.lanSharingArg)
 })

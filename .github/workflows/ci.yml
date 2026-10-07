@@ -58,6 +58,16 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # The daemon serves a socket and holds one mutex; its state is shared across
+      # concurrent connections, which is what the race detector exists for.
+      - name: Go race detector
+        run: cd daemon && go test -race -shuffle=on ./...
+
+      # The parsers root exposes (the socket protocol, the config guard, the
+      # AmneziaWG translation) under random input for 10 s each.
+      - name: Go fuzz smoke
+        run: npm run test:fuzz
+
       # Each canary breaks one money / root / privacy rule in a copy of the tree and
       # requires the suite to notice (test/canaries/canaries.ts). A canary that
       # survives means a test stopped guarding its rule.

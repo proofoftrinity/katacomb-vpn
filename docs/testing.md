@@ -13,7 +13,8 @@ wrong until shown otherwise. The rules for changing the suite itself are in
 | `npm run typecheck` | `tsc` over main+preload, renderer, and the tests (`tsconfig.test.json`) |
 | `npm test` | `node --test` over `src/**/*.test.ts` and `test/**/*.test.ts`, then `go test ./...` in `daemon/`, then the architecture-doc check |
 | `npm run test:daemon` | the Go tests alone |
-| `npm run test:canaries` | every mutation canary must turn its tests red (about 10 s) |
+| `npm run test:canaries` | every mutation canary must turn its tests red (about 20 s) |
+| `npm run test:fuzz` | each Go fuzz target for `FUZZTIME` (default 10 s); CI also runs the daemon under `-race` |
 | `npx electron-vite build && node scripts/check-bundle-requires.mjs` | CI: builds the app, then checks the bundles require no npm package ([ARCH-3]) |
 
 - Node 22.18+ (native type stripping, `engines` in `package.json`); Go is the
@@ -117,8 +118,14 @@ count.
 - **Cross-language corpus.** The TS config guard and the Go daemon guard read the same
   files, `daemon/internal/guard/testdata/corpus/` (format in its `README.md`), and both
   sides of the daemon wire protocol read
-  `daemon/internal/protocol/testdata/corpus/protocol.json`. A behaviour change goes into
-  the corpus, so both sides are held to it; never into one side's test alone.
+  `daemon/internal/protocol/testdata/corpus/protocol.json`: the framing, the op list, the
+  limits both sides enforce (`limits`) and the shapes of the read-only replies
+  (`results`). A behaviour change goes into the corpus, so both sides are held to it;
+  never into one side's test alone.
+- **Go fuzz targets** (`FuzzParseRequest`, `FuzzAssertWireguardConfig`, `FuzzToUAPI`)
+  cover the parsers root exposes, seeded from the corpora, each asserting a property,
+  not just "no panic". The guard's oracle is wg-quick's own line parser. A crasher lands
+  in the package's `testdata/fuzz/`; commit it, and it runs with every `go test`.
 - **Static rules** (`test/static/`). A rule about the code rather than about what it
   computes - one door into main, no synchronous privileged call, the IPC contract,
   every bring-up under the lock - is checked by parsing the source with the TypeScript

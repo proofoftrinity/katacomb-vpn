@@ -381,6 +381,36 @@ export const CANARIES: Canary[] = [
     run: ['src/main/chain/chain-service.test.ts'],
   },
 
+  // --- the socket contract (P6) -------------------------------------------------------
+  {
+    name: "[PH-4] the daemon's bypass-route cap drifts from the app's",
+    file: 'daemon/internal/ops/tun.go',
+    find: 'const MaxBypassRoutes = 64',
+    replace: 'const MaxBypassRoutes = 65',
+    run: ['go:./internal/server/'],
+  },
+  {
+    name: "[PH-4] the app's bypass-route cap drifts from the daemon's",
+    file: 'src/main/config-guard.ts',
+    find: 'const MAX_BYPASS_ROUTES = 64',
+    replace: 'const MAX_BYPASS_ROUTES = 63',
+    run: ['src/main/helper/daemon-protocol-corpus.test.ts'],
+  },
+  {
+    name: '[PH-2] the daemon renames a result field the app reads',
+    file: 'daemon/internal/ops/handshake.go',
+    find: 'json:"ageSeconds"',
+    replace: 'json:"age_seconds"',
+    run: ['go:./internal/server/'],
+  },
+  {
+    name: '[PH-2] a daemon whose op list cannot be read is treated as stale',
+    file: 'src/main/helper/daemon-client.ts',
+    find: '  if (!caps || caps.ops === null) return false',
+    replace: '  if (!caps || caps.ops === null) return true',
+    run: ['src/main/helper/daemon-readers.test.ts'],
+  },
+
   // --- startup and the renderer ----------------------------------------------------
   {
     name: '[REL-14] the second instance quits through before-quit',

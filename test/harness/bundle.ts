@@ -26,7 +26,11 @@ export interface BundleSpec {
   fake: string[]
   /** npm packages allowed to be bundled for real. */
   allowPackages?: string[]
-  /** Bare specifiers (a Node builtin such as `child_process`) to replace with a harness file. */
+  /**
+   * Replace an import with a hand-written harness file: a bare specifier (a Node
+   * builtin such as `child_process`), or a repo module given as `src/...` without its
+   * extension when a generated recorder will not do (its constants are computed).
+   */
   stubs?: Record<string, string>
 }
 
@@ -102,6 +106,9 @@ export async function bundle(spec: BundleSpec): Promise<Bundle> {
   const fakes = new Set(spec.fake.map((p) => resolve(ROOT, `${p}.ts`)))
   for (const f of fakes) if (!existsSync(f)) throw new Error(`no such module to fake: ${relative(ROOT, f)}`)
   const allowed = new Set(spec.allowPackages ?? [])
+  const moduleStubs = new Map(Object.entries(spec.stubs ?? {})
+    .filter(([k]) => k.startsWith('src/'))
+    .map(([k, v]) => [resolve(ROOT, `${k}.ts`), resolve(ROOT, v)]))
 
   const plugin: Plugin = {
     name: 'kv-harness',
@@ -111,6 +118,8 @@ export async function bundle(spec: BundleSpec): Promise<Bundle> {
       b.onResolve({ filter: /^[./]/ }, (args) => {
         if (args.namespace === 'kv-fake') return undefined
         const target = args.path.startsWith('/') ? resolveTs(args.path, args.path) : resolveTs(args.importer, args.path)
+        const stub = target && !args.importer.startsWith(HARNESS) ? moduleStubs.get(target) : undefined
+        if (stub) return { path: stub }
         if (target && fakes.has(target)) return { path: target, namespace: 'kv-fake' }
         return undefined
       })
