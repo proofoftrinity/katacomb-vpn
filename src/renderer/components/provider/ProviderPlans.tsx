@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { LeaseSummary, MyPlan, PlanStats, ProviderEconomics, SentNode, TokenPrice } from '../../types'
 import { computeBreakEven, isActiveLease, netOfStakingShare, parseDecShare } from '../../../shared/provider-economics'
 import { isTestPlan } from '../../../shared/test-plan'
@@ -891,10 +891,12 @@ function visibilityChecks({ plan, stats, statsUnknown, providerName, providerAct
  * Create a plan. It lands INACTIVE on chain — activation is a separate tx, offered
  * in its workspace once it appears — so nothing here needs to track a half-created plan.
  *
- * Laid out as a plan's workspace (2026-10-07): the terms with their break-even, where
- * the price sits among the plans a subscriber is shown, the workspace's "Will
- * subscribers find it?" checks worked out for the draft, and the steps after it, with
- * the buttons in a footer that does not scroll away. The checks replaced a line that
+ * Laid out as a plan's workspace (2026-10-07): the terms with their break-even beside
+ * where the price sits among the plans a subscriber is shown, then the workspace's
+ * "Will subscribers find it?" checks worked out for the draft, with the buttons in a
+ * footer that does not scroll away. A card of the three steps after creating it was
+ * dropped: it repeated the setup route above the pane, so only "created inactive"
+ * survives, in the footer. The checks replaced a line that
  * said "Listed in the catalog once it is active", which was false for a provider
  * whose name reads as a test account and for every plan created with no nodes.
  */
@@ -1006,9 +1008,6 @@ function CreatePlanForm({ price: tokenPrice, economics, providerName, readOnly, 
     tip: 'The catalog\'s "Ready to connect" filter is on by default and drops any plan counted at zero nodes. You lease and link nodes on the plan\'s own page once it exists.',
   })
 
-  const hasLeases = economics !== null && economics.activeLeases > 0
-  const steps = ['Create it', hasLeases ? 'Link a node' : 'Lease and link a node', 'Activate it']
-
   async function handleCreate() {
     if (!valid || priceUdvpn === null) return
     if (!(await requestConfirm({
@@ -1051,67 +1050,48 @@ function CreatePlanForm({ price: tokenPrice, economics, providerName, readOnly, 
           <p className="text-text-tertiary text-xs mt-1">What subscribers buy: gigabytes over a period, at your price, served by the nodes you link to it.</p>
         </div>
 
-        <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
-          <SectionTitle>Terms</SectionTitle>
-          <div className="space-y-2.5">
-            <TermRow label="Data" unit="GB" value={gigabytes} onChange={setGigabytes} presets={[10, 100, 1000]} invalid={!gbOk}
-              hint={gbOk && gb >= 1000 && draft ? formatBytes(draft.bytes) : null} />
-            <TermRow label="Valid for" unit="days" value={days} onChange={setDays} presets={[7, 30, 90, 365]} invalid={!daysOk} />
-            <TermRow label="Price" unit="P2P" value={price} onChange={setPrice} invalid={!priceOk}
-              hint={perGb !== null ? `${formatPerGb(perGb)} P2P per GB` : null} />
-          </div>
-          {valid && breakEven && (
-            <div className="border-t border-border mt-3.5 pt-3">
-              <BreakEvenHint {...breakEven} />
+        {/* Side by side once the pane can hold both: the terms at their own width, the
+            strip in the rest. They stack below 1180px, where the pane is about 700px. */}
+        <div className="grid grid-cols-1 min-[1180px]:grid-cols-[400px_minmax(0,1fr)] gap-4">
+          <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
+            <SectionTitle>Terms</SectionTitle>
+            <div className="space-y-2.5">
+              <TermRow label="Data" unit="GB" value={gigabytes} onChange={setGigabytes} presets={[10, 100, 1000]} invalid={!gbOk}
+                hint={gbOk && gb >= 1000 && draft ? formatBytes(draft.bytes) : null} />
+              <TermRow label="Valid for" unit="days" value={days} onChange={setDays} presets={[7, 30, 90, 365]} invalid={!daysOk} />
+              <TermRow label="Price" unit="P2P" value={price} onChange={setPrice} invalid={!priceOk}
+                hint={perGb !== null ? `${formatPerGb(perGb)} P2P per GB` : null} />
             </div>
-          )}
-        </section>
+            {valid && breakEven && (
+              <div className="border-t border-border mt-3.5 pt-3">
+                <BreakEvenHint {...breakEven} />
+              </div>
+            )}
+          </section>
 
-        <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
-          {draft ? (
-            <ValueStrip plan={draft} perGb={perGb} listed={listedPerGb} nodeMedian={nodeMedian}
-              headingClassName="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary" />
-          ) : (
-            <>
-              <SectionTitle>Value per GB</SectionTitle>
-              <p className="text-text-secondary text-sm">Fix the terms above to see where the price sits.</p>
-            </>
-          )}
-          {draft && <p className="text-text-tertiary text-[11px] mt-2">
-            {overview.fetchedAt === null
-              ? 'The plan catalog has not been read yet, so this compares against nodes only. Opening the Plans tab reads it.'
-              : listedPerGb.length === 0
-                ? `No plan a subscriber is shown with the catalog's default filters has a price per GB, so this compares against nodes only (catalog scan ${formatTimeAgo(overview.fetchedAt)}).`
-                : `Other listed plans: the ${listedPerGb.length.toLocaleString('en-US')} with a price per GB that a subscriber is shown with the catalog's default filters, from its scan ${formatTimeAgo(overview.fetchedAt)}.`}
-          </p>}
-        </section>
+          <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
+            {draft ? (
+              <ValueStrip plan={draft} perGb={perGb} listed={listedPerGb} nodeMedian={nodeMedian}
+                headingClassName="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary" />
+            ) : (
+              <>
+                <SectionTitle>Value per GB</SectionTitle>
+                <p className="text-text-secondary text-sm">Fix the terms to see where the price sits.</p>
+              </>
+            )}
+            {draft && <p className="text-text-tertiary text-[11px] mt-2">
+              {overview.fetchedAt === null
+                ? 'The plan catalog has not been read yet, so this compares against nodes only. Opening the Plans tab reads it.'
+                : listedPerGb.length === 0
+                  ? `No plan a subscriber is shown with the catalog's default filters has a price per GB, so this compares against nodes only (catalog scan ${formatTimeAgo(overview.fetchedAt)}).`
+                  : `Other listed plans: the ${listedPerGb.length.toLocaleString('en-US')} with a price per GB that a subscriber is shown with the catalog's default filters, from its scan ${formatTimeAgo(overview.fetchedAt)}.`}
+            </p>}
+          </section>
+        </div>
 
         <div className="bg-bg-secondary border border-border rounded-md px-3 py-3">
           <ChecksSection title="Will subscribers find it?" checks={checks} />
         </div>
-
-        <section className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
-          <SectionTitle>What happens next</SectionTitle>
-          {/* The provider setup route's discs and links (ProviderConsole SetupRoute),
-              so the steps read as the same kind of picture. */}
-          <div role="list" aria-label="Steps to selling the plan" className="flex items-center max-w-2xl">
-            {steps.map((label, i) => (
-              <Fragment key={label}>
-                {i > 0 && <span className="route-link route-link-dim flex-1 min-w-[14px] mx-2" />}
-                <span role="listitem" className="flex items-center gap-2 shrink-0">
-                  <span className={`${i === 0 ? 'route-disc route-disc-done' : 'route-disc route-disc-waiting'} w-6 h-6`}>
-                    <span className={`font-mono text-[11px] ${i === 0 ? 'text-accent' : ''}`}>{i + 1}</span>
-                  </span>
-                  <span className={`text-xs whitespace-nowrap ${i === 0 ? 'text-text-primary font-medium' : 'text-text-tertiary'}`}>{label}</span>
-                </span>
-              </Fragment>
-            ))}
-          </div>
-          <p className="text-text-secondary text-xs mt-2.5">
-            It lands inactive, so nobody can buy it until step 3. Steps 2 and 3 are on the plan&apos;s own
-            page: select it in the list once it is created.
-          </p>
-        </section>
       </div>
 
       <div className="shrink-0 border-t border-border px-5 pt-3.5 pb-4 flex flex-wrap items-center gap-x-4 gap-y-2.5">
@@ -1119,7 +1099,10 @@ function CreatePlanForm({ price: tokenPrice, economics, providerName, readOnly, 
           {error ? <FooterReason text={displayConnectError(error)} />
             : readOnly ? <FooterReason tone="muted" text="Disconnect the VPN to create this plan." />
               : termsProblem && <FooterReason text={termsProblem} />}
-          <p className="text-text-tertiary text-[11px]">This is an on-chain transaction, and costs the network fee only.</p>
+          <p className="text-text-tertiary text-[11px]">
+            It is created inactive, and you link nodes and activate it from its page afterwards.
+            This is an on-chain transaction, and costs the network fee only.
+          </p>
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={onCancel} disabled={busy} className="btn btn-secondary text-sm py-2 px-4 disabled:opacity-40 disabled:cursor-not-allowed">

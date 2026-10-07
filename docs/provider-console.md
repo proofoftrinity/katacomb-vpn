@@ -163,10 +163,11 @@ already-linked node was offered a Link button (2026-10-07). Unknown is never "no
 linked". A re-read keeps the previous table, and the acting row stays busy through it.
 
 **The New plan form** is laid out as a plan's workspace (2026-10-07): the terms with
-presets and the break-even line; the catalog's `ValueStrip` with the draft as the accent
-dot, against the plans a subscriber is shown with the DEFAULT filters (the set "See it as
-a subscriber" checks against); the workspace's checks worked out for the draft; and the
-three steps after it as a static route, not a wizard (nothing is tracked). The checks
+presets and the break-even line, beside the catalog's `ValueStrip` with the draft as the
+accent dot, against the plans a subscriber is shown with the DEFAULT filters (the set "See
+it as a subscriber" checks against); then the workspace's checks worked out for the
+draft. No steps card: it repeated the setup route above the pane, so "created inactive"
+is said once, in the footer. The checks
 replaced a line promising "Listed in the catalog once it is active", false for a
 provider name that reads as a test account and for every new plan, since none has nodes.
 The form states the handler's bounds (1 to 1,000,000 GB, 1 to 3,650 days, at most
