@@ -225,14 +225,16 @@ from `src/main/`; `src/shared/` is the only overlap.
   review, as for a connect. A blocking reason shared by many rows (provider inactive,
   tunnel up) is said ONCE with its fix, never as a disabled button on every row.
 - **Graphs are plain SVG and CSS, never a chart library or WebGL.** The value strip,
-  coverage map, lease runway, cost and income bars, break-even meter and validity gauge
-  are divs and `<svg>`, so they cost nothing at rest and draw with no GPU (checked with
+  coverage map, lease runway, cost and income bars, break-even meter, and validity and
+  data gauges are divs and `<svg>`, so they cost nothing at rest and draw with no GPU (checked with
   `--disable-gpu --disable-software-rasterizer`). Their maths lives in import-free
   helpers with tests (`plan-value.ts`, `lease-runway.ts`). Rules they keep: every figure is
   also said in words beside it (a sentence, a label, or a `title`), a chart with one bar
   becomes a figure, status colours only appear next to a word, and an unknown count shows
   `?` or a sentence, never 0. One hue in three steps for coverage (`.coverage-1/2/3`,
-  listed in full in `PlanDetailPane`'s `COVERAGE_CLASS`).
+  listed in full in `PlanDetailPane`'s `COVERAGE_CLASS`). A log axis labels at most six
+  decades, and powers of ten past four decimal places: shown test plans run from 1e-14 to
+  1e5 P2P per GB, and every decade labelled in decimals piled into one smear.
 - **`map/world-geo.ts` owns the small maps' world file**: `useWorldCountries`,
   `countryPoint` and the small-country fallbacks, shared by the Multi-hop `RouteMap` and
   the Plans coverage map. The Map tab's globe still loads its own copy.
@@ -246,6 +248,25 @@ from `src/main/`; `src/shared/` is the only overlap.
 - **A table whose rows are separate grids has no `auto` column.** Each row sizes its own
   auto column from its buttons while the header's is empty, so the header drifted off its
   values (the Provider nodes table, 2026-10-06). Fixed or fractional tracks only.
+- **Theme colours take no `/NN` opacity modifier.** Every colour in `tailwind.config.js`
+  is a `var()`, and Tailwind 3 cannot put an alpha on one, so `bg-accent/10` generates no
+  CSS at all. The catalog's selected row had no highlight for that reason, and a
+  `ring-accent/25` fell back to Tailwind's default blue (2026-10-07). Use the `-subtle`
+  tokens (12% tints) or a `color-mix` in `global.css`. App.tsx's tab badges and the
+  globe's legend still carry dead ones.
+- **Placeholders are for a FIRST load only.** `.skeleton` blocks in the shape of what is
+  coming, inside a `role="status"` with a label, replace a spinner line where nothing is
+  on screen yet; a refetch keeps the previous render. While they show, nothing else
+  claims a figure: the catalog toolbar drops its "0 of 0 plans".
+- **The catalog rows are a list box.** One tab stop (the selected row), Up/Down/Home/End
+  move the selection and the focus together, and Enter on the selected row presses the
+  pane's `data-plan-cta` button, which only opens the review window. The Provider plan
+  list takes Up/Down between Overview and the plans. Keys are named in `title` and
+  `aria-keyshortcuts`, never as arrow glyphs on screen.
+- **"See it as a subscriber" judges against the catalog's DEFAULT filters**, not the ones
+  on screen: the question is what a subscriber sees. It rides
+  `NavigationContext.goToPlanInCatalog` (the `goToPlansForNode` pattern, and it drops any
+  node filter); Show it anyway turns on exactly the chips that hid the plan.
 - **A modal's honesty paragraphs can sit behind chips when they sit mid-row.** `InfoTip`
   must be at a row's right end (it has no positioning logic), so each connect window's
   limits are toggle chips that open one shared panel below them (`LimitsSection`). The

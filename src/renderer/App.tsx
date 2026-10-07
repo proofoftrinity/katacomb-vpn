@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useWallet } from './hooks/useWallet'
 import { useConnection } from './hooks/useConnection'
 import { useSessions } from './hooks/useSessions'
@@ -21,11 +21,13 @@ import { useProvider } from './hooks/useProvider'
 import Settings from './components/Settings'
 import AboutModal from './components/AboutModal'
 import { SettingsProvider } from './contexts/SettingsContext'
-import { NodesProvider } from './contexts/NodesContext'
+import { NodesProvider, useNodesContext } from './contexts/NodesContext'
 import { PlansProvider } from './contexts/PlansContext'
 import { ChainDraftProvider, useChainDraft } from './contexts/ChainDraftContext'
 import { NavigationProvider, useNavigation, type MainTab } from './contexts/NavigationContext'
 import Spinner from './components/Spinner'
+import { leaseStopsSoon } from './utils/lease-runway'
+import { formatDuration } from './utils/format'
 import AppLogo from './components/AppLogo'
 
 /**
@@ -279,6 +281,13 @@ function AppInner() {
   // chain reveal the tab while still letting an explicit `false` hide it again.
   const providerState = useProvider(wallet.address, isConnected, activeWallet?.providerMode)
   const providerVisible = providerState.visible
+  // A lease that stops within a day and will not renew, so it is seen from any tab.
+  // The same answer the Overview's runway line gives, from the same chain read.
+  const leaseStop = useMemo(() => leaseStopsSoon(providerState.leases), [providerState.leases])
+  const { allNodes } = useNodesContext()
+  const leaseStopNode = leaseStop
+    ? allNodes.find((n) => n.address === leaseStop.nodeAddress)?.moniker || `${leaseStop.nodeAddress.slice(0, 12)}...`
+    : null
   const mainTabs: MainTab[] = providerVisible
     ? ['map', 'nodes', 'multihop', 'plans', 'sessions', 'provider']
     : ['map', 'nodes', 'multihop', 'plans', 'sessions']
@@ -432,6 +441,14 @@ function AppInner() {
               <span className="text-[10px] font-mono bg-accent/15 text-accent px-1.5 py-0.5 rounded-full leading-none">
                 {chainDraftCount}/2
               </span>
+            )}
+            {t === 'provider' && leaseStop && (
+              <span
+                role="img"
+                aria-label="A lease stops soon"
+                title={`The lease on ${leaseStopNode} stops in ${formatDuration(leaseStop.hoursLeft * 3600)} and will not renew (at the last read).`}
+                className="w-1.5 h-1.5 rounded-full bg-warning"
+              />
             )}
           </button>
         ))}

@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react'
 import type { PlanAllocation, PlanInfo, ProviderInfo, SubscriptionSummary } from '../../types'
 import { usePlansContext } from '../../contexts/PlansContext'
 import { useConnection } from '../../hooks/useConnection'
-import { formatBytes, formatDuration, formatDateUntil } from '../../utils/format'
-import { timeUsed } from '../../utils/plan-value'
+import { formatBytes, formatDuration, formatDateUntil, UNLIMITED_BYTES_THRESHOLD } from '../../utils/format'
+import { dataUsed, timeUsed } from '../../utils/plan-value'
 import { RefreshIcon } from '../Icons'
 import PlanConnectModal from './PlanConnectModal'
 import SubscriptionActionModal from './SubscriptionActionModal'
@@ -23,15 +23,39 @@ const STATUS_META: Record<number, { label: string; dot: string; text: string }> 
   3: { label: 'Inactive', dot: 'bg-border', text: 'text-text-tertiary' },
 }
 
+/** One usage bar in the Sessions tab's idiom: info, then warning past 70%, danger past 90%. */
+function Meter({ label, title, pct }: { label: React.ReactNode; title: string; pct: number }) {
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className="text-text-secondary" title={title}>{label}</span>
+        <span className={`font-mono ${pct > 90 ? 'text-danger' : pct > 70 ? 'text-warning' : 'text-text-secondary'}`}>
+          {pct >= 100 ? 'Used up' : `${pct.toFixed(0)}%`}
+        </span>
+      </div>
+      <div className="h-1.5 bg-bg-hover overflow-hidden rounded-full">
+        <div
+          className={`h-full transition-all rounded-full ${pct > 90 ? 'bg-danger' : pct > 70 ? 'bg-warning' : 'bg-info'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+const DATA_TITLE =
+  'What the chain has counted for this wallet on this subscription. Nodes report usage ' +
+  'as a session runs, so it can trail a live session by one report.'
+
 /**
- * The wallet's subscriptions as cards in the Sessions tab's idiom: what it is, one
- * gauge for what is being used up, then the actions. Connect (smart) is the primary
+ * The wallet's subscriptions as cards in the Sessions tab's idiom: what it is, the
+ * gauges for what is being used up, then the actions. Connect (smart) is the primary
  * action on active plan subscriptions, a manual picker the secondary, and Manage for
  * renewal and cancel.
  *
- * The gauge is the subscription's VALIDITY (calendar time since purchase), not data:
- * the chain's per-subscription byte allocation is not read yet, so there is no honest
- * data figure to draw.
+ * Two gauges on an active plan subscription: its VALIDITY (calendar time since
+ * purchase) and its DATA, the wallet's allocation as the chain counts it. An
+ * unlimited allocation gets the figure without a bar; an unread one says so.
  */
 export default function MyPlansPanel({ providers, onBrowse }: { providers: ProviderInfo[]; onBrowse: () => void }) {
   const { overview, loading } = usePlansContext()
@@ -59,7 +83,24 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
   }, [overview.subscriptions, overview.allocations, overview.plans])
 
   if (loading) {
-    return <div className="p-5 text-text-tertiary text-sm">Loading your plans...</div>
+    return (
+      <div className="flex-1 p-5 space-y-2.5" role="status" aria-label="Loading your plans">
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={i} className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
+            <div className="flex items-center gap-2.5">
+              <span className="skeleton h-3.5 w-28" />
+              <span className="skeleton h-3 w-24" />
+              <span className="skeleton h-3 w-14 ml-auto" />
+            </div>
+            <span className="skeleton block h-1.5 mt-4 rounded-full" />
+            <div className="flex justify-end gap-2 mt-3.5">
+              <span className="skeleton h-6 w-16" />
+              <span className="skeleton h-6 w-20" />
+            </div>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   if (rows.length === 0) {
@@ -91,7 +132,9 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
         const provider = provAddress ? providerName.get(provAddress) : undefined
         const canConnect = isPlanSub && sub.status === 1 && !tunnelUp && !overview.stale
         const validity = isPlanSub && sub.status === 1 ? timeUsed(sub.startAt, sub.inactiveAt, now) : null
-        const pct = validity ? validity.fraction * 100 : 0
+        const data = allocation?.usage
+          ? dataUsed(allocation.usage.grantedBytes, allocation.usage.utilisedBytes, UNLIMITED_BYTES_THRESHOLD)
+          : null
         return (
           <div key={sub.id} className="bg-bg-secondary border border-border rounded-md px-4 py-3.5">
             <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap">
@@ -112,31 +155,40 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
             </div>
 
             {validity ? (
-              <div className="mt-3">
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span
-                    className="text-text-secondary"
-                    title="Calendar time since the subscription was bought, out of its validity. It runs whether or not you connect."
-                  >
-                    Validity used: {formatDuration(validity.usedDays * 86400)} of {formatDuration(validity.totalDays * 86400)}
-                    <span className="text-text-tertiary"> · until {formatDateUntil(sub.inactiveAt)}</span>
-                  </span>
-                  <span className={`font-mono ${pct > 90 ? 'text-danger' : pct > 70 ? 'text-warning' : 'text-text-secondary'}`}>
-                    {pct >= 100 ? 'Used up' : `${pct.toFixed(0)}%`}
-                  </span>
-                </div>
-                <div className="h-1.5 bg-bg-hover overflow-hidden rounded-full">
-                  <div
-                    className={`h-full transition-all rounded-full ${pct > 90 ? 'bg-danger' : pct > 70 ? 'bg-warning' : 'bg-info'}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-              </div>
+              <Meter
+                pct={validity.fraction * 100}
+                title="Calendar time since the subscription was bought, out of its validity. It runs whether or not you connect."
+                label={<>
+                  Validity used: {formatDuration(validity.usedDays * 86400)} of {formatDuration(validity.totalDays * 86400)}
+                  <span className="text-text-tertiary"> · until {formatDateUntil(sub.inactiveAt)}</span>
+                </>}
+              />
             ) : (
               <div className="text-text-secondary text-xs mt-1.5">
                 {isPlanSub ? (duration ?? 'Unknown period') : 'Pay per use'}
                 {sub.inactiveAt ? `, ${sub.status === 1 ? 'active until' : 'ended'} ${formatDateUntil(sub.inactiveAt)}` : ''}
               </div>
+            )}
+
+            {isPlanSub && sub.status === 1 && allocation && (
+              data && !data.unlimited ? (
+                <Meter
+                  pct={data.fraction * 100}
+                  title={DATA_TITLE}
+                  label={<>Data used: {formatBytes(data.utilised)} of {formatBytes(data.granted)}</>}
+                />
+              ) : (
+                <div className="text-xs mt-2.5" title={DATA_TITLE}>
+                  {data ? (
+                    <span className="text-text-secondary">
+                      Data used: {formatBytes(data.utilised)}
+                      <span className="text-text-tertiary"> · no data cap</span>
+                    </span>
+                  ) : (
+                    <span className="text-text-tertiary">Data used could not be read from the chain.</span>
+                  )}
+                </div>
+              )
             )}
 
             <div className="flex items-center gap-2 mt-3 flex-wrap">

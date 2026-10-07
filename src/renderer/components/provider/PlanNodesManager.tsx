@@ -39,7 +39,7 @@ function p2p(udvpn: string): string {
 // Written out in full for Tailwind, shared by the header and every row.
 // Every column fixed or fractional, never auto: each row is its own grid, so an auto
 // column sized by its buttons would not line up with the header's empty one.
-const NODE_GRID = 'grid grid-cols-[minmax(150px,1.6fr)_96px_minmax(110px,1fr)_76px_164px] gap-x-3 items-center'
+const NODE_GRID = 'grid grid-cols-[minmax(130px,1.6fr)_88px_minmax(96px,1fr)_72px_164px] gap-x-3 items-center'
 
 /**
  * Nodes serving one plan, in the node table's vocabulary: flag, name, protocol icon,
@@ -200,7 +200,22 @@ export default function PlanNodesManager({
 
       <div className="px-4 py-3">
         {linked === null ? (
-          <span className="text-text-tertiary text-xs flex items-center gap-2"><Spinner /> Reading the plan&apos;s nodes…</span>
+          <div role="status" aria-label="Reading the plan's nodes">
+            <NodeTable>
+              {Array.from({ length: 3 }, (_, i) => (
+                <div key={i} className={`${NODE_GRID} px-3 py-2 border-b border-border last:border-b-0`}>
+                  <span className="flex items-center gap-2">
+                    <span className="skeleton h-3.5 w-5" />
+                    <span className="skeleton h-3 w-28" />
+                  </span>
+                  <span className="skeleton h-3 w-16" />
+                  <span className="skeleton h-1.5 rounded-full" />
+                  <span className="skeleton h-3 w-10 justify-self-end" />
+                  <span className="skeleton h-6 w-20 justify-self-end" />
+                </div>
+              ))}
+            </NodeTable>
+          </div>
         ) : linkedUnknown ? (
           <span className="flex items-center gap-2">
             <p className="text-warning text-xs">Could not read the plan&apos;s node list right now.</p>

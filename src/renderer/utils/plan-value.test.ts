@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compareToNodes, decadeScale, nodeMedianPerGb, timeUsed } from './plan-value.ts'
+import { compareToNodes, dataUsed, decadeScale, nodeMedianPerGb, timeUsed } from './plan-value.ts'
 
 const node = (gb: string | null, healthy = true, active = true) => ({
   isActive: active,
@@ -56,4 +56,23 @@ test('timeUsed: clamps past the end, and missing dates give no gauge', () => {
   assert.equal(t?.leftDays, 0)
   assert.equal(timeUsed(null, '2026-10-02T00:00:00Z', 0), null)
   assert.equal(timeUsed('2026-10-02T00:00:00Z', '2026-10-01T00:00:00Z', 0), null)
+})
+
+test('dataUsed: 25 GB of a 100 GB allocation is a quarter', () => {
+  assert.deepEqual(dataUsed('100000000000', '25000000000', 1e15),
+    { fraction: 0.25, granted: 1e11, utilised: 2.5e10, unlimited: false })
+})
+
+test('dataUsed: an unlimited grant has no fraction to draw', () => {
+  // Subscription 1942322 on plan #41, read live on 2026-10-06.
+  const u = dataUsed('9000000000000000000', '560', 1e15)
+  assert.equal(u?.unlimited, true)
+  assert.equal(u?.utilised, 560)
+})
+
+test('dataUsed: overuse clamps, a zero grant is used up, garbage is null', () => {
+  assert.equal(dataUsed('1000', '5000', 1e15)?.fraction, 1)
+  assert.equal(dataUsed('0', '0', 1e15)?.fraction, 1)
+  assert.equal(dataUsed('', 'x', 1e15), null)
+  assert.equal(dataUsed('-1', '0', 1e15), null)
 })

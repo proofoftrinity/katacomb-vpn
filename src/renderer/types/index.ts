@@ -387,6 +387,8 @@ export interface PlanAllocation {
   startAt: string | null
   inactiveAt: string | null
   status: number
+  /** The wallet's data allocation as the chain counts it; null = not read or failed. */
+  usage: { grantedBytes: string; utilisedBytes: string } | null
 }
 
 export interface DiscoverProgress {

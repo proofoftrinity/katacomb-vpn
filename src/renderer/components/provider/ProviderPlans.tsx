@@ -5,12 +5,13 @@ import { isTestPlan } from '../../../shared/test-plan'
 import { RENEWAL_POLICY, renewalPolicyLabel } from '../../../shared/renewal-policy'
 import { displayConnectError } from '../../utils/connect-errors'
 import { formatBytes, formatDuration } from '../../utils/format'
-import { leaseRunway } from '../../utils/lease-runway'
+import { leaseRunway, leaseStopsSoon } from '../../utils/lease-runway'
 import { useNodesContext } from '../../contexts/NodesContext'
+import { useNavigation } from '../../contexts/NavigationContext'
 import { useConfirm, type ConfirmOptions } from '../ConfirmModal'
 import { ChecksSection, Segmented, type CheckSpec } from '../ConnectReview'
 import CountryFlag from '../CountryFlag'
-import { ChartIcon, PlusIcon } from '../Icons'
+import { ChartIcon, EyeIcon, PlusIcon } from '../Icons'
 import PlanNodesManager, { type NodeActionState } from './PlanNodesManager'
 import { STATUS_ACTIVE, formatUdvpnAmount, usdEstimate } from '../../utils/provider-format'
 
@@ -169,11 +170,28 @@ export default function ProviderPlans({
   const statsFor = (id: string): PlanStats | null | undefined => (stats ? stats[id] : readOnly ? null : undefined)
   const canCreate = providerActive && !readOnly
 
+  // Up and Down move between Overview and the plans, selecting as they go, like the
+  // catalog's rows. Enter and Space stay each button's own click.
+  function onListKeyDown(e: React.KeyboardEvent<HTMLElement>) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[data-plan-nav]'))
+    const at = items.indexOf(e.target as HTMLButtonElement)
+    if (at < 0) return
+    e.preventDefault()
+    const next = items[Math.max(0, Math.min(items.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))]
+    const id = next.dataset.planNav
+    setSelectedId(id === 'overview' || !id ? null : id)
+    setCreating(false)
+    next.focus()
+  }
+
   return (
     <div className="flex-1 flex min-h-0">
-      <aside className="w-[300px] shrink-0 border-r border-border flex flex-col min-h-0">
+      <aside onKeyDown={onListKeyDown} className="w-[260px] min-[1180px]:w-[300px] shrink-0 border-r border-border flex flex-col min-h-0">
         <button
           type="button"
+          data-plan-nav="overview"
+          aria-keyshortcuts="ArrowUp ArrowDown"
           onClick={() => { setSelectedId(null); setCreating(false) }}
           className={`w-full text-left px-4 py-3 border-b border-border flex items-center gap-2 text-sm font-medium transition-colors ${
             !selected && !creating ? 'bg-accent-subtle text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
@@ -210,6 +228,8 @@ export default function ProviderPlans({
               <button
                 key={plan.id}
                 type="button"
+                data-plan-nav={plan.id}
+                aria-keyshortcuts="ArrowUp ArrowDown"
                 onClick={() => { setSelectedId(plan.id); setCreating(false) }}
                 className={`w-full text-left px-4 py-2.5 border-b border-border transition-colors ${
                   isSelected ? 'bg-accent-subtle' : 'hover:bg-bg-hover'
@@ -220,13 +240,14 @@ export default function ProviderPlans({
                   <span className="text-text-primary text-xs whitespace-nowrap truncate">{planFacts(plan)}</span>
                 </span>
                 <span className="flex items-center gap-1.5 mt-1.5 text-[11px] text-text-tertiary whitespace-nowrap">
-                  <span className={`px-1.5 py-0.5 rounded-full leading-none ${active ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'}`}>
+                  <span className={`px-1.5 py-0.5 rounded-full leading-none ${active ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-warning'}`}>
                     {active ? 'Live' : 'Inactive'}
                   </span>
-                  {plan.private && <span className="px-1.5 py-0.5 rounded-full leading-none bg-info/15 text-info">Private</span>}
+                  {plan.private && <span className="px-1.5 py-0.5 rounded-full leading-none bg-info-subtle text-info">Private</span>}
                   <span className="truncate">
                     {s ? `${s.nodes} node${s.nodes === 1 ? '' : 's'} · ${s.subscriptions} sold · ${s.truncated ? `${s.active}+` : s.active} active`
-                      : s === null || statsFailed ? 'counters not readable' : 'counting…'}
+                      : s === null || statsFailed ? 'counters not readable'
+                        : <span role="status" aria-label="Counting" className="skeleton inline-block h-2.5 w-36 align-middle" />}
                   </span>
                 </span>
               </button>
@@ -341,7 +362,8 @@ function Overview({ plans, leases, stats, statsUnknown, economics, onSelectPlan 
   const { allNodes } = useNodesContext()
   const nodeIndex = useMemo(() => new Map(allNodes.map((n) => [n.address, n])), [allNodes])
   const runway = useMemo(() => leaseRunway(leases), [leases])
-  const soonestStop = runway.rows.find((r) => r.renewalPricePolicy === RENEWAL_POLICY.UNSPECIFIED && r.hoursLeft < 24)
+  // The same answer as the dot on the Provider tab label.
+  const soonestStop = useMemo(() => leaseStopsSoon(leases), [leases])
 
   const costs = useMemo(() => leases
     .filter(isActiveLease)
@@ -544,6 +566,7 @@ function PlanWorkspace({
   activatingProvider: boolean
 }) {
   const active = plan.status === STATUS_ACTIVE
+  const { goToPlanInCatalog } = useNavigation()
   // Which action is running AND what it is moving to, not merely that one is.
   //
   // Two reasons it carries both. There are two switches, and a shared boolean put
@@ -666,6 +689,22 @@ function PlanWorkspace({
 
       <div className="bg-bg-secondary border border-border rounded-md px-3 py-3">
         <ChecksSection title="Will subscribers find it?" checks={checks} />
+        {/* The catalog only ever lists active plans, so there is nothing to see for
+            an inactive one: the status check above already says why. */}
+        <div className="flex justify-end px-2.5 mt-1.5">
+          <button
+            type="button"
+            onClick={() => goToPlanInCatalog(plan.id)}
+            disabled={!active}
+            title={active
+              ? 'Open the Plans tab on this plan, with the catalog\'s default filters'
+              : 'Inactive plans are never listed in the catalog'}
+            className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-accent transition-colors disabled:opacity-40 disabled:hover:text-text-secondary disabled:cursor-not-allowed"
+          >
+            <EyeIcon className="w-3.5 h-3.5" />
+            See it as a subscriber
+          </button>
+        </div>
       </div>
 
       <PlanNodesManager

@@ -9,9 +9,15 @@ import PlanCatalog, { type CatalogCounts, type CatalogFilters } from './PlanCata
 import { Segmented } from '../ConnectReview'
 import { Chip } from '../nodes/NodeFilters'
 import Spinner from '../Spinner'
-import { AlertIcon, CloseIcon, LockIcon, PowerIcon, RefreshIcon, SearchIcon } from '../Icons'
+import { AlertIcon, CloseIcon, EyeIcon, LockIcon, PowerIcon, RefreshIcon, SearchIcon } from '../Icons'
 
 type Section = 'mine' | 'catalog'
+
+/** "a", "a and b", "a, b, and c". */
+function joinReasons(parts: string[]): string {
+  if (parts.length <= 2) return parts.join(' and ')
+  return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`
+}
 
 /**
  * The Plans tab: My plans (the wallet's subscriptions, one-click connect) and
@@ -25,14 +31,15 @@ type Section = 'mine' | 'catalog'
  * in PlanCatalog, because they sit in this bar; the catalog reports its counts back.
  */
 export default function PlansView() {
-  const { overview, discovering, progress, discoverError, discover, ensureFreshCatalog } = usePlansContext()
-  const { plansNodeFilter, clearPlansNodeFilter } = useNavigation()
+  const { overview, loading, discovering, progress, discoverError, discover, ensureFreshCatalog } = usePlansContext()
+  const { plansNodeFilter, clearPlansNodeFilter, plansFocusPlan, clearPlansFocusPlan } = useNavigation()
   const { status } = useConnection()
   // Rescan needs the chain, which our own tunnel makes unreachable (proxy mode
   // leaves routing alone, so it still works there).
   const chainFrozen = (status.state === 'connected' || status.state === 'reconnecting') && !status.proxyMode
+  // Arriving from the Provider tab's "See it as a subscriber" opens the catalog.
   const [section, setSection] = useState<Section>(
-    overview.subscriptions.length > 0 ? 'mine' : 'catalog',
+    overview.subscriptions.length > 0 && !plansFocusPlan ? 'mine' : 'catalog',
   )
   const [filters, setFilters] = useState<CatalogFilters>({
     search: '',
@@ -64,6 +71,33 @@ export default function PlansView() {
   const catalogOld = overview.fetchedAt !== null && Date.now() - overview.fetchedAt > 3600_000
   const update = (patch: Partial<CatalogFilters>) => setFilters((f) => ({ ...f, ...patch }))
   const subCount = overview.subscriptions.length
+
+  // The plan the Provider tab asked to see as a subscriber would. What hides it from
+  // one browsing with the catalog's DEFAULT filters, in the workspace checks' words;
+  // `hiddenNow` is whether the filters on screen still hide it.
+  const focus = plansFocusPlan ? overview.plans.find((p) => p.id === plansFocusPlan) ?? null : null
+  const focusReasons = focus
+    ? [
+        focus.private && 'it is private',
+        focus.isTest && 'it is filed under Test plans',
+        focus.nodeCount === 0 && 'it had no nodes at the last catalog scan',
+      ].filter((r): r is string => Boolean(r))
+    : []
+  const focusHiddenNow = focus !== null && (
+    (focus.private && !filters.showPrivate) ||
+    (focus.isTest && !filters.showTests) ||
+    (focus.nodeCount === 0 && filters.readyOnly)
+  )
+  const showFocusAnyway = () => {
+    if (!focus) return
+    setFilters((f) => ({
+      ...f,
+      search: '',
+      showPrivate: f.showPrivate || focus.private,
+      showTests: f.showTests || focus.isTest,
+      readyOnly: f.readyOnly && focus.nodeCount !== 0,
+    }))
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -116,7 +150,9 @@ export default function PlansView() {
             )}
             {section === 'catalog' && (
               <>
-                <span className="text-text-secondary text-xs">
+                {/* Nothing to count before the first read: "0 of 0 plans" would be false
+                    while the table shows placeholders. */}
+                {!loading && <span className="text-text-secondary text-xs">
                   {counts && (
                     <>
                       {counts.shown.toLocaleString('en')} of {counts.total.toLocaleString('en')} plans
@@ -130,7 +166,7 @@ export default function PlansView() {
                     {counts ? ' · ' : ''}
                     {overview.fetchedAt ? `Updated ${formatTimeAgo(overview.fetchedAt)}` : 'Not loaded yet'}
                   </span>
-                </span>
+                </span>}
                 <button
                   onClick={() => void discover()}
                   disabled={discovering || chainFrozen}
@@ -174,10 +210,46 @@ export default function PlansView() {
         </div>
       )}
 
+      {section === 'catalog' && plansFocusPlan && (
+        <div className={`mx-5 mt-3 border px-3 py-2 rounded-md text-sm text-text-primary flex items-center gap-3 shrink-0 ${
+          focusReasons.length > 0 ? 'bg-warning-subtle border-warning' : 'bg-bg-secondary border-border'
+        }`}>
+          {focusReasons.length > 0
+            ? <AlertIcon className="w-4 h-4 text-warning shrink-0" />
+            : <EyeIcon className="w-4 h-4 text-accent shrink-0" />}
+          <span className="flex-1">
+            {!focus
+              ? `Plan #${plansFocusPlan} is not in the catalog yet. Rescan reads it from the chain.`
+              : focusReasons.length > 0
+                ? `Plan #${focus.id} is hidden from subscribers by default: ${joinReasons(focusReasons)}.`
+                : `Plan #${focus.id} is listed for every subscriber with the catalog's default filters.`}
+          </span>
+          {focusHiddenNow && (
+            <button onClick={showFocusAnyway} className="btn btn-secondary text-xs px-2.5 py-1 shrink-0">
+              Show it anyway
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={clearPlansFocusPlan}
+            aria-label="Dismiss"
+            className="text-text-tertiary hover:text-text-primary transition-colors shrink-0"
+          >
+            <CloseIcon className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {section === 'mine' ? (
         <MyPlansPanel providers={providers} onBrowse={() => setSection('catalog')} />
       ) : (
-        <PlanCatalog filters={filters} providers={providers} tokenPrice={tokenPrice} onCounts={setCounts} />
+        <PlanCatalog
+          filters={filters}
+          providers={providers}
+          tokenPrice={tokenPrice}
+          onCounts={setCounts}
+          focusPlanId={plansFocusPlan}
+        />
       )}
     </div>
   )

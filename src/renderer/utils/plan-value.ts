@@ -1,6 +1,6 @@
 // The maths behind the Plans tab's graphics: the value strip (a plan's price per GB
 // against every listed plan and against paying a node directly) and the time-used
-// gauge on a subscription. Pure and import-free so the native test runner loads it
+// and data-used gauges on a subscription. Pure and import-free so the native test runner loads it
 // (plan-value.test.ts); the components only draw what these return.
 
 /**
@@ -69,4 +69,21 @@ export function timeUsed(startIso: string | null, endIso: string | null, now: nu
   const totalDays = (end - start) / 86_400_000
   const usedDays = Math.min(totalDays, Math.max(0, (now - start) / 86_400_000))
   return { fraction, usedDays, totalDays, leftDays: totalDays - usedDays }
+}
+
+/**
+ * How much of a subscription's data allocation the wallet has used, from the
+ * chain's granted and utilised byte counts. `unlimited` at or past `unlimitedAt`
+ * (passed in, so this file stays import-free), where a bar would be a hairline
+ * that says nothing. A zero grant is used up: nothing is left to spend. null when
+ * either count is unreadable, so the card says so instead of drawing a guess.
+ */
+export function dataUsed(grantedBytes: string, utilisedBytes: string, unlimitedAt: number):
+  { fraction: number; granted: number; utilised: number; unlimited: boolean } | null {
+  const granted = Number(grantedBytes)
+  const utilised = Number(utilisedBytes)
+  if (!isFinite(granted) || !isFinite(utilised) || granted < 0 || utilised < 0) return null
+  if (granted >= unlimitedAt) return { fraction: 0, granted, utilised, unlimited: true }
+  const fraction = granted > 0 ? Math.min(1, utilised / granted) : 1
+  return { fraction, granted, utilised, unlimited: false }
 }

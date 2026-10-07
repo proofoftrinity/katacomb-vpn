@@ -332,6 +332,15 @@ each carries:
   with a `timeoutHeight` (raw msgs, not the SDK convenience methods, which never set
   one). Money figures still come from main's plan cache (`cachedPlanCost`), never the
   renderer.
+- **Data used is the wallet's allocation, read in the same overview** (2026-10-07).
+  `getPlanOverview` reads `QueryAllocation(subscription id, wallet)` for each ACTIVE plan
+  subscription, four at a time on the overview's own connection, each under
+  `QUERY_TIMEOUT_MS`. Only the **v2** subscription service has this query (v3 has none);
+  the SDK ships its client. `utilised_bytes` moves when a node reports a session's usage
+  (`SessionUpdatePreHook`, sentinelhub v12 x/subscription), so the figure trails a live
+  session by one report, and the card's tooltip says so. A failed read is `usage: null`,
+  shown as "could not be read", never 0. A grant at or past `UNLIMITED_BYTES_THRESHOLD`
+  gets the figure without a bar (plan #41 grants 9e18 bytes).
 - Formatting: plan bytes are DECIMAL on chain (`BYTES_PER_GB = 1e9`), so everything
   plan-shaped goes through `utils/format.ts` (import-free, unit-tested) —
   `formatBytes` decimal units, `planPriceDisplay` gives non-udvpn plans their real

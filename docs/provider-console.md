@@ -151,6 +151,12 @@ chain allows (status, the private flag) and what this app's catalog hides by def
 (nodeless plans, and the test-name guess from the PROVIDER name). The break-even meter is
 the create form's `computeBreakEven`: active subscribers against the number that would
 cover every running lease from this plan alone, advisory only.
+Under the checks, **See it as a subscriber** opens the Plans catalog on the plan
+(`goToPlanInCatalog`) and names each DEFAULT filter that hides it, with Show it anyway; it
+is disabled for an inactive plan, which the catalog never lists. The **amber dot on the
+Provider tab label** is `leaseStopsSoon` (`utils/lease-runway.ts`): a never-renew lease
+with under 24 hours left. The Overview's "stops in 3h" line calls the same helper on the
+same read, so the two always agree, and neither projects from the read's age.
 
 **Design invariant:** the console is a **stateless view over chain state**. Every action
 is one tx and the multi-step flows (register→activate, create→activate, lease→link) are

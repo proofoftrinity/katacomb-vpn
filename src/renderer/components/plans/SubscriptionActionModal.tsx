@@ -100,7 +100,7 @@ export default function SubscriptionActionModal({ subscription, plan, locked, on
       </div>
 
       {done && (
-        <div className="bg-success/10 border border-success/40 rounded-md px-3 py-2 text-success text-sm">
+        <div className="bg-success-subtle border border-success rounded-md px-3 py-2 text-success text-sm">
           {done}
         </div>
       )}

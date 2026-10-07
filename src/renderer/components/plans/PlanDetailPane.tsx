@@ -12,7 +12,6 @@ import { countryPoint, useWorldCountries } from '../map/world-geo'
 import { FooterReason } from '../ConnectReview'
 import CountryFlag from '../CountryFlag'
 import ProtocolIcon from '../ProtocolIcon'
-import Spinner from '../Spinner'
 import PlanConnectModal from './PlanConnectModal'
 
 interface Props {
@@ -121,7 +120,7 @@ export default function PlanDetailPane({ plan, provider, tokenPrice, activeSubsc
               <span className="text-[10px] font-mono uppercase bg-warning-subtle text-warning px-1.5 py-0.5 rounded-sm">test</span>
             )}
             {plan.private && (
-              <span className="text-[10px] font-mono uppercase bg-info/15 text-info px-1.5 py-0.5 rounded-sm">private</span>
+              <span className="text-[10px] font-mono uppercase bg-info-subtle text-info px-1.5 py-0.5 rounded-sm">private</span>
             )}
           </div>
           {provider?.description && (
@@ -180,8 +179,20 @@ export default function PlanDetailPane({ plan, provider, tokenPrice, activeSubsc
               )}
             </div>
           ) : coverage === null ? (
-            <div className="flex items-center gap-2 text-text-tertiary text-sm">
-              <Spinner /> Checking the plan's nodes...
+            <div className="flex gap-4 items-start flex-wrap" role="status" aria-label="Checking the plan's nodes">
+              <span className="skeleton block w-[280px] h-[136px]" />
+              <div className="flex-1 min-w-[150px] space-y-2.5">
+                <span className="skeleton block h-3.5 w-4/5" />
+                <div className="flex gap-1.5">
+                  <span className="skeleton h-5 w-14 rounded-full" />
+                  <span className="skeleton h-5 w-14 rounded-full" />
+                  <span className="skeleton h-5 w-14 rounded-full" />
+                </div>
+                <div className="flex gap-1.5">
+                  <span className="skeleton h-5 w-20 rounded-full" />
+                  <span className="skeleton h-5 w-16 rounded-full" />
+                </div>
+              </div>
             </div>
           ) : nodesUnknown ? (
             <div className="space-y-1 text-sm">
@@ -236,6 +247,7 @@ export default function PlanDetailPane({ plan, provider, tokenPrice, activeSubsc
       <div className="shrink-0 border-t border-border bg-bg-secondary px-5 pt-3.5 pb-4 space-y-2.5">
         {reason && <FooterReason text={reason.text} tone={reason.tone} />}
         <button
+          data-plan-cta
           onClick={() => setShowConnect(true)}
           disabled={tunnelUp || plan.status !== 1 || confirmedNoNodes}
           className="btn btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed"
@@ -314,7 +326,13 @@ function ValueStrip({ plan, perGb, listed, nodeMedian }: {
     sentence = 'No price per GB to compare.'
   }
 
-  const tick = (e: number) => (e >= 0 ? String(10 ** e) : (10 ** e).toFixed(-e))
+  // Plain decimals up to four places, powers of ten past that: a test plan priced at
+  // 1e-14 P2P per GB printed a sixteen-character label. At most six labels, so a wide
+  // span does not pile them on top of each other.
+  const tick = (e: number) => (Math.abs(e) <= 4
+    ? (e >= 0 ? String(10 ** e) : (10 ** e).toFixed(-e))
+    : <>10<sup>{e}</sup></>)
+  const labelEvery = Math.ceil((scale.ticks.length - 1) / 5)
 
   return (
     <section>
@@ -359,12 +377,12 @@ function ValueStrip({ plan, perGb, listed, nodeMedian }: {
             className="absolute top-0.5 w-6 h-6 -translate-x-1/2 grid place-items-center"
             style={{ left: `${scale.at(perGb)}%` }}
           >
-            <span className="w-3.5 h-3.5 rounded-full bg-accent ring-[3px] ring-accent/25" />
+            <span className="w-3.5 h-3.5 rounded-full bg-accent ring-[3px] ring-accent-subtle" />
           </span>
         )}
       </div>
       <div className="relative h-3.5 mx-1.5 text-[10px] font-mono text-text-tertiary">
-        {scale.ticks.map((e, i) => (
+        {scale.ticks.map((e, i) => i % labelEvery === 0 && (
           <span
             key={e}
             className={`absolute ${i === 0 ? '' : i === scale.ticks.length - 1 ? '-translate-x-full' : '-translate-x-1/2'}`}

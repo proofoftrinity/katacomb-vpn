@@ -13,6 +13,10 @@ interface NavigationContextValue {
   plansNodeFilter: string | null
   goToPlansForNode: (nodeAddress: string) => void
   clearPlansNodeFilter: () => void
+  /** A plan the Provider tab asked to see as a subscriber would, in the catalog. */
+  plansFocusPlan: string | null
+  goToPlanInCatalog: (planId: string) => void
+  clearPlansFocusPlan: () => void
   nodesCountryFilter: string | null
   goToNodesForCountry: (country: string) => void
   clearNodesCountryFilter: () => void
@@ -23,6 +27,7 @@ const NavigationContext = createContext<NavigationContextValue | null>(null)
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const [mainTab, setMainTab] = useState<MainTab>('map')
   const [plansNodeFilter, setPlansNodeFilter] = useState<string | null>(null)
+  const [plansFocusPlan, setPlansFocusPlan] = useState<string | null>(null)
   const [nodesCountryFilter, setNodesCountryFilter] = useState<string | null>(null)
   // Lives here rather than in App so anything nested — the RPC status pill, a
   // connect-error panel several modals deep — can send the user to the right
@@ -46,6 +51,18 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setPlansNodeFilter(null)
   }, [])
 
+  // Drops any node filter too: the point is to see the plan as a subscriber
+  // browsing the catalog would, not as one arriving from a single node.
+  const goToPlanInCatalog = useCallback((planId: string) => {
+    setPlansNodeFilter(null)
+    setPlansFocusPlan(planId)
+    setMainTab('plans')
+  }, [])
+
+  const clearPlansFocusPlan = useCallback(() => {
+    setPlansFocusPlan(null)
+  }, [])
+
   const goToNodesForCountry = useCallback((country: string) => {
     setNodesCountryFilter(country)
     setMainTab('nodes')
@@ -65,6 +82,9 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       plansNodeFilter,
       goToPlansForNode,
       clearPlansNodeFilter,
+      plansFocusPlan,
+      goToPlanInCatalog,
+      clearPlansFocusPlan,
       nodesCountryFilter,
       goToNodesForCountry,
       clearNodesCountryFilter,
@@ -78,6 +98,9 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       plansNodeFilter,
       goToPlansForNode,
       clearPlansNodeFilter,
+      plansFocusPlan,
+      goToPlanInCatalog,
+      clearPlansFocusPlan,
       nodesCountryFilter,
       goToNodesForCountry,
       clearNodesCountryFilter,
