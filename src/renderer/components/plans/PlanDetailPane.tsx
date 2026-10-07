@@ -295,13 +295,17 @@ function factorText(f: number): string {
  * dot, this one in the accent, and the median price of paying a healthy node directly
  * as a marker. One sentence underneath says it in words, so nothing depends on
  * reading the dots. Unlimited plans have no per-GB price, so they are compared by how
- * much data the same money buys from a node instead.
+ * much data the same money buys from a node instead. The Provider tab's New plan form
+ * draws it too, so a provider prices against the same picture a subscriber sees.
  */
-function ValueStrip({ plan, perGb, listed, nodeMedian }: {
-  plan: PlanInfo
+export function ValueStrip({ plan, perGb, listed, nodeMedian, headingClassName = 'text-text-tertiary text-[10px] font-medium uppercase tracking-wide' }: {
+  /** A catalog plan, or the Provider tab's draft of one (id 'draft'). */
+  plan: Pick<PlanInfo, 'id' | 'prices' | 'bytes' | 'durationSeconds'>
   perGb: number | null
   listed: { id: string; perGb: number }[]
   nodeMedian: number | null
+  /** The Provider tab heads its cards a size up from this pane's labels. */
+  headingClassName?: string
 }) {
   const others = listed.filter((p) => p.id !== plan.id)
   const scale = decadeScale([...others.map((p) => p.perGb), ...(perGb !== null ? [perGb] : []), ...(nodeMedian !== null ? [nodeMedian] : [])])
@@ -337,7 +341,7 @@ function ValueStrip({ plan, perGb, listed, nodeMedian }: {
   return (
     <section>
       <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
-        <SectionLabel>Value per GB</SectionLabel>
+        <div className={`${headingClassName} mb-2`}>Value per GB</div>
         <span className="flex items-center gap-3 text-[11px] text-text-tertiary">
           {perGb !== null && (
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-accent" />this plan</span>

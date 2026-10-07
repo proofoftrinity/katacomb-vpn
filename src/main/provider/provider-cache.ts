@@ -30,6 +30,21 @@ export function setCachedProviders(providers: ProviderInfo[]): void {
   cache.save(memCache.providers, memCache.fetchedAt)
 }
 
+/**
+ * Our own provider's record after a confirmed MsgUpdateProviderDetails. The catalog
+ * derives "Test plans" from these names, so without it a rename kept the plans filed
+ * as test for up to the hour-long TTL. Replaces an entry that is already there and
+ * keeps the list's fetchedAt: one row we wrote does not make the rest any fresher.
+ */
+export function patchCachedProvider(info: ProviderInfo): void {
+  loadIfNeeded()
+  if (!memCache) return
+  const at = memCache.providers.findIndex((p) => p.address === info.address)
+  if (at === -1) return
+  memCache = { providers: memCache.providers.map((p, i) => (i === at ? info : p)), fetchedAt: memCache.fetchedAt }
+  cache.save(memCache.providers, memCache.fetchedAt)
+}
+
 // The last successful PROVIDER_OVERVIEW read, served stale while the tunnel is up
 // so the Provider tab stays readable when the chain is unreachable through it.
 // Tagged with the address it was read for — serving another wallet's provider

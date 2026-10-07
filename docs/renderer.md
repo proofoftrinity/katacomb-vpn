@@ -223,7 +223,9 @@ from `src/main/`; `src/shared/` is the only overlap.
   window (Lease and link, Manage lease, Manage subscription, Edit provider details) on
   `ReviewModal` and its parts. Lease and link opens no second confirm: the window is the
   review, as for a connect. A blocking reason shared by many rows (provider inactive,
-  tunnel up) is said ONCE with its fix, never as a disabled button on every row.
+  tunnel up) is said ONCE with its fix, never as a disabled button on every row. The New
+  plan form is a workspace page in cards with the money windows' footer pinned under it,
+  and Edit details previews the catalog's heading for what is typed (2026-10-07).
 - **Graphs are plain SVG and CSS, never a chart library or WebGL.** The value strip,
   coverage map, lease runway, cost and income bars, break-even meter, and validity and
   data gauges are divs and `<svg>`, so they cost nothing at rest and draw with no GPU (checked with

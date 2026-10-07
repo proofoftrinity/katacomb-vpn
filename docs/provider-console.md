@@ -162,6 +162,22 @@ while it loads or when it cannot be read, every lease used to look unlinked, so 
 already-linked node was offered a Link button (2026-10-07). Unknown is never "not
 linked". A re-read keeps the previous table, and the acting row stays busy through it.
 
+**The New plan form** is laid out as a plan's workspace (2026-10-07): the terms with
+presets and the break-even line; the catalog's `ValueStrip` with the draft as the accent
+dot, against the plans a subscriber is shown with the DEFAULT filters (the set "See it as
+a subscriber" checks against); the workspace's checks worked out for the draft; and the
+three steps after it as a static route, not a wizard (nothing is tracked). The checks
+replaced a line promising "Listed in the catalog once it is active", false for a
+provider name that reads as a test account and for every new plan, since none has nodes.
+The form states the handler's bounds (1 to 1,000,000 GB, 1 to 3,650 days, at most
+1,000,000 P2P) before they cost a round-trip. **A rename reaches the catalog at once**:
+"Test plans" is derived from the cached provider list (one hour TTL), so a confirmed
+`MsgUpdateProviderDetails` patches our own row in that cache (`patchCachedProvider`) and
+the Edit details window re-reads the Plans overview. Before, a renamed provider's plans
+stayed under Test plans for up to an hour, and "See it as a subscriber" said so. That
+window previews the catalog's heading for what is typed, and the shared fields say, as
+you type, whether the name reads as a test account (registration shows it too).
+
 **Design invariant:** the console is a **stateless view over chain state**. Every action
 is one tx and the multi-step flows (register→activate, create→activate, lease→link) are
 resumable because the middle state lives on chain — a failed link leaves the node under
