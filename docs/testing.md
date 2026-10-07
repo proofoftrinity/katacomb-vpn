@@ -9,10 +9,11 @@ wrong until shown otherwise. The rules for changing the suite itself are in
 
 | Command | What it runs |
 |---|---|
-| `npm run verify` | `typecheck` then `test` - the gate, and what the commit hook runs |
+| `npm run verify` | `typecheck`, `test`, then `test:canaries` - the gate, and what the commit hook runs |
 | `npm run typecheck` | `tsc` over main+preload, renderer, and the tests (`tsconfig.test.json`) |
 | `npm test` | `node --test` over `src/**/*.test.ts` and `test/**/*.test.ts`, then `go test ./...` in `daemon/`, then the architecture-doc check |
 | `npm run test:daemon` | the Go tests alone |
+| `npm run test:canaries` | every mutation canary must turn its tests red (about 10 s) |
 | `npx electron-vite build && node scripts/check-bundle-requires.mjs` | CI: builds the app, then checks the bundles require no npm package ([ARCH-3]) |
 
 - Node 22.18+ (native type stripping, `engines` in `package.json`); Go is the
@@ -126,6 +127,19 @@ count.
   processes are fine and preferred over mocks. A test never touches `~/.config` or the
   real network.
 
+## Mutation canaries
+
+`test/canaries/canaries.ts` lists deliberate regressions, one per rule that guards
+money, root or privacy: drop the refund, sign a hop's cancel with the wrong wallet,
+delete an epoch check, let the daemon arm the kill switch for `0.0.0.0`. The runner
+applies each to a private copy of the working tree and requires the named tests to go
+RED; a canary the suite survives means nothing guards that rule any more.
+
+- Every new money, root or privacy rule gets a canary, named `[ID] what breaks`.
+- `find` must match exactly once. When a refactor moves the anchor, the canary fails
+  with "re-aim it": re-aim it at the new code, never delete it.
+- A canary may name several test files (`run`), or `go:<package>` for the daemon.
+
 ## Writing a test that guards a rule
 
 - Assert at the boundary: the calls the code makes to its collaborators, what a
@@ -133,6 +147,6 @@ count.
   the test breaks on a correct refactor.
 - A refusal test also shows the same call going through once the reason is gone (a
   positive control); otherwise a broken fixture looks like a working guard.
-- Before it merges, break the rule on purpose and watch the test go red. Say in the
-  commit message what was broken.
+- Before it merges, break the rule on purpose and watch the test go red: as a canary
+  for a money, root or privacy rule, otherwise once by hand, said in the commit message.
 - A bug fix starts with a test that fails on the bug.

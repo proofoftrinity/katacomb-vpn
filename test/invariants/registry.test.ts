@@ -113,6 +113,8 @@ const tsTests = [
 const goTests = walk('daemon', (p) => p.endsWith('_test.go'))
 tsTests.forEach(scanTs)
 goTests.forEach(scanGo)
+// Canaries cite the rule they break (test/canaries/canaries.ts); a citation, not a pin.
+for (const id of idsIn(read('test/canaries/canaries.ts'))) citations.push({ id, where: 'test/canaries/canaries.ts', pins: false })
 
 const pinned = new Set(citations.filter((c) => c.pins).map((c) => c.id))
 
