@@ -1,12 +1,8 @@
 {
-  "pending": {
-    "REL-24": "P7: the Sessions-tab gate on quotaUsedUp, once extracted from the component",
-    "RN-2": "P7: extract the usage floor from ActiveSessions and test it"
-  },
+  "pending": {},
   "partial": {
     "MH-5": "the entry is graded before the wrapper and the exit before its purchase (static), and the chain rule is pinned; nothing bought when grading refuses is not (P2)",
     "MH-9": "a reconnect refuses a tombstone; retireSessionConfig writing one is not (it runs only after a real cancel tx)",
-    "MH-10": "main refuses to rebuild a broken chain; the Sessions tab card state is not (P7)",
     "MH-12": "chainDeadlineStep is pinned; the checkChainExitDeadline wiring is not (P4)",
     "NT-1": "the guards, the root-side re-check, and the WireGuard and V2Ray sinks are pinned; the xray, hysteria2, AmneziaWG and OpenVPN sinks are not",
     "PRO-7": "proxy mode is refused for the root protocols; the mode never being persisted, and reconnect replaying desiredMode, are not (P4)",

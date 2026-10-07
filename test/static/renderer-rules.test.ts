@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { builtinModules } from 'node:module'
-import { parse, read, runtimeImports, sources, walk } from '../harness/source.ts'
+import ts from 'typescript'
+import { nodes, parse, read, runtimeImports, sources, walk } from '../harness/source.ts'
 
 // The renderer rules in docs/renderer.md that can be read off the source. Each one
 // was a shipped defect first; the doc entry says which.
@@ -57,4 +58,18 @@ test('[ARCH-1] the renderer imports nothing from main, electron or Node', () => 
     .filter((s) => s === 'electron' || builtins.has(s) || /(^|\/)main\//.test(s) || s.includes('/preload'))
     .map((s) => `${f}: ${s}`))
   assert.deepEqual(bad, [], 'the renderer is sandboxed; reach main through window.api')
+})
+
+test('[REL-24] [RN-2] the Sessions tab uses the tested decisions: Connect gates on the quota, gauges are floored', () => {
+  const sf = parse('src/renderer/components/ActiveSessions.tsx')
+  const all = nodes(sf)
+  const reconnect = all.filter((n): n is ts.JsxSelfClosingElement | ts.JsxOpeningElement =>
+    (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) &&
+    n.attributes.properties.some((a) => ts.isJsxAttribute(a) && a.name.getText() === 'onClick' && a.getText().includes('handleReconnect')))
+  assert.equal(reconnect.length, 1, 'one Connect button on a session card')
+  const disabled = reconnect[0].attributes.properties.find((a) => ts.isJsxAttribute(a) && a.name.getText() === 'disabled')
+  assert.ok(disabled && /\bquotaUsedUp\b/.test(disabled.getText()), 'Connect must stay disabled once the paid quota is used')
+  const called = new Set(all.filter(ts.isCallExpression).map((c) => c.expression.getText()))
+  assert.ok(called.has('isQuotaUsedUp'), 'quotaUsedUp comes from utils/session-card')
+  assert.ok(called.has('flooredUsage'), 'the gauges are floored by utils/session-card')
 })

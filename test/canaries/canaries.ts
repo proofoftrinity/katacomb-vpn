@@ -411,6 +411,36 @@ export const CANARIES: Canary[] = [
     run: ['src/main/helper/daemon-readers.test.ts'],
   },
 
+  // --- the Sessions tab (P7) -----------------------------------------------------------
+  {
+    name: '[RN-2] the usage gauges follow the reading down',
+    file: 'src/renderer/utils/session-card.ts',
+    find: '  if (!floor) return reading\n',
+    replace: '  return reading\n',
+    run: ['src/renderer/utils/session-card.test.ts'],
+  },
+  {
+    name: '[REL-24] Connect is offered on a session that has used its paid hour',
+    file: 'src/renderer/utils/session-card.ts',
+    find: '  return (hasTimeCap && timePct >= 100) || (hasByteCap && dataPct >= 100)',
+    replace: '  return (hasTimeCap && timePct > 100) || (hasByteCap && dataPct >= 100)',
+    run: ['src/renderer/utils/session-card.test.ts'],
+  },
+  {
+    name: '[REL-24] the Connect button stops gating on the quota',
+    file: 'src/renderer/components/ActiveSessions.tsx',
+    find: "status.state === 'reconnecting' || quotaUsedUp || setupHeld}",
+    replace: "status.state === 'reconnecting' || setupHeld}",
+    run: ['test/static/renderer-rules.test.ts'],
+  },
+  {
+    name: '[MH-10] a chain that lost a hop is shown as ended, hiding its open deposit',
+    file: 'src/renderer/utils/session-card.ts',
+    find: "  if (open.length === 0) return 'ended'",
+    replace: "  if (open.length < hops.length) return 'ended'",
+    run: ['src/renderer/utils/session-card.test.ts'],
+  },
+
   // --- startup and the renderer ----------------------------------------------------
   {
     name: '[REL-14] the second instance quits through before-quit',
