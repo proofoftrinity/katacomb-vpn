@@ -26,6 +26,8 @@ export interface BundleSpec {
   fake: string[]
   /** npm packages allowed to be bundled for real. */
   allowPackages?: string[]
+  /** Bare specifiers (a Node builtin such as `child_process`) to replace with a harness file. */
+  stubs?: Record<string, string>
 }
 
 export interface Bundle { path: string; load: () => Record<string, unknown> }
@@ -111,6 +113,8 @@ export async function bundle(spec: BundleSpec): Promise<Bundle> {
         return undefined
       })
       b.onResolve({ filter: /^[^./]/ }, (args) => {
+        const stub = spec.stubs?.[args.path] ?? spec.stubs?.[args.path.replace(/^node:/, '')]
+        if (stub && !args.importer.startsWith(HARNESS)) return { path: resolve(ROOT, stub) }
         if (builtins.has(args.path) || args.path === 'electron' || args.importer.startsWith(HARNESS)) return undefined
         if (allowed.has(packageOf(args.path))) return undefined
         return { errors: [{ text: `unexpected npm import '${args.path}' from ${relative(ROOT, args.importer)}: fake its importer, or allow the package` }] }
