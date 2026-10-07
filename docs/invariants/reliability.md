@@ -110,7 +110,11 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   rather than being appended or reordered, because the node's resolver sees every name the
   user looks up. Do NOT "simplify" this into the `dns-set` path — wg-quick owns
   resolv.conf for this family, and overriding it there strands DNS on the node resolver
-  after disconnect. `wireguardResolverIp()` is deliberately NOT
+  after disconnect. The reconnect ladder applies it too: it replays the saved config, which
+  is the handshake's and still carries the node's list, and until 2026-10-07 it replayed it
+  verbatim, so every drop put a user who chose a resolver back on the node's. (The
+  resolvconf fallback is NOT replayed: an auto-reconnect never strips DNS on its own.)
+  `wireguardResolverIp()` is deliberately NOT
   `effectiveV2RayResolverIp()`: 'system' keeps the node's list, since the kill switch
   accepts everything out the tunnel interface and needs no public substitute. The rewrite
   happens BEFORE the config-guard assert, and `config-guard.test.ts` pins that the

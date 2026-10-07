@@ -2199,13 +2199,18 @@ async function attemptReconnect(): Promise<void> {
         // same as the manual fallback path.
         nodeIssuedFreshPeer = false
 
-        // Re-establish the tunnel
+        // Re-establish the tunnel. The saved config is the handshake's, so a WireGuard
+        // one still carries the node's DNS list: the user's resolver replaces it here
+        // exactly as on connect, or every drop put them back on the node's resolver.
+        // Never the resolvconf fallback: auto-reconnect does not strip DNS on its own.
+        const wgDns = wireguardResolverIp(loadSettings())
+        const withResolver = (cfg: string) => (wgDns ? replaceDnsLines(cfg, wgDns) : cfg)
         if (saved.protocol === 'wireguard') {
-          await connectWireGuardFromConfig(saved.configString)
+          await connectWireGuardFromConfig(withResolver(saved.configString))
         } else if (saved.protocol === 'openvpn') {
           await connectOpenVpnFromConfig(saved.configString)
         } else if (saved.protocol === 'amneziawg') {
-          await connectAmneziaWgFromConfig(saved.configString)
+          await connectAmneziaWgFromConfig(withResolver(saved.configString))
         } else {
           // v2ray, xray and hysteria2 share the child-process + tun2socks bring-up.
           // Replay the mode the user connected with — a proxy-mode session must
