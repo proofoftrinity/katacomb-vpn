@@ -20,8 +20,8 @@ import (
 // TypeScript dispatcher did dynamically.
 type rec struct {
 	*ops.Env
-	root  string
-	cmds  [][]string
+	root string
+	cmds [][]string
 }
 
 func newRec(t *testing.T) *rec {
@@ -59,11 +59,11 @@ func newRec(t *testing.T) *rec {
 			return 555, nil
 		},
 		Executable: func() (string, error) { return filepath.Join(root, "usr/local/bin/katacomb-vpn-helper"), nil },
-		Kill:     func(int, syscall.Signal) error { return syscall.ESRCH },
-		Sleep:    func(time.Duration) {},
-		Root:     root,
-		LookPath: func(name string) (string, error) { return name, nil },
-		Warn: func(string) {},
+		Kill:       func(int, syscall.Signal) error { return syscall.ESRCH },
+		Sleep:      func(time.Duration) {},
+		Root:       root,
+		LookPath:   func(name string) (string, error) { return name, nil },
+		Warn:       func(string) {},
 	}
 	for _, d := range []string{"sys/class/net", "usr/sbin", "etc"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
@@ -393,12 +393,12 @@ func TestKillswitchOnVariants(t *testing.T) {
 // [REL-8] The daemon side: no killswitch-on without a real endpoint IP.
 func TestKillswitchOnRefusals(t *testing.T) {
 	cases := map[string]string{
-		`{"iface":"sntl0","remoteHost":"0.0.0.0"}`:                          "killswitch_on: remoteHost 0.0.0.0 whitelists nothing",
-		`{"iface":"sntl0","remoteHost":"203.0.113.7","lanSharing":"yes"}`:   "killswitch_on: invalid lanSharing",
-		`{"iface":"sntl0","remoteHost":"203.0.113.7","dnsIp":"one.one"}`:    "killswitch_on: invalid dnsIp",
-		`{"iface":"sntl0;reboot","remoteHost":"203.0.113.7"}`:               "killswitch_on: invalid iface",
-		`{"iface":"sntl0","remoteHost":"node.example.com"}`:                 "killswitch_on: invalid remoteHost",
-		`{"remoteHost":"203.0.113.7"}`:                                      "killswitch_on: invalid iface",
+		`{"iface":"sntl0","remoteHost":"0.0.0.0"}`:                        "killswitch_on: remoteHost 0.0.0.0 whitelists nothing",
+		`{"iface":"sntl0","remoteHost":"203.0.113.7","lanSharing":"yes"}`: "killswitch_on: invalid lanSharing",
+		`{"iface":"sntl0","remoteHost":"203.0.113.7","dnsIp":"one.one"}`:  "killswitch_on: invalid dnsIp",
+		`{"iface":"sntl0;reboot","remoteHost":"203.0.113.7"}`:             "killswitch_on: invalid iface",
+		`{"iface":"sntl0","remoteHost":"node.example.com"}`:               "killswitch_on: invalid remoteHost",
+		`{"remoteHost":"203.0.113.7"}`:                                    "killswitch_on: invalid iface",
 	}
 	for args, want := range cases {
 		r := newRec(t)

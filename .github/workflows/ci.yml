@@ -46,6 +46,15 @@ jobs:
       - name: Build the privileged helper
         run: npm run build:daemon
 
+      # The app itself. Without this, nothing in CI ever bundled main, preload or the
+      # renderer: a package left out of DEPS_TO_BUNDLE still builds green and only
+      # dies at runtime with ERR_REQUIRE_ESM (CLAUDE.md [ARCH-3]).
+      - name: Build the app
+        run: npx electron-vite build
+
+      - name: Check the build bundles every npm dependency
+        run: node scripts/check-bundle-requires.mjs
+
       - name: Unit tests
         run: npm test
 

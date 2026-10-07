@@ -1,17 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+import { read, walk } from '../harness/source.ts'
 
 // The invariant registry. Every rule the docs state carries an ID where it is stated
 // (`**[REL-1] Refund on any failure.**`), and every test that pins a rule carries that
 // ID in its title. This file is what makes the link mechanical: delete the last test
 // for a rule, or add a rule with no test and no recorded reason, and the suite is red.
 // docs/testing.md has the rules for IDs and for test/invariants/status.json.
-
-const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 
 // Each prefix is defined in exactly one file, so an ID says where to read its rule.
 const HOMES: Record<string, string> = {
@@ -23,6 +19,7 @@ const HOMES: Record<string, string> = {
   MH: 'docs/multihop.md',
   PC: 'docs/provider-console.md',
   RN: 'docs/renderer.md',
+  PKG: 'docs/packaging.md',
   ARCH: 'CLAUDE.md',
 }
 
@@ -31,18 +28,6 @@ const ID_RE = /\[([A-Z]+-\d+)\]/g
 // A plain `[REL-1]` anywhere else is a reference to it.
 const DEF_RE = /\*\*\[([A-Z]+-\d+)\]/g
 
-function walk(dir: string, keep: (p: string) => boolean): string[] {
-  const out: string[] = []
-  for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
-    if (e.name === 'node_modules' || e.name.startsWith('.')) continue
-    const p = join(dir, e.name)
-    if (e.isDirectory()) out.push(...walk(p, keep))
-    else if (keep(p)) out.push(p)
-  }
-  return out
-}
-
-const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8')
 const idsIn = (s: string) => [...s.matchAll(ID_RE)].map((m) => m[1])
 
 // --- definitions ---------------------------------------------------------------

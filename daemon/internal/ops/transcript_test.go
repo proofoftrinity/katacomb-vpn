@@ -34,14 +34,14 @@ import (
 
 type fakeEnv struct {
 	*Env
-	t      *testing.T
-	root   string
-	cmds   [][]string
-	kills  []string
-	warns  []string
-	wgtype bool
-	rules  map[string]int
-	ovpnOK bool
+	t       *testing.T
+	root    string
+	cmds    [][]string
+	kills   []string
+	warns   []string
+	wgtype  bool
+	rules   map[string]int
+	ovpnOK  bool
 	nextPid int
 	// foreignWg are wireguard-type links belonging to ANOTHER VPN (Mullvad, IVPN,
 	// a hand-rolled tunnel). detectOtherVpn warns about these rather than blocking,
@@ -61,12 +61,12 @@ func newFake(t *testing.T) *fakeEnv {
 	root := t.TempDir()
 	f := &fakeEnv{t: t, root: root, rules: map[string]int{}, ovpnOK: true, nextPid: 31337}
 	f.Env = &Env{
-		Run:      f.run,
-		Spawn:    f.spawn,
-		Kill:     f.kill,
-		Sleep:    func(time.Duration) {},
-		Root:     root,
-		LookPath: func(name string) (string, error) { return name, nil },
+		Run:        f.run,
+		Spawn:      f.spawn,
+		Kill:       f.kill,
+		Sleep:      func(time.Duration) {},
+		Root:       root,
+		LookPath:   func(name string) (string, error) { return name, nil },
 		Executable: func() (string, error) { return filepath.Join(root, "usr/local/bin/katacomb-vpn-helper"), nil },
 		Warn:       func(m string) { f.warns = append(f.warns, m) },
 	}
@@ -602,11 +602,11 @@ func TestTranscriptParity(t *testing.T) {
 		}
 	}
 	plantProc(pid20, self, "katacomb-vpn-helper", "_tun2socks", "-device", "tun://sntl-tun", "-proxy", "socks5://127.0.0.1:1080")
-	plantProc(777, filepath.Join(f.root, "usr/sbin/openvpn"), "openvpn", "_tun2socks", "tun://sntl-tun")            // wrong executable
-	plantProc(778, self, "katacomb-vpn-helper", "_tun2socks", "-device", "--note=tun://sntl-tun")                   // substring, not a whole entry
-	plantProc(779, self, "katacomb-vpn-helper", "daemon", "tun://sntl-tun")                                        // our binary, not the sub-mode
-	plantProc(780, filepath.Join(f.root, "usr/sbin/openvpn"), "bash", "-c", "echo tun://sntl-tun")                // what pkill -f matched
-	plantProc(781, self+" (deleted)", "katacomb-vpn-helper", "_tun2socks", "-device", "tun://sntl-tun")            // engine from before an upgrade
+	plantProc(777, filepath.Join(f.root, "usr/sbin/openvpn"), "openvpn", "_tun2socks", "tun://sntl-tun") // wrong executable
+	plantProc(778, self, "katacomb-vpn-helper", "_tun2socks", "-device", "--note=tun://sntl-tun")        // substring, not a whole entry
+	plantProc(779, self, "katacomb-vpn-helper", "daemon", "tun://sntl-tun")                              // our binary, not the sub-mode
+	plantProc(780, filepath.Join(f.root, "usr/sbin/openvpn"), "bash", "-c", "echo tun://sntl-tun")       // what pkill -f matched
+	plantProc(781, self+" (deleted)", "katacomb-vpn-helper", "_tun2socks", "-device", "tun://sntl-tun")  // engine from before an upgrade
 	step("21-tun-down-nostate", func() error { return TunDown(ctx, f.Env) })
 	if k := strings.Join(f.takeKills(), ","); k != fmt.Sprintf("%d:15,781:15", pid20) {
 		t.Errorf("the pid-less fallback must kill exactly our own _tun2socks processes, got kills = %q", k)

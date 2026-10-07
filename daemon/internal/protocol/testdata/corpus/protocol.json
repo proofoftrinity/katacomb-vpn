@@ -1,5 +1,5 @@
 {
-  "_readme": "Language-neutral pin for the daemon socket contract. Read by daemon/internal/protocol/protocol_test.go and by src/main/daemon-protocol-corpus.test.ts. The TS and Go sides claim to mirror each other byte for byte; this file is what makes that claim fail loudly instead of drifting. Same arrangement as internal/guard/testdata/corpus. Edit a value here only when the wire contract really changes, and expect both suites to go red until both sides follow.",
+  "_readme": "Language-neutral pin for the daemon socket contract. Read by daemon/internal/protocol/corpus_test.go, daemon/internal/server/corpus_test.go and src/main/helper/daemon-protocol-corpus.test.ts. The TS and Go sides claim to mirror each other byte for byte; this file is what makes that claim fail loudly instead of drifting. Same arrangement as internal/guard/testdata/corpus. Edit a value here only when the wire contract really changes, and expect both suites to go red until both sides follow.",
   "version": 1,
   "socketDir": "/run/katacomb-vpn",
   "socketPath": "/run/katacomb-vpn/daemon.sock",

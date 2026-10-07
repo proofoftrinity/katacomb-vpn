@@ -26,7 +26,6 @@ const DEPS_TO_BUNDLE = [
   '@cosmjs/json-rpc',
   '@cosmjs/socket',
   '@scure/base',
-  '@scure/bip32',
   '@scure/bip39',
   '@noble/hashes',
   '@noble/curves',

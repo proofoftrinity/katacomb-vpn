@@ -69,8 +69,9 @@ runs it before any commit Claude makes. `docs/testing.md` is the map.
   loses its last test.
 - A bug fix lands with a test that failed before the fix. A new rule gets an ID and a
   test, and that test is seen to fail with the rule broken before it merges.
-- Never delete, skip or loosen a test, weaken a fake, or add an entry to
-  `test/invariants/status.json`, without the user's explicit approval.
+- Never delete, skip or loosen a test, weaken a fake, or excuse a rule (a new `pending`
+  or `manual` entry in `test/invariants/status.json`) without the user's explicit
+  approval. Moving a rule toward pinned needs no approval; the registry demands it.
 - When a refactor breaks a test, the refactor is wrong until shown otherwise.
 
 ## Architecture
@@ -107,7 +108,7 @@ instruction; the wallet index is copied so the name/address stay visible.
 Strict Electron security isolation with three process boundaries:
 
 - **Main process** (`src/main/`): Node.js context. Wallet crypto, blockchain RPC, VPN tunnel management, OS-level operations. All sensitive operations live here.
-- **Preload** (`src/preload/index.ts`): contextBridge exposing `window.api` — the only IPC channel between main and renderer. Channel constants in `src/shared/ipc-channels.ts`.
+- **Preload** (`src/preload/index.ts`): contextBridge exposing `window.api` — the only IPC channel between main and renderer. Channel constants in `src/shared/ipc-channels.ts`. **[ARCH-4]** Each channel is either a request (one `handle` in main, one preload method) or an event (sent by main, one removable preload listener), and the preload object, the `ElectronAPI` type and the renderer's calls match one to one: no channel, method or member without the others.
 - **Renderer** (`src/renderer/`): Browser context with React. **[ARCH-1]** `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. No Node.js access.
 
 ### Main process layout

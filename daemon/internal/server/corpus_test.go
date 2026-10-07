@@ -11,7 +11,7 @@ import (
 	"katacomb.vpn/daemon/internal/protocol"
 )
 
-// Shared with src/main/daemon-protocol-corpus.test.ts via
+// Shared with src/main/helper/daemon-protocol-corpus.test.ts via
 // internal/protocol/testdata/corpus/protocol.json. internal/protocol's own
 // corpus_test.go pins the framing and encoding; this pins the OP LIST, which is
 // the half that actually drifts — an op added to the TypeScript union with no

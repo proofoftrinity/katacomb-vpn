@@ -74,7 +74,7 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   string are byte-compatible. **The two sides are pinned by a shared corpus**
   (`daemon/internal/protocol/testdata/corpus/protocol.json`, read by
   `protocol/corpus_test.go`, `server/corpus_test.go` and
-  `src/main/daemon-protocol-corpus.test.ts`) — the same arrangement the guard corpus
+  `src/main/helper/daemon-protocol-corpus.test.ts`) — the same arrangement the guard corpus
   has always had, which the "byte for byte" claim previously lacked.
   **[PH-2] `protocol_version` now reports `{version, ops}` and IS called.** The version
   integer alone could never detect the skew that actually happens, because adding an

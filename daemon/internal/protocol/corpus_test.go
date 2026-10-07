@@ -9,7 +9,7 @@ import (
 )
 
 // The corpus under testdata/corpus/protocol.json is shared with
-// src/main/daemon-protocol-corpus.test.ts. Both sides claim to mirror this wire
+// src/main/helper/daemon-protocol-corpus.test.ts. Both sides claim to mirror this wire
 // contract byte for byte; this is what makes a drift fail loudly. Same
 // arrangement as internal/guard/testdata/corpus, which pins the config
 // allow-lists against src/main/config-guard.ts.
@@ -31,9 +31,9 @@ type corpus struct {
 	Responses []struct {
 		Name     string `json:"name"`
 		Response struct {
-			ID     int64 `json:"id"`
-			OK     bool  `json:"ok"`
-			Result any   `json:"result"`
+			ID     int64  `json:"id"`
+			OK     bool   `json:"ok"`
+			Result any    `json:"result"`
 			Error  string `json:"error"`
 		} `json:"response"`
 		Encoded string `json:"encoded"`

@@ -21,7 +21,9 @@ const BUNDLED_HASHES: Record<string, string> = {
 /** Verify a bundled binary's SHA-256 hash matches the expected value. */
 export function verifyBinaryIntegrity(path: string, name: string): boolean {
   const expected = BUNDLED_HASHES[name]
-  if (!expected) return true // no hash registered — skip check
+  // No pin is a refusal, not a pass: an unpinned binary is exactly what this exists to
+  // stop (docs/packaging.md [PKG-1]).
+  if (!expected) return false
   try {
     const data = readFileSync(path)
     const actual = createHash('sha256').update(data).digest('hex')

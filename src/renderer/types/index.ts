@@ -690,7 +690,6 @@ export interface ElectronAPI {
   subscriptionUpdatePolicy: (subscriptionId: string, policy: number) => Promise<void>
   onPlanDiscoverProgress: (callback: (progress: DiscoverProgress) => void) => () => void
 
-  providerGet: (address: string) => Promise<ProviderInfo | null>
   providerList: () => Promise<ProviderInfo[]>
 
   /**
@@ -719,7 +718,6 @@ export interface ElectronAPI {
 
   /** USD per P2P, for display next to prices. Null when unavailable. */
   priceToken: () => Promise<TokenPrice | null>
-  leaseParams: () => Promise<{ minHours: number; maxHours: number } | null>
   leaseQuote: (nodeAddress: string, hours: number) => Promise<LeaseQuote>
   leaseStart: (params: { nodeAddress: string; hours: number; renewalPolicy: number }) => Promise<void>
   leaseRenew: (leaseId: string, hours: number) => Promise<void>

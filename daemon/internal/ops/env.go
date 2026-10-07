@@ -90,12 +90,12 @@ type Env struct {
 // RealEnv is the production seam.
 func RealEnv() *Env {
 	return &Env{
-		Run:       realRun,
-		Spawn:     realSpawn,
-		Kill:      syscall.Kill,
-		Sleep:     time.Sleep,
-		Root:      "",
-		LookPath:  lookPathFixed,
+		Run:        realRun,
+		Spawn:      realSpawn,
+		Kill:       syscall.Kill,
+		Sleep:      time.Sleep,
+		Root:       "",
+		LookPath:   lookPathFixed,
 		Executable: os.Executable,
 		Warn:       func(msg string) { fmt.Fprintf(os.Stderr, "Warning: %s\n", msg) },
 	}
