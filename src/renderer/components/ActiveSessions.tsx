@@ -12,6 +12,7 @@ import RouteStrip from './RouteStrip'
 import { useConfirm } from './ConfirmModal'
 import { useNavigation } from '../contexts/NavigationContext'
 import type { SessionInfo } from '../types'
+import { cardState as cardStateOf, chainUsage, flooredUsage, quotaUsedUp as isQuotaUsedUp, timePercent, usagePercent, usageReading, type SessionUsage } from '../utils/session-card'
 
 interface Props {
   sessions: SessionInfo[]
@@ -61,29 +62,10 @@ function timeAgo(isoString: string | null): string {
   return `${days}d ago`
 }
 
-function usagePercent(downloaded: string, max: string): number {
-  const d = parseInt(downloaded, 10)
-  const m = parseInt(max, 10)
-  if (isNaN(d) || isNaN(m) || m === 0) return 0
-  return Math.min(100, (d / m) * 100)
-}
-
-function timePercent(elapsedSeconds: number, maxSeconds: number | null): number {
-  if (!maxSeconds || maxSeconds <= 0 || elapsedSeconds <= 0) return 0
-  return Math.min(100, (elapsedSeconds / maxSeconds) * 100)
-}
-
 /** One session's row: the chain's record plus what its gauges should read. */
 interface Row {
   session: SessionInfo
   usage: SessionUsage
-}
-
-/** What a session's gauges show: on-chain baseline plus this tunnel's live meter. */
-interface SessionUsage {
-  downloadBytes: number
-  uploadBytes: number
-  seconds: number
 }
 
 export default function ActiveSessions({
@@ -151,27 +133,13 @@ export default function ActiveSessions({
     // double-counting; giving it only to the entry would show the exit frozen.
     const live = vpnConnected &&
       (status.sessionId === session.id || status.chainExit?.sessionId === session.id)
-    const reading: SessionUsage = {
-      downloadBytes: (parseInt(session.downloadBytes || '0', 10) || 0) + (live ? liveStats.rxBytes : 0),
-      uploadBytes: (parseInt(session.uploadBytes || '0', 10) || 0) + (live ? liveStats.txBytes : 0),
-      // Time is measured exactly like bytes: what the chain has already metered,
-      // plus what THIS tunnel has done since it came up.
-      //
-      // NOT wall-clock since startAt. The chain meters `duration` from the node's
-      // usage proofs, so a session you bought but never connected to accrues
-      // nothing — mainnet #53647217 sat 53 minutes at `duration: 0` while this card
-      // read "47m / 1h 0m, 79.4%", an entire paid hour shown as spent.
-      seconds: (session.durationSeconds ?? 0) +
-        (live && status.connectedAt ? Math.max(0, (Date.now() - status.connectedAt) / 1000) : 0),
-    }
-    const floor = shownUsage.current.get(session.id)
-    const usage: SessionUsage = floor
-      ? {
-          downloadBytes: Math.max(reading.downloadBytes, floor.downloadBytes),
-          uploadBytes: Math.max(reading.uploadBytes, floor.uploadBytes),
-          seconds: Math.max(reading.seconds, floor.seconds),
-        }
-      : reading
+    // Metered time, never wall-clock since startAt (see usageReading).
+    const reading = usageReading(
+      session,
+      live ? { rxBytes: liveStats.rxBytes, txBytes: liveStats.txBytes, connectedAt: status.connectedAt ?? null } : null,
+      Date.now(),
+    )
+    const usage = flooredUsage(reading, shownUsage.current.get(session.id))
     return { session, usage }
   })
   // Rebuilt from the current rows every render, so a settled session's entry leaves
@@ -216,15 +184,7 @@ export default function ActiveSessions({
   //           row, and the second failed or was cut off by a quit). Not a breakage the
   //           user has to be told about, only the rest of their own End to finish.
   //   ended:  no hop active; nothing to do but wait for it to settle.
-  const cardState = (entry: Row, exit: Row | null): 'open' | 'broken' | 'ending' | 'ended' => {
-    const hops = exit ? [entry, exit] : [entry]
-    const open = hops.filter((h) => h.session.status === 'active')
-    if (open.length === 0) return 'ended'
-    if (open.length < hops.length || (!exit && entry.session.chainPeerSessionId)) {
-      return open[0].session.chainPeerEndedByUser ? 'ending' : 'broken'
-    }
-    return 'open'
-  }
+  const cardState = (entry: Row, exit: Row | null) => cardStateOf(entry.session, exit?.session ?? null)
   const endedCards = groups.filter((g) => cardState(g.entry, g.exit) === 'ended').length
   const shownGroups = showEnded ? groups : groups.filter((g) => cardState(g.entry, g.exit) !== 'ended')
 
@@ -442,13 +402,7 @@ export default function ActiveSessions({
             // they settle independently, and the chain ends when EITHER runs out.
             // Score the card off whichever hop is further along, which is the same
             // "worst verdict wins" rule the main process applies to the quotas.
-            const usage: SessionUsage = exitRow
-              ? {
-                  downloadBytes: Math.max(entryRow.usage.downloadBytes, exitRow.usage.downloadBytes),
-                  uploadBytes: Math.max(entryRow.usage.uploadBytes, exitRow.usage.uploadBytes),
-                  seconds: Math.max(entryRow.usage.seconds, exitRow.usage.seconds),
-                }
-              : entryRow.usage
+            const usage: SessionUsage = chainUsage(entryRow.usage, exitRow?.usage ?? null)
             // Either hop: End on a broken chain closes whichever one is still open,
             // which may be the exit.
             const isBusy = busy === session.id || (exitRow !== null && busy === exitRow.session.id)
@@ -508,7 +462,7 @@ export default function ActiveSessions({
             // Connecting there costs a handshake and a password prompt to bring up
             // a tunnel the quota watchdog stands down at its next 15s tick. End is
             // the action that fits, and it stays enabled.
-            const quotaUsedUp = (hasTimeCap && timePct >= 100) || (hasByteCap && dataPct >= 100)
+            const quotaUsedUp = isQuotaUsedUp(session, usage)
             // `inactiveAt` means two different things depending on status — both
             // measured against mainnet, where statusTimeout is 7200s:
             //   ended  (2): fixed at statusAt + 2h — when the chain settles it and
