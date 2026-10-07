@@ -68,7 +68,8 @@ runs it before any commit Claude makes. `docs/testing.md` is the map.
   carries its ID in its title. `test/invariants/registry.test.ts` goes red when a rule
   loses its last test.
 - A bug fix lands with a test that failed before the fix. A new rule gets an ID and a
-  test, and that test is seen to fail with the rule broken before it merges.
+  test, and that test is seen to fail with the rule broken before it merges; a money,
+  root or privacy rule also gets a mutation canary (`test/canaries/canaries.ts`).
 - Never delete, skip or loosen a test, weaken a fake, or excuse a rule (a new `pending`
   or `manual` entry in `test/invariants/status.json`) without the user's explicit
   approval. Moving a rule toward pinned needs no approval; the registry demands it.

@@ -58,6 +58,12 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # Each canary breaks one money / root / privacy rule in a copy of the tree and
+      # requires the suite to notice (test/canaries/canaries.ts). A canary that
+      # survives means a test stopped guarding its rule.
+      - name: Mutation canaries
+        run: npm run test:canaries
+
       # Blocking gate for anything critical. Kept separate from the high-severity
       # report below because the transitive `elliptic` advisory (GHSA-848j-6mx2-7j84,
       # high, no upstream fix — dormant fallback under the vendored JS SDK's native
