@@ -81,6 +81,29 @@ count.
   `src/main/helper/privileged.test.ts` (relative imports and `fs`/`child_process`
   stubbed) and `src/main/helper/daemon-client.test.ts` (a real Unix socket) are the
   worked examples.
+- **The connection state machine** (`src/main/ipc-handlers.*.test.ts`: money, lifecycle,
+  wallet, trust). `test/harness/ipc.ts` bundles the REAL `ipc-handlers.ts` with esbuild
+  (`test/harness/bundle.ts`), replaces each collaborator in `FAKED` with a recorder
+  generated from that module's real exports, and keeps everything pure real
+  (connect-decisions, plan-connect, config-guard, validate, settings, kill-switch).
+  - `const ipc = await loadIpcHandlers()` once per file; `const h = ipc.fresh(opts)` per
+    test, with `t.after(() => h.dispose())`.
+  - Drive it as the renderer does: `h.invoke('CONNECTION_SUBSCRIBE', req)`.
+    `test/harness/requests.ts` has one valid request per purchase handler and the world
+    each needs (`worldFor`).
+  - Timers are mocked. `h.advance(ms)` lets virtual time pass; `h.settle(p)` drives it
+    until `p` settles and fails a wait that never ends, which is how "bound every wait"
+    is tested. `h.settleError(p)` returns the error of a call expected to fail.
+  - Assert on what it did: `h.calls('chain/chain-service', 'endSession')`,
+    `h.sent('CONNECTION_STATE_CHANGE')`, `h.tunnel` (the faked machine), files under
+    `h.world.userData`. Never on its private variables.
+  - Override a collaborator per test, typed against the real module:
+    `fakes: { 'chain/chain-service': { performHandshake: async () => { throw err } } }`.
+    A call nothing fakes throws `unstubbed mod.fn()`; an npm import the bundle did not
+    expect fails the build.
+  - A promise checked later must have its rejection handled at once
+    (`.then(() => null, (e) => e)`), or node:test fails the test on the unhandled
+    rejection.
 - **Cross-language corpus.** The TS config guard and the Go daemon guard read the same
   files, `daemon/internal/guard/testdata/corpus/` (format in its `README.md`), and both
   sides of the daemon wire protocol read
