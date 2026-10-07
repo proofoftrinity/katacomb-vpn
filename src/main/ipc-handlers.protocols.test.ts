@@ -118,12 +118,12 @@ describe('[REL-9] the chosen resolver replaces a WireGuard node\'s DNS list, on 
     })
   }
 
-  // Found by this suite (2026-10-07): the reconnect ladder replays the SAVED config,
-  // which is the handshake's, so it still carries the node's DNS list. A user who
-  // chose a resolver is back on the node's after any drop, and the node's resolver
-  // sees every name they look up. Awaiting the user's approval to fix.
+  // Found by this suite (2026-10-07), fixed with the user's approval: the reconnect
+  // ladder replayed the SAVED config, which is the handshake's and still carries the
+  // node's DNS list, so a user who chose a resolver was back on the node's after any
+  // drop, and the node's resolver saw every name they looked up.
   for (const protocol of ['wireguard', 'amneziawg']) {
-    test(`[REL-9] ${protocol}: an auto-reconnect keeps the chosen resolver too`, { todo: 'found 2026-10-07, fix awaits approval' }, async (t) => {
+    test(`[REL-9] ${protocol}: an auto-reconnect keeps the chosen resolver too`, async (t) => {
       const h = ipc.fresh(merge(nodeRunning(protocol, NODE_DNS(protocol === 'amneziawg' ? 'Jc = 4\n' : '')), { settings: { dnsResolver: '1.1.1.1', autoReconnect: true } }))
       t.after(() => h.dispose())
       await buyAndConnect(h, protocol)
@@ -134,6 +134,15 @@ describe('[REL-9] the chosen resolver replaces a WireGuard node\'s DNS list, on 
       assert.match(ups[1].args[0] as string, /^DNS = 1\.1\.1\.1$/m)
     })
   }
+
+  test('[REL-9] control: with the system resolver, an auto-reconnect keeps the node\'s list', async (t) => {
+    const h = ipc.fresh(merge(nodeRunning('wireguard', NODE_DNS('')), { settings: { dnsResolver: 'system', autoReconnect: true } }))
+    t.after(() => h.dispose())
+    await buyAndConnect(h, 'wireguard')
+    h.tunnel.down()
+    await h.advance(5_000 + 2_000)
+    assert.match(h.calls('vpn/vpn-manager', BRING_UP.wireguard)[1].args[0] as string, /^DNS = 10\.8\.0\.1, 1\.0\.0\.1$/m)
+  })
 
   for (const protocol of ['v2ray', 'openvpn']) {
     test(`[REL-9] ${protocol} is not rewritten: its DNS is not wg-quick's to hand to resolvconf`, async (t) => {

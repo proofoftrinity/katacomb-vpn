@@ -1,8 +1,7 @@
 {
   "pending": {},
   "partial": {
-    "NT-3": "the limit is pinned on every unsigned connect review, and a deny-list of protection claims runs over all renderer copy; copy phrased outside the deny-list is still reviewed by hand",
-    "REL-9": "the connect paths are pinned (WG/AWG only, replaced not appended, 'system' keeps the node's list); the auto-reconnect replays the saved config with the node's list (found 2026-10-07, todo test in ipc-handlers.protocols.test.ts, fix awaiting approval)"
+    "NT-3": "the limit is pinned on every unsigned connect review, and a deny-list of protection claims runs over all renderer copy; copy phrased outside the deny-list is still reviewed by hand"
   },
   "manual": {
     "SL-2": "chain governance parameter, verified against live mainnet; re-check on a hub upgrade",

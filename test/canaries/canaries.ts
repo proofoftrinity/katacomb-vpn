@@ -550,6 +550,13 @@ export const CANARIES: Canary[] = [
     run: [PROTOCOLS],
   },
   {
+    name: '[REL-9] the reconnect ladder puts the user back on the node\'s resolver',
+    file: IPC_TS,
+    find: '        const withResolver = (cfg: string) => (wgDns ? replaceDnsLines(cfg, wgDns) : cfg)',
+    replace: '        const withResolver = (cfg: string) => (wgDns ? cfg : cfg)',
+    run: [PROTOCOLS],
+  },
+  {
     name: '[PRO-7] a proxy-mode session comes back from a reconnect as a full tunnel',
     file: IPC_TS,
     find: "          const proxyOnly = desiredMode === 'proxy'\n",
