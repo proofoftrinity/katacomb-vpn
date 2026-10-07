@@ -12,7 +12,9 @@ npm run dist         # Build + package for Linux (AppImage + deb)
 npm run dist:deb     # Build + package deb only
 npm run dist:appimage # Build + package AppImage only
 npm test             # Node tests (src/**, test/**; built-in runner) + `go test ./...` in daemon/
-npm run test:daemon  # The Go tests alone
+npm run test:daemon  # The Go tests alone (shuffled)
+npm run test:canaries # Mutation canaries: each guarded rule broken must turn the suite red
+npm run test:fuzz    # Go fuzz targets, FUZZTIME each (default 10s)
 npm run build:daemon # Build the privileged helper (daemon/ → resources/linux/privileged/katacomb-vpn-helper)
 npm run typecheck    # tsc --noEmit on both projects + the tests (must pass clean)
 npm run verify       # typecheck + test: the definition of done

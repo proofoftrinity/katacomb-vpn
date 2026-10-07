@@ -9,7 +9,6 @@
     "MH-10": "main refuses to rebuild a broken chain; the Sessions tab card state is not (P7)",
     "MH-12": "chainDeadlineStep is pinned; the checkChainExitDeadline wiring is not (P4)",
     "NT-1": "the guards, the root-side re-check, and the WireGuard and V2Ray sinks are pinned; the xray, hysteria2, AmneziaWG and OpenVPN sinks are not",
-    "PH-2": "the Go side is pinned; the TS readers of the op list are not (P6)",
     "PRO-7": "proxy mode is refused for the root protocols; the mode never being persisted, and reconnect replaying desiredMode, are not (P4)",
     "REL-2": "the lock, the epoch, the queued-connect refusal and the locked give-up are pinned; desiredProtocol staying distinct from vpn-manager's activeProtocol is not",
     "REL-5": "withTimeout, broadcastOrTimeout and the bounded refund are pinned; timeoutHeight on the three session txs is not (P5)",
