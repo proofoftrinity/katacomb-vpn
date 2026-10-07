@@ -16,8 +16,8 @@ import (
 
 type rec struct {
 	*ops.Env
-	root  string
-	cmds  [][]string
+	root string
+	cmds [][]string
 }
 
 func newRec(t *testing.T) *rec {
@@ -44,11 +44,11 @@ func newRec(t *testing.T) *rec {
 			return 777, nil
 		},
 		Executable: func() (string, error) { return filepath.Join(root, "usr/local/bin/katacomb-vpn-helper"), nil },
-		Kill:     func(int, syscall.Signal) error { return nil },
-		Sleep:    func(time.Duration) {},
-		Root:     root,
-		LookPath: func(name string) (string, error) { return name, nil },
-		Warn: func(string) {},
+		Kill:       func(int, syscall.Signal) error { return nil },
+		Sleep:      func(time.Duration) {},
+		Root:       root,
+		LookPath:   func(name string) (string, error) { return name, nil },
+		Warn:       func(string) {},
 	}
 	for _, d := range []string{"sys/class/net", "etc", "cfg"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {

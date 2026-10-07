@@ -13,6 +13,7 @@ wrong until shown otherwise. The rules for changing the suite itself are in
 | `npm run typecheck` | `tsc` over main+preload, renderer, and the tests (`tsconfig.test.json`) |
 | `npm test` | `node --test` over `src/**/*.test.ts` and `test/**/*.test.ts`, then `go test ./...` in `daemon/`, then the architecture-doc check |
 | `npm run test:daemon` | the Go tests alone |
+| `npx electron-vite build && node scripts/check-bundle-requires.mjs` | CI: builds the app, then checks the bundles require no npm package ([ARCH-3]) |
 
 - Node 22.18+ (native type stripping, `engines` in `package.json`); Go is the
   toolchain pinned in `daemon/go.mod`.
@@ -37,6 +38,7 @@ the link both ways, so deleting a rule's last test is a red suite, not a silent 
 | `MH` | `docs/multihop.md` |
 | `PC` | `docs/provider-console.md` |
 | `RN` | `docs/renderer.md` |
+| `PKG` | `docs/packaging.md` |
 | `ARCH` | `CLAUDE.md` |
 
 - **Defining** an ID: put it at the start of the rule's bold head,
@@ -84,6 +86,15 @@ count.
   sides of the daemon wire protocol read
   `daemon/internal/protocol/testdata/corpus/protocol.json`. A behaviour change goes into
   the corpus, so both sides are held to it; never into one side's test alone.
+- **Static rules** (`test/static/`). A rule about the code rather than about what it
+  computes - one door into main, no synchronous privileged call, the IPC contract,
+  every bring-up under the lock - is checked by parsing the source with the TypeScript
+  compiler API (`test/harness/source.ts`). Keep each one narrow, give every allow-list
+  entry a reason, and say in the failure message what to do.
+  `test/harness/entry-points.ts` lists the handlers that buy a session, bring a tunnel up
+  or change the active wallet; `test/static/entry-points.test.ts` derives those sets from
+  the source and fails when they drift, so a test that loops over a list cannot miss a
+  new handler. A known gap stays visible as a `test.todo` beside the passing check.
 - **Golden transcripts.** `daemon/internal/ops/testdata/transcripts/` pins every root
   command line byte for byte. They are captured by
   `scripts/capture-helper-transcripts.sh` (docker, root) and replayed by

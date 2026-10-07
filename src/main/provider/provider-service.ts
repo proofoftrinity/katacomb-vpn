@@ -158,8 +158,3 @@ export async function listProviders(): Promise<ProviderInfo[]> {
     return cached.providers
   }
 }
-
-export async function getProvider(address: string): Promise<ProviderInfo | null> {
-  const all = await listProviders()
-  return all.find((p) => p.address === address) ?? null
-}

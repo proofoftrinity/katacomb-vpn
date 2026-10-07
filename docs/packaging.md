@@ -27,6 +27,11 @@ macro-EXPANDED copy of postinstall/postrm in the control archive, and the copy t
 used to leave at `/opt/.../resources/linux/` was root-owned, +x and macro-UNexpanded, so
 running it by hand would set `APP_DIR` to `/opt/` and install the helper and unit from
 the wrong place. Nothing reads it.
+**[PKG-1] Every vendored binary is SHA-256 pinned** in `src/main/vpn/binary-integrity.ts`,
+and the pin is checked before each spawn: a mismatch throws rather than falling back to
+`$PATH`, and a binary with no pin at all is refused the same way. Replacing a binary
+means updating its pin in the same change; `binary-integrity.test.ts` hashes the
+git-tracked files against the table.
 
 **Every custom key in `electron-builder.yml` REPLACES its default, never merges.**
 This cost three of the four defects in the portability audit: `deb.depends` dropped

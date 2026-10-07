@@ -80,7 +80,6 @@ export const IPC = {
   SUBSCRIPTION_UPDATE_POLICY: 'subscription:update-policy',
 
   // Providers
-  PROVIDER_GET: 'provider:get',
   PROVIDER_LIST: 'provider:list',
 
   // Provider console — acting AS a provider with this wallet.
@@ -103,7 +102,6 @@ export const IPC = {
   PRICE_TOKEN: 'price:token',
 
   // Leases (x/lease — the prerequisite for linking a node to a plan)
-  LEASE_PARAMS: 'lease:params',
   LEASE_QUOTE: 'lease:quote',
   LEASE_START: 'lease:start',
   LEASE_RENEW: 'lease:renew',

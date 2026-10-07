@@ -40,7 +40,7 @@ import {
   leaseDepositUdvpn,
   toProviderAddress,
 } from '../provider/provider-msgs'
-import { getProvider, listProviders } from '../provider/provider-service'
+import { listProviders } from '../provider/provider-service'
 import { loadSettings, setWalletProviderMode } from '../settings'
 import { isVpnActive } from '../vpn/vpn-manager'
 import {
@@ -64,18 +64,6 @@ import type { Handle } from './handle'
  * They do refuse while the tunnel is up: the chain is unreachable through it.
  */
 export function registerProviderHandlers(handle: Handle): void {
-  handle(IPC.PROVIDER_GET, async (_event, params: { address: string }) => {
-    assertString(params?.address, 'address')
-    assertSentAddress(params.address, 'address')
-    try {
-      return await getProvider(params.address)
-    } catch {
-      reportRpcFailure()
-      const cached = getCachedProviders().providers
-      return cached.find((p) => p.address === params.address) ?? null
-    }
-  })
-
   handle(IPC.PROVIDER_LIST, async () => {
     try {
       return await listProviders()
@@ -369,11 +357,6 @@ export function registerProviderHandlers(handle: Handle): void {
   })
 
   // --- Leases ---
-
-  handle(IPC.LEASE_PARAMS, async () => {
-    if (isVpnActive()) return null
-    return await getLeaseParams().catch(noteChainError)
-  })
 
   /**
    * What a lease on this node would cost. Priced in main from the node's own

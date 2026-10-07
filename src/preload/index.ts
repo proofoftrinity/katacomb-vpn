@@ -159,7 +159,6 @@ contextBridge.exposeInMainWorld('api', {
   subscriptionUpdatePolicy: (subscriptionId: string, policy: number) =>
     ipcRenderer.invoke(IPC.SUBSCRIPTION_UPDATE_POLICY, { subscriptionId, policy }),
 
-  providerGet: (address: string) => ipcRenderer.invoke(IPC.PROVIDER_GET, { address }),
   providerList: () => ipcRenderer.invoke(IPC.PROVIDER_LIST),
 
   // Provider console
@@ -182,7 +181,6 @@ contextBridge.exposeInMainWorld('api', {
 
   priceToken: () => ipcRenderer.invoke(IPC.PRICE_TOKEN),
 
-  leaseParams: () => ipcRenderer.invoke(IPC.LEASE_PARAMS),
   leaseQuote: (nodeAddress: string, hours: number) => ipcRenderer.invoke(IPC.LEASE_QUOTE, { nodeAddress, hours }),
   leaseStart: (params: unknown) => ipcRenderer.invoke(IPC.LEASE_START, params),
   leaseRenew: (leaseId: string, hours: number) => ipcRenderer.invoke(IPC.LEASE_RENEW, { leaseId, hours }),
