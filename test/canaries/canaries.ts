@@ -22,6 +22,9 @@ const LIFE = 'src/main/ipc-handlers.lifecycle.test.ts'
 const WALLET = 'src/main/ipc-handlers.wallet.test.ts'
 const TRUST = 'src/main/ipc-handlers.trust.test.ts'
 const ENTRY = 'test/static/entry-points.test.ts'
+const TEARDOWN = 'src/main/ipc-handlers.teardown.test.ts'
+const CHAIN = 'src/main/ipc-handlers.chain.test.ts'
+const SINKS = 'src/main/vpn/vpn-manager.test.ts'
 const IPC_TS = 'src/main/ipc-handlers.ts'
 
 export const CANARIES: Canary[] = [
@@ -215,6 +218,101 @@ export const CANARIES: Canary[] = [
     find: '		rules = append(rules, []string{"-A", chain4, "-j", "DROP"}, []string{"-A", "OUTPUT", "-j", chain4})',
     replace: '		rules = append(rules, []string{"-A", chain4, "-j", "REJECT"}, []string{"-A", "OUTPUT", "-j", chain4})',
     run: ['go:./internal/ops/'],
+  },
+
+  // --- teardown, the kill switch, the quota (P4) -------------------------------------
+  {
+    name: '[REL-8] the kill switch is armed with no endpoint to whitelist',
+    file: IPC_TS,
+    find: '  if (!remoteHost) {\n    console.error(`[killswitch] no endpoint IP',
+    replace: '  if (!remoteHost && false) {\n    console.error(`[killswitch] no endpoint IP',
+    run: [TEARDOWN],
+  },
+  {
+    name: '[REL-30] the watchdog is stopped before the usage is remembered',
+    file: IPC_TS,
+    find: '  return withConnectionLock(async () => {\n    rememberSessionUsage()\n\n    stopRootTunnelMonitor()\n    stopQuotaWatchdog()',
+    replace: '  return withConnectionLock(async () => {\n    stopQuotaWatchdog()\n    rememberSessionUsage()\n\n    stopRootTunnelMonitor()',
+    run: [TEARDOWN],
+  },
+  {
+    name: '[REL-16] a bring-up no longer starts the quota watchdog',
+    file: IPC_TS,
+    find: '  if (mode !== \'proxy\') startRootTunnelMonitor()\n  startQuotaWatchdog()',
+    replace: '  if (mode !== \'proxy\') startRootTunnelMonitor()',
+    run: [TEARDOWN],
+  },
+  {
+    name: '[REL-31] the kill-switch heal strips a live tunnel\'s chain',
+    file: IPC_TS,
+    find: '  if (isKillSwitchArmed() && !getConnectionStatus().connected) {',
+    replace: '  if (isKillSwitchArmed()) {',
+    run: [TEARDOWN],
+  },
+  {
+    name: '[REL-32] the orphan heal forgets to tell the tray',
+    file: IPC_TS,
+    find: '  // that ordering means createTrayIcon() reads the settled state for itself.\n  notifyTraySettled()',
+    replace: '  // that ordering means createTrayIcon() reads the settled state for itself.',
+    run: [TEARDOWN],
+  },
+  {
+    name: '[REL-20] usage keeps counting after the tunnel stopped answering',
+    file: IPC_TS,
+    find: '  const until = Math.max(aliveUntilMs, connectedAtMs)',
+    replace: '  const until = Date.now()',
+    run: [TEARDOWN],
+  },
+  {
+    name: '[REL-31] the kill-switch marker is written after arming',
+    file: 'src/main/vpn/kill-switch.ts',
+    find: '  markKillSwitchArmed()\n  await runPrivileged([',
+    replace: '  await runPrivileged([',
+    run: ['src/main/vpn/kill-switch.test.ts'],
+  },
+
+  // --- signing, the chain, the sinks (P4) --------------------------------------------
+  {
+    name: '[NT-5] a purchase handshake stops asking for a signature',
+    file: IPC_TS,
+    find: '          sessionId, nodeAddress, nodeType, remoteUrl, privKey, requireSigned: directorySaysSigns(nodeAddress), nodeMoniker, nodeCountry,',
+    replace: '          sessionId, nodeAddress, nodeType, remoteUrl, privKey, requireSigned: false, nodeMoniker, nodeCountry,',
+    run: [CHAIN],
+  },
+  {
+    name: '[MH-13] the exit is preflighted directly, not through the entry',
+    file: IPC_TS,
+    find: '    await preflightConnect(exit.nodeAddress, exit.nodeType, exit.apiField, false, agent)',
+    replace: '    await preflightConnect(exit.nodeAddress, exit.nodeType, exit.apiField, false)',
+    run: [CHAIN],
+  },
+  {
+    name: '[MH-13] the provisioning proxy is left running',
+    file: IPC_TS,
+    find: '    proxy?.stop()\n  }\n}',
+    replace: '  }\n}',
+    run: [CHAIN],
+  },
+  {
+    name: '[MH-7] the exit may be paid from the active account under another id',
+    file: IPC_TS,
+    find: '    if (creds.address === address) {',
+    replace: '    if (creds.address === address && false) {',
+    run: [CHAIN],
+  },
+  {
+    name: '[NT-1] the WireGuard sink skips the guard',
+    file: 'src/main/vpn/vpn-manager.ts',
+    find: '  // Saved/reconnect configs are equally untrusted — guard before wg-quick (root).\n  assertSafeWireguardConfig(configString)\n',
+    replace: '',
+    run: [SINKS],
+  },
+  {
+    name: '[REL-7] the WireGuard sink hands root the hostname',
+    file: 'src/main/vpn/vpn-manager.ts',
+    find: '  // by now the kill switch may be the thing blocking the lookup).\n  const configString = pinWireguardEndpoint(raw, resolveHostToIPv4)\n',
+    replace: '  // by now the kill switch may be the thing blocking the lookup).\n  const configString = raw\n',
+    run: [SINKS],
   },
 
   // --- startup and the renderer ----------------------------------------------------

@@ -105,6 +105,11 @@ count.
   - A promise checked later must have its rejection handled at once
     (`.then(() => null, (e) => e)`), or node:test fails the test on the unhandled
     rejection.
+- **One main-process module on its own** (`vpn-manager.test.ts`, `kill-switch.test.ts`):
+  `loadModule({ entries, fake, stubs })` from `test/harness/module.ts`, the same bundling
+  and fakes without the IPC layer. `stubs` swaps a Node builtin for a harness file
+  (`child_process` -> `test/harness/child-process.ts`, answered by
+  `fakes.child_process`).
 - **Cross-language corpus.** The TS config guard and the Go daemon guard read the same
   files, `daemon/internal/guard/testdata/corpus/` (format in its `README.md`), and both
   sides of the daemon wire protocol read

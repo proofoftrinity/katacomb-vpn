@@ -39,6 +39,7 @@ export class Notification {
   private readonly opts: { title?: string; body?: string }
   constructor(opts: { title?: string; body?: string }) { this.opts = opts }
   static isSupported(): boolean { return true }
+  on(_event: string, _listener: () => void): this { return this }
   show(): void { world().notifications.push(this.opts) }
 }
 
