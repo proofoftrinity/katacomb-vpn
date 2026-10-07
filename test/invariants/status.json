@@ -29,7 +29,7 @@
     "PH-2": "the Go side is pinned; the TS readers of the op list are not (P6)",
     "PRO-4": "uuidToBytes is pinned; the per-protocol peer request shape in chain-service is not (P5)",
     "PRO-7": "proxy mode is refused for the root protocols; the mode never being persisted, and reconnect replaying desiredMode, are not (P4)",
-    "REL-2": "the lock, the epoch and the queued-connect refusal are pinned; one known gap awaits approval: the reconnect give-up teardown runs outside the lock (test.todo)",
+    "REL-2": "the lock, the epoch, the queued-connect refusal and the locked give-up are pinned; desiredProtocol staying distinct from vpn-manager's activeProtocol is not",
     "REL-5": "withTimeout, broadcastOrTimeout and the bounded refund are pinned; timeoutHeight on the three session txs is not (P5)",
     "REL-7": "the WireGuard and V2Ray pinners are pinned; the hysteria2 pin and pin-before-guard order at the sinks are not (P4)",
     "REL-8": "the daemon's refusal is pinned; the TS-side skip in armKillSwitch is not (P4)",

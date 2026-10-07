@@ -2157,7 +2157,16 @@ async function attemptReconnect(): Promise<void> {
       await standDownSession('hop-closed', activeExitSessionId)
       return
     }
-    await teardownToIdle(true)
+    // Under the lock, like every other teardown. The V2Ray exit callback can land here
+    // while the last attempt still holds the lock mid-bring-up; tearing down beside it
+    // raced that attempt. Queued behind it, the give-up is stale if the user
+    // disconnected meanwhile (the epoch moved) or the attempt succeeded (it zeroes
+    // reconnectAttempt), and then there is nothing left to tear down.
+    const epoch = connectionEpoch
+    await withConnectionLock(async () => {
+      if (connectionEpoch !== epoch || reconnectAttempt === 0) return
+      await teardownToIdle(true)
+    })
     return
   }
 
@@ -3487,7 +3496,11 @@ export function registerIpcHandlers(): void {
             dnsFallback || !wgDns ? stripDnsLines(base) : replaceDnsLines(base, wgDns),
           )
         } else {
-          const base = activeWgConfig ?? params.configString
+          // The config handed in wins; the stash only answers a Retry, which passes
+          // none. The other way round, a Sessions-tab reconnect after a failed connect
+          // of another session brought up THAT session's tunnel (the stash survives
+          // a failed connect, and RECONNECT re-points the session without clearing it).
+          const base = params.configString ?? activeWgConfig
           if (!base) throw new Error('No WireGuard config available')
           await connectWireGuardFromConfig(base)
         }
@@ -3544,7 +3557,8 @@ export function registerIpcHandlers(): void {
         // Resolve the DoH resolver up front so it's injected into the v2ray config
         // (same value applyPostConnectSettings uses for resolv.conf + kill switch).
         const dohIp = effectiveV2RayResolverIp(loadSettings())
-        const v2rayCfg = activeV2rayConfig ?? params.configString
+        // The config handed in wins, as for every protocol (see the WireGuard branch).
+        const v2rayCfg = params.configString ?? activeV2rayConfig
         if (!v2rayCfg) throw new Error('No V2Ray config available')
         connectV2RayFromConfig(v2rayCfg, dohIp, { proxyOnly })
         await finishChildProxyConnect({
