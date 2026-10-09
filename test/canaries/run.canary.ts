@@ -55,7 +55,7 @@ function privatize(dir: string, rel: string): void {
   }
 }
 
-async function ranRed(c: Canary): Promise<{ red: boolean; output: string }> {
+async function ranRed(c: Canary): Promise<{ red: boolean; output: string; target?: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'kv-canary-'))
   try {
     for (const p of COPY) cpSync(join(template, p), join(dir, p), { recursive: true })
@@ -74,8 +74,9 @@ async function ranRed(c: Canary): Promise<{ red: boolean; output: string }> {
           : await run(process.execPath, ['--test', target], { cwd: dir, env, maxBuffer: 1 << 26 })
         output += r.stdout
       } catch (err) {
-        // A non-zero exit from any target is the canary being caught.
-        return { red: true, output: String((err as { stdout?: string }).stdout ?? err) }
+        // A non-zero exit from any target turned the run red; the test below checks it
+        // was the rule's own test that did.
+        return { red: true, output: String((err as { stdout?: string }).stdout ?? err), target }
       }
     }
     return { red: false, output }
@@ -89,8 +90,15 @@ const concurrency = Math.max(1, Math.floor(availableParallelism() / 2))
 describe('every canary is caught', { concurrency }, () => {
   for (const c of CANARIES) {
     test(c.name, async () => {
-      const { red, output } = await ranRed(c)
+      const { red, output, target } = await ranRed(c)
       assert.ok(red, `the suite survived "${c.name}": nothing guards that rule any more.\n${output.slice(-2000)}`)
+      // A mutation that breaks the build, or some unrelated test, is red too and proves
+      // nothing about the rule. Caught means a failing test titled with the canary's ID
+      // (for a daemon package, a failing Go test).
+      const id = c.name.match(/^\[([A-Z]+-\d+)\]/)?.[1]
+      const own = target?.startsWith('go:') ? /--- FAIL/ : new RegExp(`^\\s*✖ .*\\[${id}\\]`, 'm')
+      assert.match(output, own, `"${c.name}" turned ${target} red, but no failing test is titled [${id}]: the mutation ` +
+        `broke something else (the build, or another rule's test). Aim it so the rule's own test catches it.\n${output.slice(-2000)}`)
     })
   }
 })

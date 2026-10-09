@@ -57,6 +57,18 @@ test('assertTxSucceeded marks an insufficient-funds rejection and hides the raw 
   )
 })
 
+// Found 2026-10-09, awaiting the user's decision. Code 11 is the SDK's ErrOutOfGas: the
+// tx used more gas than its own limit, which says nothing about the wallet's balance.
+// A tx that runs out of gas in a block has its fee charged (the ante handler commits
+// before the msgs run), so FUNDS_MESSAGE's "Nothing was charged. Top up your wallet"
+// is wrong twice: the fee was spent, and a top-up does not help.
+test.todo('an out-of-gas failure is not reported as "not enough P2P, nothing was charged"', () => {
+  assert.throws(
+    () => assertTxSucceeded({ code: 11, rawLog: 'out of gas in location: WritePerByte; gasWanted: 200000, gasUsed: 200513' }, 'Transaction'),
+    (e: Error) => !e.message.startsWith(INSUFFICIENT_FUNDS) && !/Nothing was charged/.test(e.message),
+  )
+})
+
 test('assertTxSucceeded keeps the raw code/log for any other failure', () => {
   assert.throws(
     () => assertTxSucceeded({ code: 32, rawLog: 'account sequence mismatch' }, 'End session'),
