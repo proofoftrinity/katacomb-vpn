@@ -130,6 +130,61 @@ key sorts at or after it, and the key branch sets `next_key` itself. It keeps wo
 an upstream fix, so reverting it is optional cleanup, never urgent. The other paged queries
 (plans, providers, subscriptions, leases, sessions) use plain `Paginate` and are fine.
 
+**What the handlers decide before a provider tx goes out** (`ipc/provider.ts`,
+`provider-console.ts`). The renderer is not a trust boundary; every figure and every
+precondition below is settled in main, from the chain.
+
+**[PC-7] Every provider write checks funds before it broadcasts, priced in main from
+on-chain values.** Registration is priced on the live deposit param and refused when that
+cannot be priced (`registrationDepositCost` fails closed). A lease start or renew is
+priced at the node's on-chain hourly price × the hours asked for, the whole new term,
+because `MsgRenewLease` replaces the term (above). Every other write needs gas alone. The
+renderer sends no figure, so nothing it says can let a short wallet through to a broadcast
+or raise the MaxPrice that stops a lease from overpaying.
+
+**[PC-8] A lease is never started on a node that is inactive on chain, or that publishes no
+P2P hourly price.** The hub's `NodeInactivePreHook` ends a lease on an inactive node at
+once, so the escrow comes straight back and the gas is spent for nothing; a node with no
+hourly price cannot be priced at all. `LEASE_START` checks a fresh `node.node` read rather
+than trusting the picker's grey-out, and refuses before the funds check.
+
+**[PC-9] Renew, policy update and end act only on a lease read back from this wallet's own
+provider lease list.** The lease id from the renderer is looked up in
+`listLeasesForProvider(sentprov…)`. That lookup carries the ownership check the hub would
+otherwise make at the cost of gas, the stored price the renewal policy compares against
+[PC-3], and the node a renew is priced on [PC-7]. An id the chain does not list is refused
+before any broadcast.
+
+**[PC-10] Provider reads and writes refuse while the tunnel is up, and the overview never
+serves another wallet's answer or a guess.** The chain is unreachable through the tunnel.
+Writes throw "Disconnect first". The overview serves the last answer read for THIS
+address, marked `stale`, or `null`, which the renderer keeps as "unknown". The cached
+overview is tagged with its address because one wallet's provider record shown under
+another is worse than nothing, and a failed live read with nothing cached throws instead
+of reading as "no provider".
+
+**[PC-11] After a link, unlink, lease end or provider deactivation, the plan-node caches are
+invalidated, even when the tx failed or timed out.** A timed-out tx can still land, and the
+hub's hooks unlink nodes when a lease ends or the provider deactivates (above). Without
+the invalidation, the 10-minute cache would show the list from before the tx as current:
+a linked node offered a Link, or an unlinked one still counted.
+
+**[PC-12] Plan stats report `null` for a plan that could not be read; they never leave it
+out and never count it as zero.** The console must tell "could not count" from "no nodes,
+no sales". While the tunnel is up, or when the query connection cannot be opened, every
+plan is `null`.
+
+**[PC-13] Every provider tx is serialized, signed with `CHAIN_REGISTRY`, bounded by a
+timeoutHeight and checked.**
+- One write lock: two writes in flight from one wallet sign the same account sequence,
+  and the second fails with a raw "account sequence mismatch".
+- The registry replaces the SDK default ([PC-4]); without it the lease and plan-details
+  messages cannot be encoded.
+- The timeoutHeight (`height + TX_TIMEOUT_HEIGHT_OFFSET`) makes the chain reject a tx past
+  the window. A reported timeout then stays a timeout; an `endLease` or a deactivation
+  cannot land minutes later.
+- A non-zero code throws, and the signing client is disconnected on every path.
+
 **Per-plan counters** (`getPlanSubscriberStats`, `PROVIDER_PLAN_STATS`): the subscription
 total is the chain's own `pagination.total` (one `countTotal` request — exact and cheap),
 but the ACTIVE count has no counter and must be scanned page by page, so it stops at

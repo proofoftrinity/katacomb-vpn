@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 import { calleeName, calls, ipcKey, nodes, parse, sources, where } from '../harness/source.ts'
 import {
-  ACTIVE_WALLET_CALLS, BRING_UP_CALLS, PURCHASE_CALLS, SPEND, TUNNEL, WALLET_MUTATORS,
+  ACTIVE_WALLET_CALLS, BRING_UP_CALLS, PROVIDER_WRITE_CALLS, PROVIDER_WRITES, PURCHASE_CALLS, SPEND, TUNNEL, WALLET_MUTATORS,
 } from '../harness/entry-points.ts'
 
 // The money and tunnel rules are about which handlers reach which calls, so they can
@@ -89,6 +89,11 @@ test('the SPEND / TUNNEL / WALLET_MUTATORS lists are exactly the handlers that b
   assert.deepEqual(reaching(PURCHASE_CALLS), [...SPEND].sort(), 'update test/harness/entry-points.ts, and so every test looping over it')
   assert.deepEqual(reaching(BRING_UP_CALLS), [...TUNNEL].sort())
   assert.deepEqual(reaching(ACTIVE_WALLET_CALLS), [...WALLET_MUTATORS].sort())
+})
+
+test('[PC-7] [PC-10] PROVIDER_WRITES is exactly the handlers that broadcast a provider tx', () => {
+  assert.deepEqual(reaching([...PROVIDER_WRITE_CALLS]), [...PROVIDER_WRITES].sort(),
+    'update test/harness/entry-points.ts, and so the matrices in src/main/ipc/provider.test.ts')
 })
 
 test('[REL-1] every purchase handler routes its handshake through a refunding wrapper', () => {

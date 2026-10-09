@@ -13,7 +13,7 @@ wrong until shown otherwise. The rules for changing the suite itself are in
 | `npm run typecheck` | `tsc` over main+preload, renderer, and the tests (`tsconfig.test.json`) |
 | `npm test` | `node --test` over `src/**/*.test.ts` and `test/**/*.test.ts`, then `go test ./...` in `daemon/`, then the architecture-doc check |
 | `npm run test:daemon` | the Go tests alone |
-| `npm run test:canaries` | every mutation canary must turn its tests red (about 20 s) |
+| `npm run test:canaries` | every mutation canary must turn its tests red (about 80 s) |
 | `npm run test:fuzz` | each Go fuzz target for `FUZZTIME` (default 10 s); CI also runs the daemon under `-race` |
 | `npm run check:chain [address…]` | the live-chain facts the `manual` rules SL-2..SL-4 rest on, read from mainnet; never part of `verify` (see below) |
 | `npx electron-vite build && node scripts/check-bundle-requires.mjs` | CI: builds the app, then checks the bundles require no npm package ([ARCH-3]) |
@@ -118,7 +118,10 @@ count.
     rejection.
 - **One main-process module on its own** (`vpn-manager.test.ts`, `kill-switch.test.ts`):
   `loadModule({ entries, fake, stubs })` from `test/harness/module.ts`, the same bundling
-  and fakes without the IPC layer. `stubs` swaps an import for a harness file:
+  and fakes without the IPC layer. A handler group the IPC harness fakes whole (`FAKED`
+  in `test/harness/ipc.ts`) is tested this way, or nothing runs it:
+  `src/main/ipc/provider.test.ts` loads `ipc/provider.ts`, passes its
+  `registerProviderHandlers` a recording `handle`, and invokes the handlers directly. `stubs` swaps an import for a harness file:
   `child_process` -> `test/harness/child-process.ts` (answered by `fakes.child_process`),
   `fs` -> `test/harness/fs.ts` (the real filesystem, but `fakes.fs.existsSync` decides
   paths outside the test's temp dirs, such as the system openvpn), and the SDK root ->
