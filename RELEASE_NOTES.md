@@ -180,7 +180,7 @@ Signed with key `740A F267 B0D8 162B E477 779D 7315 246A 6E67 F3C6`. Import it f
 you have not already:
 
 ```bash
-curl -sS https://github.com/trinitystake.gpg | gpg --import
+curl -sS https://keybase.io/trinitystake/pgp_keys.asc | gpg --import
 ```
 
 ## Important
@@ -198,7 +198,7 @@ curl -sS https://github.com/trinitystake.gpg | gpg --import
 
 Node operators are treated as adversaries. Everything a node sends is validated before it
 reaches a privileged operation, because a VPN config can otherwise run shell commands as
-root. See [CLAUDE.md](https://github.com/trinitystake/katacomb-vpn/blob/main/CLAUDE.md)
+root. See [CLAUDE.md](https://github.com/proofoftrinity/katacomb-vpn/blob/main/CLAUDE.md)
 for the full threat model and architecture.
 
 ## License
@@ -206,4 +206,4 @@ for the full threat model and architecture.
 GPL-3.0-or-later. Bundled binaries (v2ray, xray, hysteria) and the libraries compiled
 into the app and its VPN helper are under their own licenses, whose texts ship in the
 packages. See
-[THIRD-PARTY-LICENSES.md](https://github.com/trinitystake/katacomb-vpn/blob/main/THIRD-PARTY-LICENSES.md).
+[THIRD-PARTY-LICENSES.md](https://github.com/proofoftrinity/katacomb-vpn/blob/main/THIRD-PARTY-LICENSES.md).

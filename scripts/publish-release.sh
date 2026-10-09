@@ -255,7 +255,7 @@ fi
 cat <<DONE
 
 $(printf '%s%s is published.%s' "$bold" "$TAG" "$reset")
-    https://github.com/trinitystake/katacomb-vpn/releases/tag/$TAG
+    https://github.com/proofoftrinity/katacomb-vpn/releases/tag/$TAG
 
 Anyone can check a download with:
     sha256sum -c SHA256SUMS --ignore-missing

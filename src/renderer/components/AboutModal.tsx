@@ -1,6 +1,6 @@
 import AppLogo from './AppLogo'
 
-const GITHUB_URL = 'https://github.com/trinitystake/katacomb-vpn'
+const GITHUB_URL = 'https://github.com/proofoftrinity/katacomb-vpn'
 
 /**
  * The one About surface: opened by the status bar's version chip and by the

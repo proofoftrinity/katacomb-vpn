@@ -704,7 +704,7 @@ Push, when that passes:
     git push origin $TAG
 
 Then publish the four files, either at
-https://github.com/trinitystake/katacomb-vpn/releases/new?tag=$TAG
+https://github.com/proofoftrinity/katacomb-vpn/releases/new?tag=$TAG
 or with the gh CLI:
 
     gh release create $TAG \\

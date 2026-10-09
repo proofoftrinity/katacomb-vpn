@@ -47,7 +47,7 @@
       }
     ],
     "repository": {
-      "url": "git@github-trinitystake:trinitystake/katacomb-vpn.git",
+      "url": "git@github-proofoftrinity:proofoftrinity/katacomb-vpn.git",
       "revision": "4e3fe9d8719ce6796d824dbeac97fe2647a798b0",
       "link_mode": "local-only"
     }
