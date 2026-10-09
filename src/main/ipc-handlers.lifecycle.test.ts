@@ -281,6 +281,35 @@ describe('reconnecting a saved session', () => {
     assert.equal(h.tunnel.bringUps, 0)
   })
 
+  describe('[SL-5] a session that has used everything it was paid for is refused', () => {
+    const row = (durationSeconds: number) => ({
+      id: '2001', nodeAddress: NODE_WG, status: 'active', downloadBytes: '0', uploadBytes: '0', maxBytes: '0',
+      durationSeconds, maxDurationSeconds: 3600, inactiveAt: null, startAt: '2026-10-06T00:00:00Z',
+      subscriptionId: null, priceDenom: 'udvpn', priceValue: '5000000',
+    })
+    const reconnect = async (durationSeconds: number) => {
+      const h = ipc.fresh({ chainSessions: [row(durationSeconds)], fakes: { 'chain/chain-service': { loadSessionConfig: (id: string) => SAVED(id) } } })
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      return h
+    }
+
+    test('[SL-5] active on chain but past its paid hour: refused before the handshake, nothing brought up', async (t) => {
+      const h = await reconnect(5673) // #53647217: 5673 s of a paid 3600 s, status still active
+      t.after(() => h.dispose())
+      const err = await h.settleError(h.invoke('CONNECTION_RECONNECT', { sessionId: '2001' }))
+      assert.match(err.message, /used everything it was paid for/)
+      assert.deepEqual(h.calls('chain/chain-service', 'performHandshake'), [])
+      const status = await h.settle(h.invoke('CONNECTION_STATUS')) as { sessionId: string | null }
+      assert.equal(status.sessionId, null, 'nothing re-pointed at it')
+    })
+
+    test('[SL-5] control: with time left it reconnects', async (t) => {
+      const h = await reconnect(1800)
+      t.after(() => h.dispose())
+      await h.settle(h.invoke('CONNECTION_RECONNECT', { sessionId: '2001' }))
+    })
+  })
+
   // Found by this suite (2026-10-07), fixed with the user's approval. CONNECTION_CONNECT
   // preferred the STASHED WireGuard / V2Ray config over the one it was handed, and
   // RECONNECT re-points the session without clearing that stash. So: a connect of

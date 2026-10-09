@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadIpcHandlers, type FreshOptions, type IpcHarness } from '../../test/harness/ipc.ts'
-import { REQUEST, NODE_WG } from '../../test/harness/requests.ts'
+import { REQUEST, NODE_WG, worldFor } from '../../test/harness/requests.ts'
 
 // How a connection ENDS: the kill switch around it, the quota watchdog that ends it,
 // quit, the startup heals for a crash, and the tray that must hear about all of it
-// (docs/invariants/reliability.md [REL-8], [REL-16], [REL-21], [REL-29..32]).
+// (docs/invariants/reliability.md [REL-8], [REL-16], [REL-21], [REL-29..32], [REL-35]).
 
 const ipc = await loadIpcHandlers()
 
@@ -282,5 +282,160 @@ describe('[REL-32] every teardown tells the tray', () => {
     const states = listen(h)
     await h.settle(h.main.healOrphanedTunnel() as Promise<void>)
     assert.equal(states.at(-1), 'idle')
+  })
+
+  test('[REL-32] a bring-up that fails settles the tray, once the grace for a follow-up step has passed', async (t) => {
+    const h = ipc.fresh({})
+    t.after(() => h.dispose())
+    await h.settle(h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE))
+    h.tunnel.carries = false
+    const states = listen(h)
+    await h.settleError(h.invoke('CONNECTION_CONNECT', { protocol: 'wireguard' }))
+    await h.advance(1_000)
+    assert.equal(states.at(-1), 'idle', `the tray last heard: ${states.join(', ') || 'nothing'}`)
+  })
+})
+
+// What the tray draws is getConnectionInfo(), pushed on every change and re-read on its
+// own whenever the panel theme flips. So it must be the whole truth on its own: a state
+// it cannot express is a state a theme change silently loses.
+describe('[REL-35] the tray reads one complete state', () => {
+  interface Info {
+    state: string; blocked: boolean; nodeMoniker?: string; entryMoniker?: string
+    reconnectAttempt?: number; reconnectMaxAttempts?: number; proxyMode: boolean; killSwitchFailed: boolean
+  }
+  const info = (h: IpcHarness) => h.main.getConnectionInfo() as Info
+  const pushes = (h: IpcHarness) => {
+    const seen: Info[] = []
+    ;(h.main.onConnectionStateChanged as (cb: (i: Info) => void) => void)((i) => seen.push(i))
+    return seen
+  }
+
+  test('[REL-35] while a purchase is in flight it reads connecting, naming the node being bought, and a failed one settles to idle', async (t) => {
+    let fail: (err: Error) => void = () => undefined
+    const h = ipc.fresh({ fakes: { 'chain/chain-service': {
+      subscribeToNode: () => new Promise((_resolve, reject) => { fail = reject }),
+    } } })
+    t.after(() => h.dispose())
+    const seen = pushes(h)
+    const buying = h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE)
+    await h.advance(1_000)
+    assert.deepEqual([info(h).state, info(h).nodeMoniker], ['connecting', 'node-wg'], 'the on-chain payment is the slow part')
+    assert.equal(seen.at(-1)?.state, 'connecting', 'and the tray was told')
+    fail(new Error('insufficient funds'))
+    await h.settleError(buying)
+    await h.advance(1_000)
+    assert.equal(info(h).state, 'idle')
+    assert.equal(seen.at(-1)?.state, 'idle')
+  })
+
+  test('[REL-35] the hand-off from a purchase to its bring-up never shows idle', async (t) => {
+    const h = ipc.fresh({})
+    t.after(() => h.dispose())
+    const seen = pushes(h)
+    await h.settle(h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE))
+    assert.equal(info(h).state, 'connecting', 'the renderer is about to ask for the bring-up')
+    await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: 'wireguard' }))
+    await h.advance(1_000)
+    assert.deepEqual([...new Set(seen.map((i) => i.state))], ['connecting', 'connected'])
+  })
+
+  test('[REL-35] mid bring-up, with the interface up but not yet proven, it still reads connecting', async (t) => {
+    let release: () => void = () => undefined
+    const h = ipc.fresh({ fakes: { 'net-fetch': {
+      fetchFreshSocket: async () => { await new Promise<void>((r) => { release = r }); return { status: 200 } as never },
+    } } })
+    t.after(() => h.dispose())
+    await h.settle(h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE))
+    const connecting = h.invoke('CONNECTION_CONNECT', { protocol: 'wireguard' })
+    await h.advance(1_000)
+    assert.equal(h.tunnel.up, true)
+    assert.equal(info(h).state, 'connecting')
+    release()
+    await h.settle(connecting)
+    assert.equal(info(h).state, 'connected')
+  })
+
+  test('[REL-35] through the reconnect ladder it reads reconnecting, with the attempt', async (t) => {
+    const h = ipc.fresh({ settings: { autoReconnect: true }, fakes: { 'chain/chain-service': { loadSessionConfig: () => SAVED('1001') } } })
+    t.after(() => h.dispose())
+    await connect(h)
+    h.tunnel.down()
+    await h.advance(5_000)
+    const i = info(h)
+    assert.deepEqual([i.state, i.nodeMoniker, i.reconnectAttempt, i.reconnectMaxAttempts], ['reconnecting', 'node-wg', 1, 5])
+  })
+
+  test('[REL-35] on a chain it names the exit, where the traffic appears to come from, and the entry it goes via', async (t) => {
+    const h = ipc.fresh(worldFor('CONNECTION_SUBSCRIBE_CHAIN'))
+    t.after(() => h.dispose())
+    await h.settle(h.invoke('CONNECTION_SUBSCRIBE_CHAIN', REQUEST.CONNECTION_SUBSCRIBE_CHAIN))
+    assert.equal(info(h).nodeMoniker, 'exit', 'while it is being bought too')
+    await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: 'xray' }))
+    assert.deepEqual([info(h).state, info(h).nodeMoniker, info(h).entryMoniker], ['connected', 'exit', 'entry'])
+  })
+
+  test('[REL-35] local-proxy mode is part of it', async (t) => {
+    const h = ipc.fresh({ fakes: { 'nodes/node-tester': { fetchNodeServiceType: async () => 'v2ray' } } })
+    t.after(() => h.dispose())
+    await connect(h, { ...REQUEST.CONNECTION_SUBSCRIBE, nodeType: 2, proxyMode: true }, { protocol: 'v2ray', mode: 'proxy' })
+    assert.deepEqual([info(h).state, info(h).proxyMode], ['connected', true])
+  })
+
+  test('[REL-35] a kill switch that failed to arm is part of it', async (t) => {
+    const h = ipc.fresh({ settings: { killSwitch: true } })
+    t.after(() => h.dispose())
+    h.tunnel.remoteHost = null
+    await connect(h)
+    assert.deepEqual([info(h).state, info(h).killSwitchFailed, info(h).proxyMode], ['connected', true, false])
+  })
+
+  describe('[REL-35] traffic the kill switch still blocks reads blocked, and every way out clears it', () => {
+    const expired = async (h: IpcHarness) => {
+      await connect(h, { ...REQUEST.CONNECTION_SUBSCRIBE, type: 'hours', amount: 1 })
+      await h.advance(61 * 60_000)
+      assert.equal(h.tunnel.up, false)
+      assert.deepEqual([info(h).state, info(h).blocked], ['idle', true])
+    }
+
+    test('[REL-35] blocked after an expiry, until Restore internet', async (t) => {
+      const h = ipc.fresh({ settings: { killSwitch: true } })
+      t.after(() => h.dispose())
+      const seen = pushes(h)
+      await expired(h)
+      assert.equal(seen.at(-1)?.blocked, true, 'the tray was told')
+      await h.settle(h.invoke('CONNECTION_DISCONNECT'))
+      assert.equal(info(h).blocked, false)
+      assert.equal(seen.at(-1)?.blocked, false)
+    })
+
+    test('[REL-35] blocked after an expiry, until the kill switch is turned off', async (t) => {
+      const h = ipc.fresh({ settings: { killSwitch: true } })
+      t.after(() => h.dispose())
+      const seen = pushes(h)
+      await expired(h)
+      await h.settle(h.invoke('SETTINGS_SET', { killSwitch: false }))
+      await h.advance(1_000)
+      assert.equal(marker(h), false)
+      assert.equal(seen.at(-1)?.blocked, false)
+    })
+
+    test('[REL-35] a chain stranded by a crash reads blocked until the startup heal clears it', async (t) => {
+      const h = ipc.fresh({})
+      t.after(() => h.dispose())
+      writeFileSync(join(h.world.userData, 'killswitch-armed.state'), 'armed\n')
+      assert.equal(info(h).blocked, true)
+      const seen = pushes(h)
+      await h.settle(h.main.healStrandedKillSwitch() as Promise<void>)
+      assert.equal(seen.at(-1)?.blocked, false)
+    })
+
+    test('[REL-35] control: a connected tunnel behind an armed kill switch is not blocked', async (t) => {
+      const h = ipc.fresh({ settings: { killSwitch: true } })
+      t.after(() => h.dispose())
+      await connect(h)
+      assert.equal(marker(h), true)
+      assert.deepEqual([info(h).state, info(h).blocked], ['connected', false])
+    })
   })
 })

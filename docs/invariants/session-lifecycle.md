@@ -27,6 +27,14 @@ re-checks SL-2 to SL-4 against it (docs/testing.md).
   `pagination.total = 2` for an account with a long purchase history, so nothing
   accumulates and `getActiveSessions`' `limit: 20` is in no danger of being crowded out.
   Expired rows leave the list on their own; the app deletes nothing.
+- **[SL-5] Reconnect refuses a session that has used everything it was paid for.** `'active'`
+  does not mean usable ([REL-24]): the chain meters past the cap and leaves the row active
+  (#53647217: 5673s of a paid 3600s, status 1). The Sessions card withholds Reconnect
+  there, but the tray's "Reconnect last session" reaches `CONNECTION_RECONNECT` with the
+  newest session, and the tunnel it built cost a handshake and a polkit prompt and lived
+  until the quota watchdog's next tick. Main scores the session (and its chain peer) the
+  way the watchdog does, off the cached rows with their usage floors, and refuses an
+  expired one before anything is mutated. Positive evidence only: no row, no refusal.
 - Settlement pays the node for actual usage and returns only the remainder, so an
   **expired** session (quota fully consumed by definition) refunds ~nothing. The card
   deliberately promises no refund.

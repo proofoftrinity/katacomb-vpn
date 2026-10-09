@@ -8,6 +8,7 @@ import {
   performDisconnect, onConnectionStateChanged, getConnectionInfo, healStrandedKillSwitch,
   healOrphanedTunnel, type ConnectionInfo,
 } from './ipc-handlers'
+import { trayView, type TrayView } from './tray-view'
 import { killAllTunnels, detectExistingConnection } from './vpn/vpn-manager'
 import { onChainPathChanged, runAutoRpcSelection, startRpcMonitor, stopRpcMonitor } from './chain/rpc-monitor'
 import { sweepStaleSessionFiles } from './chain/chain-service'
@@ -93,7 +94,8 @@ function toggleWindow(): void {
   showWindow()
 }
 
-/** Tray "Connect": show the window and let the renderer reconnect to the last session. */
+/** Tray "Reconnect last session": show the window and let the renderer reconnect to
+ *  the most recent session, on the Sessions tab, where a refusal is shown. */
 function triggerTrayConnect(): void {
   showWindow()
   mainWindow?.webContents.send(IPC.CONNECTION_TRAY_CONNECT)
@@ -107,15 +109,6 @@ function showAbout(): void {
   mainWindow?.webContents.send(IPC.ABOUT_SHOW)
 }
 
-/** Which of the badged tray icons (build/tray/, see scripts/build-icons.mjs) a
- *  connection state shows. The badge SHAPE carries the state — none / hollow
- *  ring / solid disc — so it survives a greyscale or colour-blind reading; the
- *  colour only reinforces it. */
-function trayIconName(state: ConnectionInfo['state']): string {
-  if (state === 'connected') return 'connected'
-  return state === 'connecting' ? 'connecting' : 'disconnected'
-}
-
 /** The tray is a flat single-colour silhouette (no background tile), like its
  *  neighbours in the panel — so unlike the launcher/About icon it needs a
  *  variant per panel theme. Filenames are keyed by the panel they're FOR, which
@@ -125,8 +118,8 @@ function trayPanel(): 'dark' | 'light' {
 }
 
 /** Which tray PNG a state wants right now: state badge + current panel ink. */
-function trayIconKeyFor(state: ConnectionInfo['state']): string {
-  return `${trayIconName(state)}-${trayPanel()}`
+function trayIconKeyFor(icon: TrayView['icon']): string {
+  return `${icon}-${trayPanel()}`
 }
 
 /** Load one of the tray PNGs by key (32x32 is the tray size; fall back to 256 if
@@ -159,7 +152,7 @@ let trayIconKey = ''
 
 function createTrayIcon(): void {
   const info = getConnectionInfo()
-  trayIconKey = trayIconKeyFor(info.state)
+  trayIconKey = trayIconKeyFor(trayView(info).icon)
   tray = new Tray(trayImage(trayIconKey))
   tray.on('click', () => toggleWindow())
   refreshTray(info)
@@ -172,6 +165,7 @@ function createTrayIcon(): void {
   // neighbours. Those neighbours are symbolic icons the panel recolours itself,
   // which we can't match exactly — Tray takes a bitmap, so a swap is the only
   // mechanism available — but the event is as early as Electron will tell us.
+  // getConnectionInfo() is the whole state ([REL-35]), so this re-read loses nothing.
   nativeTheme.on('updated', () => refreshTray(getConnectionInfo()))
 }
 
@@ -181,36 +175,37 @@ function createTrayIcon(): void {
  */
 function refreshTray(info: ConnectionInfo, force = false): void {
   if (!tray) return
-  const connected = info.state === 'connected'
-  const connecting = info.state === 'connecting'
-  const where = info.nodeMoniker ? ` (${info.nodeMoniker})` : ''
-  const status = connected ? `Connected${where}` : connecting ? `Connecting…${where}` : 'Disconnected'
+  const view = trayView(info)
 
-  const iconKey = trayIconKeyFor(info.state)
+  const iconKey = trayIconKeyFor(view.icon)
   if (force || iconKey !== trayIconKey) {
     tray.setImage(trayImage(iconKey))
     trayIconKey = iconKey
   }
-  tray.setToolTip(`Katacomb VPN: ${status}`)
+  tray.setToolTip(view.tooltip)
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: status, enabled: false },
+    ...view.statusLines.map((label) => ({ label, enabled: false })),
     { type: 'separator' },
-    // No action while a bring-up is in flight: "Connect" would queue a second
-    // one behind the connection lock (this path spends on-chain funds), and
-    // "Disconnect" would just block until the connect it is racing finishes.
-    ...(connecting
-      ? []
-      : [connected
-        ? { label: 'Disconnect', click: () => { void performDisconnect() } }
-        : { label: 'Connect', click: () => triggerTrayConnect() }]),
+    ...(view.action
+      ? [{ label: view.action.label, click: view.action.run === 'reconnect' ? triggerTrayConnect : trayDisconnect }]
+      : []),
     { label: 'Show Window', click: () => showWindow() },
     { label: 'About', click: () => showAbout() },
     { type: 'separator' },
-    { label: 'Quit', click: () => { forceQuit = true; app.quit() } },
+    { label: view.quitLabel, click: () => { forceQuit = true; app.quit() } },
   ])
 
   tray.setContextMenu(contextMenu)
+}
+
+/** Tray "Disconnect" / "Restore internet". A failure (usually a dismissed polkit
+ *  prompt) is explained by the window's own banners, so bring the window up. */
+function trayDisconnect(): void {
+  performDisconnect().catch((err: unknown) => {
+    console.error('[tray] disconnect failed:', err)
+    showWindow()
+  })
 }
 
 function createWindow(): void {
@@ -361,9 +356,9 @@ app.whenReady().then(() => {
   // Keep the tray icon, tooltip + menu in sync with connect/disconnect (incl. from
   // the renderer, auto-reconnect, or the tray itself). Forced: these are the few
   // repaints a session that must not be skipped, and the connect path publishes
-  // 'connected' twice on purpose — once when the interface appears, once from
-  // notifyTraySettled after assertTunnelCarriesTraffic (up to ~36s later) — so
-  // forcing turns the second push back into the free retry it was meant to be.
+  // 'connected' twice on purpose — once when the bring-up finishes, once when its
+  // connect step ends — so forcing turns the second push back into the free retry
+  // it was meant to be.
   onConnectionStateChanged((info) => refreshTray(info, true))
 
   // Background prefetch so the Plans tab feels instant on first open.

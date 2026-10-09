@@ -237,3 +237,46 @@ describe('[REL-12] the connect flow rides one RPC connection, owned by the handl
     }
   }
 })
+
+// The renderer greys its own buttons while it runs a flow, but the tray's Connect, a
+// Sessions-tab Reconnect from another tab and a double click all reach main mid
+// purchase. assertNotConnected cannot see a purchase (no tunnel exists yet), so before
+// this rule each of them ran beside it: a second session bought, or a reconnect that
+// re-pointed the tracked session while the first one's payment was in flight.
+describe('[REL-34] one connect flow at a time', () => {
+  const OPENERS = [...SPEND, 'CONNECTION_RECONNECT'] as const
+  for (const key of OPENERS) {
+    test(`[REL-34] ${key} is refused while a purchase is in flight, and nothing is bought twice`, async (t) => {
+      let release: () => void = () => undefined
+      const held: FreshOptions = { fakes: { 'chain/chain-service': {
+        subscribeToNode: async () => {
+          await new Promise<void>((r) => { release = r })
+          return { sessionId: '1001', remoteUrl: 'https://203.0.113.7:8585' } as never
+        },
+        loadSessionConfig: (id: string) => ({ sessionId: id, nodeAddress: NODE_WG, nodeMoniker: 'other', nodeCountry: 'FR', protocol: 'wireguard', configString: `cfg-saved-${id}` }) as never,
+      } } }
+      const h = ipc.fresh(merge(key === 'CONNECTION_RECONNECT' ? {} : worldFor(key), held))
+      t.after(() => h.dispose())
+      const buying = h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE)
+      await h.advance(1_000)
+      const request = key === 'CONNECTION_RECONNECT' ? { sessionId: '2001' } : REQUEST[key]
+      const err = await h.settleError(h.invoke(key, request), 5_000)
+      assert.match(err.message, /already being set up/)
+      release()
+      await h.settle(buying)
+      assert.equal(purchases(h).length, 1, 'one purchase: the one already paying')
+      const status = await h.settle(h.invoke('CONNECTION_STATUS')) as { sessionId: string; nodeMoniker: string }
+      assert.deepEqual([status.sessionId, status.nodeMoniker], ['1001', 'node-wg'], 'the tracked session is the one being bought')
+    })
+  }
+
+  test('[REL-34] control: once the purchase has finished, its bring-up and the next flow go through', async (t) => {
+    const h = ipc.fresh({})
+    t.after(() => h.dispose())
+    await h.settle(h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE))
+    await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: 'wireguard' }))
+    await h.settle(h.invoke('CONNECTION_DISCONNECT'))
+    await h.settle(h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE))
+    assert.equal(purchases(h).length, 2)
+  })
+})
