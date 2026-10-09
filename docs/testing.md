@@ -172,6 +172,9 @@ applies each to a private copy of the working tree and requires the named tests 
 RED; a canary the suite survives means nothing guards that rule any more.
 
 - Every new money, root or privacy rule gets a canary, named `[ID] what breaks`.
+- Caught means a failing test titled with that ID (for a `go:` target, a failing Go
+  test). A mutation that breaks the build, or turns another rule's test red, is
+  reported as not caught: it proves nothing about its own rule.
 - `find` must match exactly once. When a refactor moves the anchor, the canary fails
   with "re-aim it": re-aim it at the new code, never delete it.
 - A canary may name several test files (`run`), or `go:<package>` for the daemon.
