@@ -73,7 +73,7 @@ export default function ConnectErrorActions({
     )
   }
 
-  // Nothing was charged, so this isn't a tunnel failure to retry — it's a top-up
+  // The wallet can't pay, so this isn't a tunnel failure to retry — it's a top-up
   // prompt. "Try Again" below returns to the form, which re-checks the balance.
   if (isInsufficientFunds(error)) {
     return (

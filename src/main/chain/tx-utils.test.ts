@@ -33,11 +33,13 @@ test('broadcastOrTimeout marks a simulate-time insufficient-funds rejection', as
   })
 })
 
-test('isInsufficientFundsFailure matches the funds codes and the log text', () => {
+test('isInsufficientFundsFailure matches the funds code and the log text, and nothing that is not about the balance', () => {
   assert.equal(isInsufficientFundsFailure(5, ''), true)
-  assert.equal(isInsufficientFundsFailure(11, ''), true)
-  assert.equal(isInsufficientFundsFailure(13, ''), true)
-  assert.equal(isInsufficientFundsFailure(undefined, 'out of gas in location: ReadFlat'), true)
+  assert.equal(isInsufficientFundsFailure(undefined, 'spendable balance 10udvpn is smaller than 4000udvpn: insufficient funds'), true)
+  assert.equal(isInsufficientFundsFailure(11, ''), false, 'out of gas: the tx outran its own gas limit')
+  assert.equal(isInsufficientFundsFailure(13, ''), false, 'insufficient fee: the fee offered is under the node\'s minimum gas price')
+  assert.equal(isInsufficientFundsFailure(undefined, 'out of gas in location: ReadFlat'), false)
+  assert.equal(isInsufficientFundsFailure(undefined, 'insufficient fees; got: 4000udvpn required: 8000udvpn: insufficient fee'), false)
   assert.equal(isInsufficientFundsFailure(32, 'account sequence mismatch'), false)
   assert.equal(isInsufficientFundsFailure(undefined, ''), false)
 })
@@ -52,21 +54,37 @@ test('assertTxSucceeded marks an insufficient-funds rejection and hides the raw 
     (e: Error) => {
       assert.ok(e.message.startsWith(INSUFFICIENT_FUNDS))
       assert.doesNotMatch(e.message, /1udvpn/)
+      // In a block, so its fee may already be gone: only a refusal before the block
+      // (the simulation, CheckTx) can say that nothing was charged.
+      assert.doesNotMatch(e.message, /Nothing was charged/)
       return true
     },
   )
 })
 
-// Found 2026-10-09, awaiting the user's decision. Code 11 is the SDK's ErrOutOfGas: the
-// tx used more gas than its own limit, which says nothing about the wallet's balance.
-// A tx that runs out of gas in a block has its fee charged (the ante handler commits
-// before the msgs run), so FUNDS_MESSAGE's "Nothing was charged. Top up your wallet"
-// is wrong twice: the fee was spent, and a top-up does not help.
-test.todo('an out-of-gas failure is not reported as "not enough P2P, nothing was charged"', () => {
+// Found 2026-10-09: both failures below were reported as "your wallet doesn't have
+// enough P2P. Nothing was charged. Top up your wallet", and neither is about the balance.
+// Code 11 is the SDK's ErrOutOfGas: the tx used more gas than its own limit. A result
+// that carries a code was included in a block, where the ante handler takes the fee
+// and commits before the msgs run, so the fee is normally gone; a top-up does not help.
+test('an out-of-gas failure says its fee may be gone, not "not enough P2P, nothing was charged"', () => {
   assert.throws(
     () => assertTxSucceeded({ code: 11, rawLog: 'out of gas in location: WritePerByte; gasWanted: 200000, gasUsed: 200513' }, 'Transaction'),
-    (e: Error) => !e.message.startsWith(INSUFFICIENT_FUNDS) && !/Nothing was charged/.test(e.message),
+    (e: Error) => {
+      assert.ok(!e.message.startsWith(INSUFFICIENT_FUNDS), e.message)
+      assert.doesNotMatch(e.message, /Nothing was charged/)
+      assert.match(e.message, /ran out of gas.*fee may still have been charged/)
+      return true
+    },
   )
+})
+
+// Code 13 is ErrInsufficientFee: the fee offered is under the node's minimum gas price.
+// CheckTx refuses it, so nothing is charged, but the wallet is not short either; the
+// chain's own text is the useful one.
+test('a fee the node refuses is passed through as the chain said it, not "not enough P2P"', async () => {
+  const err = new Error('Broadcasting transaction failed with code 13 (codespace: sdk). Log: insufficient fees; got: 4000udvpn required: 8000udvpn: insufficient fee')
+  await assert.rejects(broadcastOrTimeout(Promise.reject(err), 'timeout msg'), (e) => e === err)
 })
 
 test('assertTxSucceeded keeps the raw code/log for any other failure', () => {
