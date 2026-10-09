@@ -78,7 +78,7 @@ function silhouetteSvg(svg, ink) {
 }
 
 // Ink pair, swapped at runtime by the tray's own dark/light-panel detection
-// (see trayIconName in src/main/index.ts). Sourced from tokens.css rather than
+// (see trayPanel in src/main/index.ts). Sourced from tokens.css rather than
 // pure black/white so the tray still reads as this app's palette:
 // --color-gunmetal-950 (near-black, for light panels) and --color-gunmetal-100
 // (near-white, for dark panels) — the same pair the app uses for primary text.
@@ -88,17 +88,18 @@ const INK_LIGHT = '#eeeff2'
 // 32 is what the tray actually loads; 256 is trayImage()'s empty-file fallback.
 const TRAY_SIZES = [32, 256]
 
-// The tray icon has to say connected / connecting / disconnected at ~22px on a
-// panel whose background we don't control. Colour alone cannot carry that: a red
-// and a green dot at this size are the classic red-green-blindness collapse, and
+// The tray icon has to say connected / connecting / disconnected / blocked at ~22px
+// on a panel whose background we don't control. Colour alone cannot carry that: a
+// red and a green dot at this size are the classic red-green-blindness collapse, and
 // roughly 8% of men would see one icon. So the badge SHAPE is the signal —
-// nothing / hollow ring / solid disc, distinguishable in pure greyscale — and
-// the colour only reinforces it.
+// nothing / hollow ring / solid disc / no-entry sign, distinguishable in pure
+// greyscale — and the colour only reinforces it.
 //
 // Disconnected gets NO badge and no red. It is this app's normal resting state
 // (you are disconnected whenever you aren't paying for a session), and an icon
-// that is permanently alarmed is an icon nobody reads. Red stays available for
-// states that have actually gone wrong.
+// that is permanently alarmed is an icon nobody reads. Red is kept for the one
+// state that has actually gone wrong: the kill switch still blocking all traffic
+// with no tunnel up.
 
 // Badge geometry, as fractions of the canvas. Placement was measured against the
 // glyph's own alpha map, not guessed: the mark is a SOLID mass, and what makes it
@@ -116,34 +117,63 @@ const BADGE_R = 0.2 // outer radius, i.e. the ring's edge
 const BADGE_INNER = 0.62 // dot radius / ring centreline, as a fraction of BADGE_R
 const BADGE_STROKE = 0.4 // ring thickness, as a fraction of BADGE_R
 
-// Colours are the app's own semantic tokens (tokens.css): --color-warning and
-// --color-success. No separating ring/halo behind the badge — that existed to
-// keep a colored dot legible against the white tile, and there is no tile now;
-// on a transparent background the mark sits directly on the panel, like every
-// other tray icon's status accent.
+// Colours are the app's own semantic tokens (tokens.css): --color-warning,
+// --color-success and --color-danger.
 const TRAY_STATES = {
   disconnected: null,
-  connecting: { color: '#f0b429', filled: false },
-  connected: { color: '#5fd98b', filled: true },
+  connecting: { color: '#f0b429', shape: 'ring' },
+  connected: { color: '#5fd98b', shape: 'dot' },
+  blocked: { color: '#f5767c', shape: 'no-entry' },
+}
+
+// On a dark panel the glyph is near-white, and a green or amber badge sitting on it
+// measured 1.55:1 and 1.62:1 (graphics need 3:1); in greyscale the dot and the ring
+// all but vanished. So the dark-panel variants cut a transparent gap around the badge
+// and it sits on the panel's own (dark) colour instead: ~7:1. On a light panel the
+// ink is near-black and the badge already reads at ~10:1, so those keep it on the ink.
+const BADGE_GAP = 0.05 // as a fraction of the canvas
+
+/** The badge's outer radius in px: what the gap is measured from. */
+function badgeExtent(size, shape) {
+  const r = size * BADGE_R
+  return shape === 'dot' ? r * BADGE_INNER : r * (BADGE_INNER + BADGE_STROKE / 2)
 }
 
 /** The status badge as an SVG overlay sized to the icon canvas. */
-function badgeSvg(size, { color, filled }) {
+function badgeSvg(size, { color, shape }) {
   const cx = size * BADGE_CX
   const cy = size * BADGE_CY
   const r = size * BADGE_R
   const inner = r * BADGE_INNER
-  const mark = filled
-    ? `<circle cx="${cx}" cy="${cy}" r="${inner}" fill="${color}"/>`
-    : `<circle cx="${cx}" cy="${cy}" r="${inner}" fill="none" stroke="${color}" stroke-width="${r * BADGE_STROKE}"/>`
+  let mark
+  if (shape === 'dot') {
+    mark = `<circle cx="${cx}" cy="${cy}" r="${inner}" fill="${color}"/>`
+  } else if (shape === 'ring') {
+    mark = `<circle cx="${cx}" cy="${cy}" r="${inner}" fill="none" stroke="${color}" stroke-width="${r * BADGE_STROKE}"/>`
+  } else {
+    // A disc as wide as the ring with a bar cut through it (evenodd), so what shows in
+    // the bar is whatever is underneath: the ink on a light panel, the panel on a dark one.
+    const d = badgeExtent(size, shape)
+    const bw = d * 0.78
+    const bh = d * 0.22
+    mark = `<path fill-rule="evenodd" fill="${color}" d="M ${cx - d} ${cy} a ${d} ${d} 0 1 0 ${2 * d} 0 a ${d} ${d} 0 1 0 ${-2 * d} 0 Z ` +
+      `M ${cx - bw} ${cy - bh} h ${2 * bw} v ${2 * bh} h ${-2 * bw} Z"/>`
+  }
   return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">${mark}</svg>`)
 }
 
+/** A disc the size of the badge plus its gap, for erasing the ink under it. */
+function gapSvg(size, shape) {
+  const r = badgeExtent(size, shape) + size * BADGE_GAP
+  return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${size * BADGE_CX}" cy="${size * BADGE_CY}" r="${r}" fill="#000"/></svg>`)
+}
+
 /** One tray icon: the flat silhouette, plus a state badge if any. */
-async function renderTrayIcon(base, size, state) {
+async function renderTrayIcon(base, size, state, panel) {
   const badge = TRAY_STATES[state]
   if (!badge) return base
-  return sharp(base).composite([{ input: badgeSvg(size, badge) }]).png().toBuffer()
+  const gap = panel === 'dark' ? [{ input: gapSvg(size, badge.shape), blend: 'dest-out' }] : []
+  return sharp(base).composite([...gap, { input: badgeSvg(size, badge) }]).png().toBuffer()
 }
 
 const svg = readFileSync(SOURCE, 'utf-8')
@@ -164,7 +194,7 @@ for (const [panel, ink] of [['light', INK_DARK], ['dark', INK_LIGHT]]) {
   for (const size of TRAY_SIZES) {
     const base = await renderSize(silhouette, size, TRAY_GLYPH_SCALE)
     for (const state of Object.keys(TRAY_STATES)) {
-      writeFileSync(join(trayDir, `${state}-${panel}-${size}x${size}.png`), await renderTrayIcon(base, size, state))
+      writeFileSync(join(trayDir, `${state}-${panel}-${size}x${size}.png`), await renderTrayIcon(base, size, state, panel))
       trayCount++
     }
   }

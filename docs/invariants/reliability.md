@@ -36,7 +36,8 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   connect surfaces disable Pay and name the live connection in their footer (`ConnectionModal`'s
   `connectedElsewhere`, `PlanConnectModal`'s `tunnelUp`, `ChainReviewModal`'s
   `alreadyConnected`, Sessions' Reconnect) — but that is UX; the handlers are the
-  enforcement. Third-party VPNs (`detectOtherVpn`: non-sntl wireguard/tun links)
+  enforcement. A purchase in flight has no tunnel yet, so this check cannot see it;
+  [REL-34] covers that window. Third-party VPNs (`detectOtherVpn`: non-sntl wireguard/tun links)
   stay a warn-with-override, never a hard block — the detection false-positives on
   Tailscale. **IPsec/XFRM VPNs are no longer invisible**: reading xfrm policy needs
   CAP_NET_ADMIN, so the helper does it (`ops.XfrmPolicyCount`, daemon op
@@ -498,8 +499,10 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     synchronously at startup, i.e. BEFORE the teardown's privileged round-trip returns, so
     it caches "connected" off the very interface about to be deleted, and the tray only
     ever updates on a push, unlike the renderer, which also polls. `healOrphanedTunnel` therefore
-    ends at `notifyTraySettled()`. Live symptom (2026-08-26): idle window, orphan banner
-    and a green tray dot, all at once.
+    ends at `notifyTray()`, and so does `healStrandedKillSwitch` once it has cleared a chain
+    (the tray drew "Internet blocked" off the marker it removes, [REL-35]). Live symptom
+    (2026-08-26): idle window, orphan banner and a green tray dot, all at once. A connect
+    that fails tells the tray too, when its step's grace runs out ([REL-35]).
   - **[REL-33] Proxy cores are reaped by pid, and an orphan does NOT die on its own.** Measured
     2026-08-26 against the bundled xray: parent killed, child reparented to PID 1, still
     listening 20s later. The plausible escape (piped stdio, so a write should raise SIGPIPE)
@@ -516,3 +519,35 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     healing is HONEST, not a glitch to paper over: the orphan really is carrying traffic
     until it is torn down, so the IP display and tray are right to say so for those seconds.
     Do not add a "verifying" state (see the rule above forbidding one).
+- **[REL-34] One connect flow at a time.** [REL-3] refuses a purchase while a tunnel is up,
+  but a purchase in flight has no tunnel yet: the on-chain payment and the handshake take
+  10-40s with nothing for `assertNotConnected` to see. The tray offered Connect in that
+  window (its amber badge started only at the bring-up), a Sessions-tab Reconnect from
+  another tab was still enabled, and a double click on a pay button ran twice. Each ran
+  beside the purchase: a second session bought, or `CONNECTION_RECONNECT` re-pointing
+  `activeSessionId`/`activeNodeInfo` (and, on a fresh handshake, the stashed config) while
+  the first was still paying, so the tunnel and the watched quota could belong to
+  different sessions. `connectStep` (ipc-handlers.ts) wraps every step a connect is made
+  of. The ones that START a connect, the five purchases and `CONNECTION_RECONNECT`, are
+  refused while any step is in flight ("A connection is already being set up").
+  `CONNECTION_CONNECT` is a step but never refused here: it legitimately follows its own
+  purchase, and the connection lock already serialises it ([REL-2]). The refusal counts
+  steps, not the grace below, so a purchase that failed can be retried at once.
+- **[REL-35] The tray reads one complete state.** `getConnectionInfo()` derives everything the
+  tray draws from real state: reconnecting (`reconnectAttempt > 0`) > connected (interface
+  present and, if a step is running, `finalizeTunnelConnect` has run) > connecting (a
+  connect step in flight, or the 300ms grace after the last one ended with no tunnel) >
+  idle, plus `blocked` (idle with the kill-switch marker present: no traffic at all),
+  the exit hop's name on a chain (the window names the exit, so the tray must too),
+  proxy mode and `killSwitchFailed`. It has to be complete because the tray re-reads it
+  on its own whenever the panel theme flips: the old version knew only connected/idle,
+  so a theme change mid-connect or mid-ladder flipped the tray to "Disconnected" and
+  offered Connect. 'connecting' is tray-only and never reaches the renderer's status
+  string ([REL-27]). The grace exists because a purchase hands over to its bring-up in one
+  renderer round trip, and without it the tray blinked to idle in between. Every change
+  to an input pushes `notifyTray()`, including the firewall reapply after a kill-switch
+  toggle and the startup heal. What the tray shows for each state is the pure
+  `trayView()` (tray-view.ts, tested row by row): no action while connecting,
+  "Restore internet" (a full disconnect, the same call as the window's banner) while
+  blocked, Disconnect while reconnecting, and "Disconnect and quit" whenever Quit would
+  disconnect ([REL-30]).

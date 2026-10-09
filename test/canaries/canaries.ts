@@ -254,8 +254,22 @@ export const CANARIES: Canary[] = [
   {
     name: '[REL-32] the orphan heal forgets to tell the tray',
     file: IPC_TS,
-    find: '  // that ordering means createTrayIcon() reads the settled state for itself.\n  notifyTraySettled()',
+    find: '  // that ordering means createTrayIcon() reads the settled state for itself.\n  notifyTray()',
     replace: '  // that ordering means createTrayIcon() reads the settled state for itself.',
+    run: [TEARDOWN],
+  },
+  {
+    name: '[REL-34] a reconnect or a second purchase runs beside a purchase in flight',
+    file: IPC_TS,
+    find: "    if (kind === 'opens' && connectSteps > 0) {",
+    replace: "    if (kind === 'opens' && connectSteps < 0) {",
+    run: [MONEY],
+  },
+  {
+    name: '[REL-35] the tray state forgets a connect in flight (a theme change shows Disconnected + Connect)',
+    file: IPC_TS,
+    find: "        : connectSteps > 0 || connectSettling !== null ? 'connecting'",
+    replace: "        : false ? 'connecting'",
     run: [TEARDOWN],
   },
   {
@@ -575,8 +589,8 @@ export const CANARIES: Canary[] = [
   {
     name: '[REL-25] a firewall toggle reapplies beside an in-flight connect or disconnect',
     file: IPC_TS,
-    find: '      void withConnectionLock(reapplyFirewall).then(onChainPathChanged)',
-    replace: '      void reapplyFirewall().then(onChainPathChanged)',
+    find: '      void withConnectionLock(reapplyFirewall).then(() => {',
+    replace: '      void reapplyFirewall().then(() => {',
     run: [TEARDOWN],
   },
   {

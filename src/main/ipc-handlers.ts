@@ -1084,10 +1084,27 @@ async function assertTunnelCarriesTraffic(): Promise<void> {
 // Main-process listeners (e.g. the tray) for connection-state changes. Mirrors
 // the onV2RayUnexpectedExit pattern: ipc-handlers owns the state and notifies on
 // change — callers register a listener rather than us reaching into their module.
+//
+// [REL-35] Everything the tray draws, derived from real state in one place. The tray
+// re-reads it on its own whenever the panel theme flips, so a state that only lived in
+// a push (the old "connecting") was lost to a theme change mid-connect.
 export interface ConnectionInfo {
-  state: 'connected' | 'connecting' | 'idle'
+  /**
+   * Tray-only: 'connecting' is a connect step in flight (purchase, reconnect, bring-up),
+   * which the renderer's status string deliberately has no word for ([REL-27]).
+   */
+  state: 'idle' | 'connecting' | 'reconnecting' | 'connected'
+  /** Idle, with the kill switch's DROP-all chain still installed: no traffic at all. */
+  blocked: boolean
+  /** Where the traffic appears to come from: the exit hop on a chain, as the window says. */
   nodeMoniker?: string
-  nodeCountry?: string
+  /** The entry hop, on a chain only. */
+  entryMoniker?: string
+  reconnectAttempt?: number
+  reconnectMaxAttempts?: number
+  proxyMode: boolean
+  socksAddr?: string
+  killSwitchFailed: boolean
 }
 let connectionStateListener: ((info: ConnectionInfo) => void) | null = null
 
@@ -1095,12 +1112,95 @@ export function onConnectionStateChanged(cb: (info: ConnectionInfo) => void): vo
   connectionStateListener = cb
 }
 
-/** Current connection info, for seeding the tray at startup. */
+// [REL-34] [REL-35] Connect steps in flight (see connectStep), the node the latest one
+// is connecting to, and the grace after the last one ends with no tunnel up. A purchase
+// hands over to its bring-up in one renderer round trip; without the grace the tray
+// blinked to idle (and offered Connect) in between.
+let connectSteps = 0
+let connectTarget: string | undefined
+let connectSettling: ReturnType<typeof setTimeout> | null = null
+const CONNECT_SETTLE_MS = 300
+
 export function getConnectionInfo(): ConnectionInfo {
+  const live = getConnectionStatus()
+  const exit = activeExitNodeInfo?.moniker || undefined
+  const entry = activeNodeInfo?.moniker || undefined
+  // An interface up under a running step is a bring-up not yet proven (desiredProtocol
+  // is set by finalizeTunnelConnect alone): connected to the window ([REL-27]), still
+  // connecting to the tray, which flips once, at the same point the broadcast does.
+  const state: ConnectionInfo['state'] =
+    reconnectAttempt > 0 ? 'reconnecting'
+      : live.connected && (connectSteps === 0 || desiredProtocol !== null) ? 'connected'
+        : connectSteps > 0 || connectSettling !== null ? 'connecting'
+          : 'idle'
   return {
-    state: getConnectionStatus().connected ? 'connected' : 'idle',
-    nodeMoniker: activeNodeInfo?.moniker,
-    nodeCountry: activeNodeInfo?.country,
+    state,
+    blocked: state === 'idle' && isKillSwitchArmed(),
+    nodeMoniker: state === 'connecting' ? connectTarget : exit ?? entry,
+    entryMoniker: state === 'connecting' || !exit ? undefined : entry,
+    reconnectAttempt: state === 'reconnecting' ? reconnectAttempt : undefined,
+    reconnectMaxAttempts: state === 'reconnecting' ? RECONNECT_MAX_ATTEMPTS : undefined,
+    proxyMode: live.proxyMode === true,
+    socksAddr: live.socksAddr,
+    killSwitchFailed,
+  }
+}
+
+/** Republish whatever is true now. Idempotent. */
+function notifyTray(): void {
+  if (connectionStateListener) connectionStateListener(getConnectionInfo())
+}
+
+type Listener = Parameters<typeof ipcMain.handle>[1]
+
+/** The node a purchase is for (the exit, on a chain), read off its request. */
+function requestedNode(params: unknown): string | undefined {
+  const p = params as { nodeMoniker?: unknown; exit?: { nodeMoniker?: unknown } } | undefined
+  const name = p?.exit?.nodeMoniker ?? p?.nodeMoniker
+  return typeof name === 'string' && name ? name : undefined
+}
+
+/**
+ * One step of a connect: 'opens' for the calls that start one (the purchases and a
+ * Sessions-tab reconnect), 'brings-up' for CONNECTION_CONNECT, which follows them.
+ *
+ * [REL-34] An opening step is refused while any step is in flight. assertNotConnected
+ * cannot see a purchase (no tunnel exists until the bring-up), so the tray's Connect,
+ * a Reconnect from the Sessions tab or a double click otherwise ran beside one: a second
+ * session bought, or the tracked session re-pointed while the first was still paying.
+ * The bring-up is never refused here: it legitimately follows its own purchase, and the
+ * connection lock already serialises it.
+ *
+ * [REL-35] The tray reads 'connecting' from the first step to the grace after the last.
+ */
+function connectStep(kind: 'opens' | 'brings-up', listener: Listener): Listener {
+  return async (event, ...args) => {
+    if (kind === 'opens' && connectSteps > 0) {
+      throw new Error('A connection is already being set up. Wait for it to finish, then try again.')
+    }
+    connectSteps++
+    if (connectSettling) {
+      clearTimeout(connectSettling)
+      connectSettling = null
+    }
+    connectTarget = kind === 'opens' ? requestedNode(args[0]) : activeExitNodeInfo?.moniker || activeNodeInfo?.moniker
+    notifyTray()
+    try {
+      return await listener(event, ...args)
+    } finally {
+      connectSteps--
+      // A bring-up finished (finalizeTunnelConnect set desiredProtocol): the connect is
+      // done, nothing follows. Otherwise the renderer may be about to send the next
+      // step, so hold 'connecting' for the grace.
+      if (connectSteps === 0 && desiredProtocol !== null) {
+        notifyTray()
+      } else if (connectSteps === 0) {
+        connectSettling = setTimeout(() => {
+          connectSettling = null
+          notifyTray()
+        }, CONNECT_SETTLE_MS)
+      }
+    }
   }
 }
 
@@ -1118,25 +1218,7 @@ function sendStateChange(state: 'connected' | 'idle'): void {
   // Connect buttons (gated on !stale) stayed dead for up to five minutes after
   // a disconnect. Reported from a live run.
   if (state === 'idle') notifySessionsChanged()
-  connectionStateListener?.({ state, nodeMoniker: activeNodeInfo?.moniker, nodeCountry: activeNodeInfo?.country })
-}
-
-/**
- * Tray-only: a bring-up is in flight. Deliberately NOT part of sendStateChange —
- * the renderer drives its own progress UI off the CONNECTION_CONNECT promise and
- * the CONNECTION_RECONNECTING broadcast, and there is no chain-path change to
- * publish because no tunnel exists yet.
- *
- * Every path that calls this MUST end at notifyTraySettled() (or a
- * sendStateChange), or the tray sits on a stale "connecting" badge forever.
- */
-function notifyTrayConnecting(): void {
-  connectionStateListener?.({ state: 'connecting', nodeMoniker: activeNodeInfo?.moniker, nodeCountry: activeNodeInfo?.country })
-}
-
-/** Tray-only: republish whatever is actually true now. Idempotent. */
-function notifyTraySettled(): void {
-  connectionStateListener?.(getConnectionInfo())
+  notifyTray()
 }
 
 function sendReconnecting(attempt: number, maxAttempts: number): void {
@@ -1145,7 +1227,7 @@ function sendReconnecting(attempt: number, maxAttempts: number): void {
   }
   // The tunnel is down but nothing has broadcast 'idle' yet — without this the
   // tray keeps claiming "Connected" for the whole retry ladder.
-  notifyTrayConnecting()
+  notifyTray()
 }
 
 /**
@@ -1973,7 +2055,7 @@ export async function healOrphanedTunnel(): Promise<void> {
   // window, the orphan banner, and a green tray dot, all at the same time.
   // Idempotent, and harmlessly a no-op when the listener is not registered yet —
   // that ordering means createTrayIcon() reads the settled state for itself.
-  notifyTraySettled()
+  notifyTray()
 }
 
 /**
@@ -1988,6 +2070,8 @@ export async function healOrphanedTunnel(): Promise<void> {
 export async function healStrandedKillSwitch(): Promise<void> {
   if (isKillSwitchArmed() && !getConnectionStatus().connected) {
     await revertPostConnectSettings()
+    // The tray was drawn "Internet blocked" off the marker this clears.
+    notifyTray()
   }
 }
 
@@ -2135,7 +2219,7 @@ async function attemptReconnect(): Promise<void> {
     // user switched auto-reconnect off between attempts) would strand the tray on
     // its "connecting" badge. give-up doesn't need this — both its exits below end
     // in a sendStateChange.
-    notifyTraySettled()
+    notifyTray()
     return
   }
   if (decision.action === 'give-up') {
@@ -2921,8 +3005,12 @@ export function registerIpcHandlers(): void {
     if (filtered.killSwitch !== undefined || filtered.lanSharing !== undefined) {
       // Arming/disarming changes whether anything reaches the chain at all, so the
       // RPC indicator is a function of it — notably when the user turns the kill
-      // switch off to end an "expired, traffic blocked" state.
-      void withConnectionLock(reapplyFirewall).then(onChainPathChanged)
+      // switch off to end an "expired, traffic blocked" state. So is the tray's
+      // blocked state and its "Kill switch inactive" row.
+      void withConnectionLock(reapplyFirewall).then(() => {
+        onChainPathChanged()
+        notifyTray()
+      })
     }
     return saved
   })
@@ -2937,7 +3025,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Connection: Subscribe
-  handle(IPC.CONNECTION_SUBSCRIBE, async (_event, params: {
+  handle(IPC.CONNECTION_SUBSCRIBE, connectStep('opens', async (_event, params: {
     nodeAddress: string
     nodeMoniker: string
     nodeCountry: string
@@ -3057,7 +3145,7 @@ export function registerIpcHandlers(): void {
     } finally {
       flow.disconnect()
     }
-  })
+  }))
 
   // Connection: buy and handshake a two-hop (multihop) chain.
   //
@@ -3065,7 +3153,7 @@ export function registerIpcHandlers(): void {
   // as long-lived as its shorter half, so buying asymmetric halves would just waste
   // the larger one. Everything after the two purchases is establishChainOrRefund's
   // job, including cancelling BOTH deposits if anything fails.
-  handle(IPC.CONNECTION_SUBSCRIBE_CHAIN, async (_event, params: {
+  handle(IPC.CONNECTION_SUBSCRIBE_CHAIN, connectStep('opens', async (_event, params: {
     entry: { nodeAddress: string; nodeMoniker: string; nodeCountry: string; nodeType: number; apiField: string; quoteValue: string }
     exit: { nodeAddress: string; nodeMoniker: string; nodeCountry: string; nodeType: number; apiField: string; quoteValue: string }
     type: 'gigabytes' | 'hours'
@@ -3217,10 +3305,10 @@ export function registerIpcHandlers(): void {
       // unconditionally only because the guard above makes it never the active key.
       exitSigner.privKey.fill(0)
     }
-  })
+  }))
 
   // Connection: Reconnect to existing session using saved config
-  handle(IPC.CONNECTION_RECONNECT, async (_event, params: {
+  handle(IPC.CONNECTION_RECONNECT, connectStep('opens', async (_event, params: {
     sessionId: string
   }) => {
     assertString(params.sessionId, 'sessionId')
@@ -3265,6 +3353,22 @@ export function registerIpcHandlers(): void {
           `The ${endedHop.chainRole ?? 'other'} hop of this chain (#${endedHop.sessionId}) has ended, ` +
           'so the chain cannot carry traffic. Build a new chain from the Multi-hop tab. If the ' +
           'other hop is still open, you can end it from the Sessions tab.',
+        )
+      }
+    }
+    // [SL-5] 'active' on chain does not mean usable: the chain meters past the cap and
+    // leaves the row active (#53647217: 5673 s of a paid 3600 s, status 1). The Sessions
+    // card already withholds Reconnect there, but the tray's reaches here with the newest
+    // session, and the tunnel it built cost a polkit prompt and lived until the quota
+    // watchdog's next tick. Scored like the watchdog scores it, off the cached rows
+    // (usage floors included); positive evidence only, so no row means no refusal.
+    for (const id of [saved.sessionId, saved.chainPeerSessionId]) {
+      const row = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === id)
+      const quota = row ? quotaFromSessionRow(row) : null
+      if (quota && evaluateQuota({ ...quota, connectedSeconds: 0, liveRxBytes: 0 }).level === 'expired') {
+        throw new Error(
+          `Session #${id} has used everything it was paid for, so it cannot be reconnected. ` +
+          'End it from the Sessions tab and start a new one.',
         )
       }
     }
@@ -3422,7 +3526,7 @@ export function registerIpcHandlers(): void {
       protocol: saved.protocol,
       configString: saved.configString,
     }
-  })
+  }))
 
   // Network: public IP lookup with geolocation (see override below)
 
@@ -3442,7 +3546,7 @@ export function registerIpcHandlers(): void {
   })
 
   // Connection: Connect (establish tunnel — from SDK instance or raw config)
-  handle(IPC.CONNECTION_CONNECT, async (_event, params: {
+  handle(IPC.CONNECTION_CONNECT, connectStep('brings-up', async (_event, params: {
     protocol: 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2' | 'openvpn'
     configString?: string
     dnsFallback?: boolean
@@ -3470,10 +3574,6 @@ export function registerIpcHandlers(): void {
     // sets this — auto-reconnect never silently downgrades DNS.
     const dnsFallback = params.dnsFallback === true &&
       (params.protocol === 'wireguard' || params.protocol === 'amneziawg')
-    // Badge the tray before taking the lock: a connect queued behind a disconnect
-    // is still a connect the user asked for, and this is the slow part (on-chain
-    // tx, handshake, possibly a polkit prompt).
-    notifyTrayConnecting()
     // Serialize tunnel bring-up against disconnect/reconnect so overlapping ops
     // can't orphan a child process (finding M1).
     return withConnectionLock(async () => {
@@ -3608,10 +3708,8 @@ export function registerIpcHandlers(): void {
       }
 
       throw new Error('No active VPN instance')
-      // The success branches already published 'connected'; this is what puts the
-      // tray back to the truth when the bring-up threw instead.
-    }).finally(notifyTraySettled)
-  })
+    })
+  }))
 
   // Connection: Disconnect
   handle(IPC.CONNECTION_DISCONNECT, async () => {
@@ -3748,7 +3846,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  handle(IPC.PLAN_SUBSCRIBE, async (_event, params: {
+  handle(IPC.PLAN_SUBSCRIBE, connectStep('opens', async (_event, params: {
     planId: string
     denom: string
     nodeAddress: string
@@ -3867,9 +3965,9 @@ export function registerIpcHandlers(): void {
     } finally {
       flow.disconnect()
     }
-  })
+  }))
 
-  handle(IPC.PLAN_START_SESSION_FROM_SUB, async (_event, params: {
+  handle(IPC.PLAN_START_SESSION_FROM_SUB, connectStep('opens', async (_event, params: {
     subscriptionId: string
     /** The subscription's plan, for the quota fallback when the chain row is unreadable. */
     planId: string
@@ -3980,9 +4078,9 @@ export function registerIpcHandlers(): void {
     } finally {
       flow.disconnect()
     }
-  })
+  }))
 
-  handle(IPC.PLAN_SMART_CONNECT, async (_event, params: {
+  handle(IPC.PLAN_SMART_CONNECT, connectStep('opens', async (_event, params: {
     planId: string
     /** Present = reuse this subscription (gas only); absent = subscribe first, denom required. */
     subscriptionId?: string
@@ -4248,7 +4346,7 @@ export function registerIpcHandlers(): void {
     } finally {
       flow.disconnect()
     }
-  })
+  }))
 
   handle(IPC.PLAN_NODES, async (_event, params: { planId: string }) => {
     assertString(params?.planId, 'planId')

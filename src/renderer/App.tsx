@@ -304,20 +304,36 @@ function AppInner() {
     return window.api.onShowAbout(() => setShowAbout(true))
   }, [])
 
-  // Tray "Connect": reconnect to the most recent session (main already showed the
-  // window). If there's none or it fails, the window is open for a manual connect.
+  // Tray "Reconnect last session" (main already showed the window). Run on the Sessions
+  // tab, through the same busy/error state its own Reconnect uses, so the card spins and
+  // a refusal (used up, a broken chain, a missing install) is shown rather than dropped.
+  // With no open session there is nothing to reconnect: the Nodes tab is where one is
+  // bought.
   useEffect(() => {
     return window.api.onTrayConnect(async () => {
+      let sessions: SessionInfo[]
       try {
-        const sessions = (await window.api.walletSessions()) as SessionInfo[]
-        if (!sessions?.length) return
-        const target = [...sessions].sort(
-          (a, b) => new Date(b.startAt || 0).getTime() - new Date(a.startAt || 0).getTime(),
-        )[0]
-        await reconnect(target)
-      } catch { /* window already shown for manual connect */ }
+        sessions = await window.api.walletSessions()
+      } catch (err) {
+        setMainTab('sessions')
+        setSessionError(err instanceof Error ? err.message : 'Could not read your sessions')
+        return
+      }
+      const target = sessions
+        .filter((s) => s.status === 'active')
+        .sort((a, b) => new Date(b.startAt || 0).getTime() - new Date(a.startAt || 0).getTime())[0]
+      if (!target) {
+        setMainTab('nodes')
+        return
+      }
+      setMainTab('sessions')
+      setSessionBusy(target.id)
+      setSessionError(null)
+      const outcome = await reconnect(target)
+      if (!outcome.ok) setSessionError(outcome.error || 'Reconnection failed')
+      setSessionBusy(null)
     })
-  }, [reconnect])
+  }, [reconnect, setMainTab])
 
   if (wallet.loading) {
     return (
