@@ -7,13 +7,17 @@ import { TimeoutError } from '@cosmjs/stargate'
 const INSUFFICIENT_FUNDS = 'INSUFFICIENT_FUNDS'
 
 /**
- * Cosmos SDK error codes in the default codespace that all mean "this wallet
- * can't pay": 5 = insufficient funds, 11 = out of gas, 13 = insufficient fee.
- * The codespace isn't checked because the dVPN modules don't reuse these codes.
+ * The Cosmos SDK error code (default codespace) that means "this wallet can't pay":
+ * 5 = insufficient funds. Not 11 (out of gas: the tx outran its own gas limit) and
+ * not 13 (insufficient fee: the fee offered is under the node's minimum gas price).
+ * Neither is about the balance and a top-up fixes neither, yet both were once
+ * reported as "not enough P2P". The codespace isn't checked because the dVPN modules
+ * don't reuse the code.
  */
-const FUNDS_CODES = new Set([5, 11, 13])
+const FUNDS_CODE = 5
+const OUT_OF_GAS_CODE = 11
 
-const FUNDS_LOG_RE = /insufficient funds|insufficient fee|out of gas/i
+const FUNDS_LOG_RE = /insufficient funds/i
 
 /**
  * Does this chain response/error mean the wallet couldn't cover the tx? Matches
@@ -22,7 +26,7 @@ const FUNDS_LOG_RE = /insufficient funds|insufficient fee|out of gas/i
  * throws with the reason in the message and never yields a code at all.
  */
 export function isInsufficientFundsFailure(code: number | undefined, log: string): boolean {
-  if (code !== undefined && FUNDS_CODES.has(code)) return true
+  if (code === FUNDS_CODE) return true
   return FUNDS_LOG_RE.test(log)
 }
 
@@ -52,18 +56,35 @@ export function isSessionNotActive(message: string): boolean {
   return /invalid session status|invalid status \w+ for session/.test(message)
 }
 
+/** For a tx refused before it reached a block (the gas simulation, CheckTx), which charges nothing. */
 export const FUNDS_MESSAGE =
   `${INSUFFICIENT_FUNDS}: The transaction was rejected: your wallet doesn't have enough P2P ` +
   `to cover it plus the network fee. Nothing was charged. Top up your wallet and try again.`
 
 /**
- * Throw unless the tx landed. An insufficient-funds failure gets the marked,
- * user-readable message; everything else keeps the raw `code`/`rawLog` (the only
- * diagnostic we have for an unexpected chain rejection).
+ * Throw unless the tx landed.
+ *
+ * A result that carries a code was included in a block, where the ante handler takes
+ * the fee and commits before the msgs run: the fee is normally gone, so nothing here
+ * says "nothing was charged". An insufficient-funds failure gets the marked,
+ * user-readable message; running out of gas says what happened to the fee; everything
+ * else keeps the raw `code`/`rawLog` (the only diagnostic we have for an unexpected
+ * chain rejection).
  */
 export function assertTxSucceeded(tx: { code: number; rawLog?: string }, label: string): void {
   if (tx.code === 0) return
-  if (isInsufficientFundsFailure(tx.code, tx.rawLog ?? '')) throw new Error(FUNDS_MESSAGE)
+  if (isInsufficientFundsFailure(tx.code, tx.rawLog ?? '')) {
+    throw new Error(
+      `${INSUFFICIENT_FUNDS}: The transaction failed: your wallet doesn't have enough P2P to cover it. ` +
+      'Top up your wallet and try again.',
+    )
+  }
+  if (tx.code === OUT_OF_GAS_CODE) {
+    throw new Error(
+      `${label} ran out of gas and was not applied, though its network fee may still have been charged. ` +
+      `Try again. (code ${tx.code}: ${tx.rawLog})`,
+    )
+  }
   throw new Error(`${label} failed with code ${tx.code}: ${tx.rawLog}`)
 }
 

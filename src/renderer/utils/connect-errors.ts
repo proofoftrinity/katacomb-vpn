@@ -39,7 +39,7 @@ export function isDnsProvisionFailure(message: string): boolean {
   return unwrapIpc(message).startsWith(DNS_PROVISION_FAILED)
 }
 
-/** Was the operation refused because the wallet can't pay? Nothing was charged. */
+/** Did the operation fail because the wallet can't pay? A top-up is the fix. */
 export function isInsufficientFunds(message: string): boolean {
   return unwrapIpc(message).startsWith(INSUFFICIENT_FUNDS)
 }
