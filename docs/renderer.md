@@ -46,7 +46,10 @@ from `src/main/`; `src/shared/` is the only overlap.
   route every marker check and every displayed error through them, never through
   `err.message` directly. It is import-free + unit-tested for the native runner, so its
   markers are inlined and the test asserts they match `shared/error-markers.ts` — the
-  same arrangement as `wallet-errors.ts`.
+  same arrangement as `wallet-errors.ts`. `parseWalletExists` there strips the wrapper
+  itself for the same reason: fed the raw message, the import screen's "already stored,
+  use that wallet" pane never appeared and the user read the marker and the wallet id
+  (found 2026-10-10).
 - **Every async IPC call in a click handler MUST have a try/catch.** An unhandled
   promise rejection in an event handler goes to `window.onerror` as an uncaught
   exception, but Electron doesn't wire that for you — it silently vanishes. The
@@ -283,6 +286,25 @@ from `src/main/`; `src/shared/` is the only overlap.
   require fails in Vite's renderer bundle. `MnemonicInput` imports `check.phrase` (NFKD,
   lowercase, single-spaced), not the raw textarea value: that is the form the checksum was
   verified against and the only one CosmJS's `EnglishMnemonic` accepts.
+- **[RN-9] A copied recovery phrase is wiped from the clipboard 30 s later, even if the
+  screen that copied it has closed.** The create screen (`MnemonicInput`) and the Wallets
+  tab's Recovery phrase window both cancelled the wipe in their unmount cleanup, and both
+  unmount right after a copy in normal use: the create screen the moment the new wallet
+  opens, the window on Done, the tab on closing Settings. The phrase then stayed on the
+  clipboard for good. The wipe touches only the clipboard and a ref, so it is left to fire;
+  only the re-blur timer is cleared on unmount.
+- **The Wallets tab (rebuilt 2026-10-10), the Welcome back picker and the Wallet popover
+  share one look.** One card per seed (`bg-bg-primary`, hairline rows, never a box per
+  wallet), and the active wallet takes the selected-row look (accent tint + 2px bar), not
+  green, which means connected. Every action has one tier and one style: Add wallet for the
+  tab (`btn-secondary`); Switch as the only button on a row (outline); icons for rename,
+  copy and delete; ghost icon+label links for the seed (New wallet, Recovery phrase,
+  Remove). Red shows on hover and inside the confirm windows, never at rest. The four
+  windows are `ReviewModal`s like the connect and money windows, each owning its state, so
+  a revealed phrase dies with its window. Settings rows switch by button, never by a row
+  click, because Switch reloads the whole app. **Only the active wallet shows a balance**:
+  reading every stored address at once would tell the RPC operator that one IP owns them
+  all, which undoes the point of a second wallet for Multi-hop.
 - **[RN-8] Dark-only** — bg `#16181d`, accent `#e1bc99`. There is deliberately no theme switch:
   `tokens.css` `:root` holds the only semantic tokens, and components read those (never
   primitives, never a `dark:` variant). Don't reintroduce a `.dark` selector.

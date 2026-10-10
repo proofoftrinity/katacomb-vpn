@@ -37,3 +37,10 @@ test('parseWalletExists rejects a malformed payload rather than inventing an id'
   assert.equal(parseWalletExists('WALLET_EXISTS: no id here'), null)
   assert.equal(parseWalletExists('WALLET_EXISTS:abc-no-message'), null)
 })
+
+test('[RN-1] parseWalletExists reads the failure as the renderer receives it, IPC wrapper and all', () => {
+  const parsed = parseWalletExists(
+    "Error invoking remote method 'wallet:import': Error: WALLET_EXISTS:abc: That seed is already stored as \"Travel\".",
+  )
+  assert.deepEqual(parsed, { id: 'abc', message: 'That seed is already stored as "Travel".' })
+})

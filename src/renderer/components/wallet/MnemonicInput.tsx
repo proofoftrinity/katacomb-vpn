@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { checkMnemonic } from '../../../shared/mnemonic'
 import { parseWalletExists } from '../../../shared/wallet-errors'
+import { displayConnectError } from '../../utils/connect-errors'
 
 interface Props {
   onImport: (mnemonic: string, name?: string) => Promise<void>
@@ -24,10 +25,10 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
+  // No unmount cleanup for this timer, on purpose [RN-9]: this screen unmounts the
+  // moment the new wallet opens, and cancelling the wipe then left the phrase on the
+  // clipboard for good. The callback touches only the clipboard and the ref.
   const copyClearTimer = useRef<number | null>(null)
-  useEffect(() => () => {
-    if (copyClearTimer.current !== null) window.clearTimeout(copyClearTimer.current)
-  }, [])
 
   // Word list, word count and checksum, re-run on every keystroke.
   const check = useMemo(() => checkMnemonic(mnemonic), [mnemonic])
@@ -58,7 +59,7 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
       setError('')
       return
     }
-    setError(message)
+    setError(displayConnectError(message))
   }
 
   async function handleGenerate() {
@@ -69,7 +70,7 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
       setGeneratedMnemonic(phrase)
       setConfirmed(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate mnemonic')
+      setError(displayConnectError(err instanceof Error ? err.message : 'Failed to generate mnemonic'))
     } finally {
       setLoading(false)
     }
@@ -88,7 +89,7 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
   }
 
   function handleCopy() {
-    navigator.clipboard.writeText(generatedMnemonic)
+    navigator.clipboard.writeText(generatedMnemonic).catch(() => {})
     // Don't let the seed linger on the clipboard — clear it after 30s (finding M5).
     if (copyClearTimer.current !== null) window.clearTimeout(copyClearTimer.current)
     copyClearTimer.current = window.setTimeout(() => {

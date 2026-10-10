@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { builtinModules } from 'node:module'
 import ts from 'typescript'
-import { nodes, parse, read, runtimeImports, sources, walk } from '../harness/source.ts'
+import { nodes, parse, read, runtimeImports, sources, walk, where } from '../harness/source.ts'
 
 // The renderer rules in docs/renderer.md that can be read off the source. Each one
 // was a shipped defect first; the doc entry says which.
@@ -122,4 +122,43 @@ test('[NT-3] every connect review states the limit unless the node signs: keysLi
   for (const review of ['ConnectionModal', 'plans/PlanConnectModal', 'multihop/ChainReviewModal']) {
     assert.match(read(`src/renderer/components/${review}.tsx`), /keysLimit\(\{/, `${review} shows the limit`)
   }
+})
+
+// [RN-9] A copied recovery phrase is wiped from the clipboard 30 s later, and the wipe
+// must outlive the screen that scheduled it: the create screen unmounts the moment the
+// new wallet opens, and Settings unmounts the Wallets tab on close or on a tab change,
+// so a cleanup that cancels the timer left the phrase on the clipboard for good.
+test('[RN-9] no unmount cleanup cancels a pending clipboard wipe', () => {
+  const WIPE = /clipboard\.writeText\(\s*(''|""|``)\s*\)/
+  const files = rendererFiles.filter((f) => WIPE.test(read(f)))
+  for (const expected of ['src/renderer/components/wallet/MnemonicInput.tsx', 'src/renderer/components/settings/WalletsTab.tsx']) {
+    assert.ok(files.includes(expected), `${expected} no longer wipes the clipboard: re-aim this test`)
+  }
+  const bad: string[] = []
+  for (const f of files) {
+    const all = nodes(parse(f))
+    // The timers that carry a wipe: `x.current = window.setTimeout(() => { …writeText('')… })`.
+    const timers = all.filter(ts.isBinaryExpression)
+      .filter((b) => b.operatorToken.kind === ts.SyntaxKind.EqualsToken && WIPE.test(b.right.getText()) && /setTimeout\(/.test(b.right.getText()))
+      .map((b) => b.left.getText().replace(/\.current$/, ''))
+    assert.ok(timers.length > 0, `${f}: the wipe is no longer scheduled through a ref: re-aim this test`)
+    // Every effect cleanup: the function an effect returns, concise or from a block.
+    const effects = all.filter(ts.isCallExpression).filter((c) => c.expression.getText() === 'useEffect')
+    for (const effect of effects) {
+      const fn = effect.arguments[0]
+      if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) continue
+      const returned = ts.isBlock(fn.body)
+        ? fn.body.statements.filter(ts.isReturnStatement).map((r) => r.expression)
+        : [fn.body]
+      for (const cleanup of returned) {
+        if (!cleanup || !(ts.isArrowFunction(cleanup) || ts.isFunctionExpression(cleanup))) continue
+        for (const t of timers) {
+          if (new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(cleanup.getText())) {
+            bad.push(`${where(cleanup)}: the cleanup touches ${t}`)
+          }
+        }
+      }
+    }
+  }
+  assert.deepEqual(bad, [], 'let the wipe fire after unmount; it touches only the clipboard')
 })
