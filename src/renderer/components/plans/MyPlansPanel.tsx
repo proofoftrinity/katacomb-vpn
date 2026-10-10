@@ -5,6 +5,7 @@ import { useConnection } from '../../hooks/useConnection'
 import { formatBytes, formatDuration, formatDateUntil, UNLIMITED_BYTES_THRESHOLD } from '../../utils/format'
 import { dataUsed, timeUsed } from '../../utils/plan-value'
 import { RefreshIcon } from '../Icons'
+import DisconnectButton from '../DisconnectButton'
 import PlanConnectModal from './PlanConnectModal'
 import SubscriptionActionModal from './SubscriptionActionModal'
 
@@ -120,8 +121,18 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
 
   const now = Date.now()
 
+  // Manage needs the chain; Connect does not wait for it, since the review leaves the
+  // live connection first ([RN-10]). The one reason, said once with its fix.
+  const manageBlocked = tunnelUp && rows.some((r) => r.subscription.status === 1)
+
   return (
     <div className="flex-1 overflow-y-auto p-5 space-y-2.5">
+      {manageBlocked && (
+        <div className="flex items-center justify-between gap-3 text-xs text-text-secondary bg-bg-secondary border border-border rounded-md px-4 py-2">
+          <span>Managing a subscription needs the blockchain, which can't be reached through the VPN.</span>
+          <DisconnectButton />
+        </div>
+      )}
       {rows.map((row) => {
         const { subscription: sub, allocation } = row
         const meta = STATUS_META[sub.status] ?? STATUS_META[3]
@@ -130,7 +141,12 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
         const duration = allocation ? formatDuration(allocation.planDurationSeconds) : null
         const provAddress = allocation?.planProvAddress ?? row.plan?.provAddress
         const provider = provAddress ? providerName.get(provAddress) : undefined
-        const canConnect = isPlanSub && sub.status === 1 && !tunnelUp && !overview.stale
+        // Stale while connected is the tunnel's doing, and the switch re-reads the chain
+        // after leaving it; stale while idle means the chain could not be read.
+        const canConnect = isPlanSub && sub.status === 1 && (tunnelUp || !overview.stale)
+        // This subscription carries the connection now: a smart connect could only land
+        // on another session of the same plan. Choose node is how to move within it.
+        const servingNow = tunnelUp && status.chainExit === undefined && status.subscriptionId === sub.id
         const validity = isPlanSub && sub.status === 1 ? timeUsed(sub.startAt, sub.inactiveAt, now) : null
         const data = allocation?.usage
           ? dataUsed(allocation.usage.grantedBytes, allocation.usage.utilisedBytes, UNLIMITED_BYTES_THRESHOLD)
@@ -201,11 +217,15 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
                   <>
                     <button
                       onClick={() => setConnectTarget({ row, manual: false })}
-                      disabled={!canConnect}
-                      title={tunnelUp ? 'Disconnect first to start a new session' : 'Start a new session on this plan (small network fee)'}
+                      disabled={!canConnect || servingNow}
+                      title={servingNow
+                        ? 'This subscription is carrying your connection now. Choose node moves to another of its nodes.'
+                        : tunnelUp
+                          ? 'Switch to this plan. Your current connection is left first (small network fee)'
+                          : 'Start a new session on this plan (small network fee)'}
                       className="btn btn-primary text-xs px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Connect
+                      {servingNow ? 'Connected' : 'Connect'}
                     </button>
                     <button
                       onClick={() => setConnectTarget({ row, manual: true })}
@@ -259,7 +279,10 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
           }
           subscriptionId={connectTarget.row.subscription.id}
           startManual={connectTarget.manual}
-          autoStart={!connectTarget.manual}
+          // Never while connected: that is a switch, which the review explains first.
+          // Decided here because the modal's own status reads idle until its first
+          // poll returns, so its own check cannot see a live connection in time.
+          autoStart={!connectTarget.manual && !tunnelUp}
           onClose={() => setConnectTarget(null)}
         />
       )}

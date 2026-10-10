@@ -33,10 +33,9 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   second tunnel over the first, leaving the old session active on chain with nothing
   watching its quota (live 2026-08-25: a plan session orphaned by a Nodes-tab
   subscribe that presented the normal pay form while connected). The renderer's
-  connect surfaces disable Pay and name the live connection in their footer (`ConnectionModal`'s
-  `connectedElsewhere`, `PlanConnectModal`'s `tunnelUp`, `ChainReviewModal`'s
-  `alreadyConnected`, Sessions' Reconnect) — but that is UX; the handlers are the
-  enforcement. A purchase in flight has no tunnel yet, so this check cannot see it;
+  connect surfaces offer a switch instead ([RN-10]): they leave the live connection
+  through `performDisconnect` (`leaveConnection`) before calling any of these handlers,
+  never beside it — but that is UX; the handlers are the enforcement. A purchase in flight has no tunnel yet, so this check cannot see it;
   [REL-34] covers that window. Third-party VPNs (`detectOtherVpn`: non-sntl wireguard/tun links)
   stay a warn-with-override, never a hard block — the detection false-positives on
   Tailscale. **IPsec/XFRM VPNs are no longer invisible**: reading xfrm policy needs

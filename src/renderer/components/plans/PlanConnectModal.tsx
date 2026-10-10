@@ -20,9 +20,10 @@ import RouteStrip, { singleHopStep, type RouteHop, type RouteStage } from '../Ro
 import {
   ChecksSection, FooterReason, LimitsSection, ModeField, Note, OptionsSection,
   Receipt, ReceiptLine, ReviewModal, SectionHead, Segmented, StepList, VpnConfirm,
-  dnsCheck, encryptionCheck, keysLimit, modeSummary, otherVpnCheck, seesBothLimit, signingCheck, useActiveWalletName,
+  dnsCheck, encryptionCheck, keysLimit, modeSummary, otherVpnCheck, seesBothLimit, signingCheck, switchCheck, useActiveWalletName,
   useOtherVpns, useReviewSettings, type CheckSpec, type Limit,
 } from '../ConnectReview'
+import { connectionRelation, isLive, previousConnection, switchFooterText, type SwitchTarget } from '../../utils/switch'
 
 interface Props {
   plan: PlanInfo
@@ -86,7 +87,7 @@ function stagesFor(kind: 'smart-fresh' | 'smart-reuse' | 'manual-fresh' | 'manua
  * session-on-existing-subscription (gas only). Smart connect is the primary
  * path; "Choose myself" expands the manual picker. Carries the four safety
  * features the old plan modals lacked: the other-VPN pre-check, the
- * already-connected guard, the unhealthy-node acknowledgement, and local
+ * switch away from a live connection, the unhealthy-node acknowledgement, and local
  * proxy mode. Laid out like the other two connect windows (ConnectReview): the
  * route first, with the node filled in once one is chosen, then the node choice,
  * the checks, the cost and the limits, and a footer that names what stops Pay.
@@ -94,13 +95,13 @@ function stagesFor(kind: 'smart-fresh' | 'smart-reuse' | 'manual-fresh' | 'manua
 export default function PlanConnectModal({ plan, subscriptionId, startManual = false, autoStart = false, onClose }: Props) {
   const isReuse = subscriptionId !== undefined
   const { status } = useConnection()
-  const tunnelUp = status.state === 'connected' || status.state === 'reconnecting'
+  const tunnelUp = isLive(status)
   const { allNodes } = useNodesContext()
   const { refreshOverview } = usePlansContext()
   const { setMainTab } = useNavigation()
   const { udvpn, refresh: refreshBalance, refreshing: refreshingBalance } = useBalance()
   const {
-    connecting, currentStep, stepDetail, error, tunnelConnected, sessionId, paidProtocol, disconnecting,
+    connecting, currentStep, stepDetail, error, tunnelConnected, sessionId, paidProtocol, disconnecting, switching,
     start, retryPurchase, retryTunnel, disconnect: disconnectFlow, reset,
   } = useConnectFlow()
   const settings = useReviewSettings()
@@ -149,10 +150,12 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
 
   // Auto-start decides once, from first-render values: anything that blocks it
   // (a tunnel up, gas the wallet can't cover, a fresh subscribe) shows the idle
-  // form instead. The decision must exist DURING the first render, not only in
-  // the effect: effects run after paint, and the other-VPN IPC check runs
-  // before start() flips `connecting`, so gating the form on `connecting`
-  // alone flashed it for that whole window. Cleared when the attempt settles,
+  // form instead. A tunnel up is the opener's to rule out: this modal's own status
+  // reads idle until its first poll lands, so `tunnelUp` here is only a backstop
+  // for a connection that was already reported. The decision must exist DURING
+  // the first render, not only in the effect: effects run after paint, and the
+  // other-VPN IPC check runs before start() flips `connecting`, so gating the
+  // form on `connecting` alone flashed it for that whole window. Cleared when the attempt settles,
   // which is what brings the form back after Cancel on the other-VPN warning.
   // The ref keeps StrictMode's dev double-mount to one attempt.
   const [autoStarting, setAutoStarting] = useState(
@@ -178,6 +181,15 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
     return rows
   }, [planNodeAddrs, nodeIndex])
   const selectedNode = selectedAddr ? nodeIndex.get(selectedAddr) ?? null : null
+
+  // What Pay would connect to, measured against the live connection ([RN-10]): the
+  // picked node, or (smart) the subscription. A fresh subscribe, or a manual pick not
+  // made yet, can only be a switch while connected.
+  const target: SwitchTarget | null = manual
+    ? (selectedNode ? { node: selectedNode.address } : null)
+    : (subscriptionId !== undefined ? { subscriptionId } : null)
+  const relation = target ? connectionRelation(status, target) : tunnelUp ? 'switch' : 'idle'
+  const switchFrom = relation === 'switch' ? previousConnection(status) : null
 
   function handleProxyModeChange(checked: boolean) {
     setProxyMode(checked)
@@ -215,7 +227,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
       setSmartResult(res)
       void refreshOverview()
       return res
-    }, { mode: proxyMode ? 'proxy' : 'tunnel' })
+    }, { mode: proxyMode ? 'proxy' : 'tunnel', switchFrom })
   }
 
   async function handleManualConnect() {
@@ -240,7 +252,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
         : await window.api.planSubscribe({ planId: plan.id, denom, renewalPolicy, ...params })
       void refreshOverview()
       return res
-    }, { mode: proxyMode ? 'proxy' : 'tunnel' })
+    }, { mode: proxyMode ? 'proxy' : 'tunnel', switchFrom })
   }
 
   async function handleDisconnect() {
@@ -292,6 +304,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
         : { kind: 'review' }
 
   const checks: CheckSpec[] = [
+    ...[switchCheck(switchFrom, settings)].filter((c): c is CheckSpec => c !== null),
     ...(manual && selectedNode ? [encryptionCheck(selectedNode)] : []),
     ...[manual && selectedNode ? signingCheck(selectedNode) : null, dnsCheck(settings, proxyMode ? 'proxy' : 'tunnel', 'the node'), otherVpnCheck(otherVpns)]
       .filter((c): c is CheckSpec => c !== null),
@@ -299,8 +312,13 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
 
   const priceLabel = price.amount ? `${price.amount} ${price.denomLabel}` : ''
   const blocker: { text: string; tone: 'danger' | 'muted' } | null =
-    tunnelUp
-      ? { text: `You are connected${status.nodeMoniker ? ` to ${status.nodeMoniker}` : ''}. Disconnect first to start a new session.`, tone: 'danger' }
+    relation === 'same'
+      ? {
+          text: manual
+            ? 'You are connected to this node already.'
+            : 'This plan is serving your connection now. Choose myself to move to another of its nodes.',
+          tone: 'muted',
+        }
       : cantAfford && funds
         ? { text: `Not enough P2P: short by ${formatP2pCeil(funds.shortfall)}, fees included.`, tone: 'danger' }
         : manual && !selectedNode
@@ -317,15 +335,19 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
       />
     ) : (
       <>
-        {blocker && <FooterReason text={blocker.text} tone={blocker.tone} />}
+        {blocker
+          ? <FooterReason text={blocker.text} tone={blocker.tone} />
+          : switchFrom && <FooterReason text={switchFooterText(switchFrom)} tone="muted" />}
         <button
           onClick={() => void (manual ? handleManualConnect() : handleSmartConnect())}
           disabled={blocker !== null}
           className="btn btn-primary w-full disabled:opacity-30 disabled:cursor-not-allowed"
         >
           {isReuse
-            ? (manual ? 'Connect to this node' : 'Connect')
-            : `Pay ${priceLabel} and connect${manual ? ' to this node' : ''}`}
+            ? (switchFrom
+                ? (manual ? 'Switch to this node' : 'Switch to this plan')
+                : (manual ? 'Connect to this node' : 'Connect'))
+            : `Pay ${priceLabel} and ${switchFrom ? 'switch' : 'connect'}${manual ? ' to this node' : ''}`}
         </button>
       </>
     )
@@ -344,9 +366,14 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
     </div>
   ) : undefined
 
-  const stages = stagesFor(kind)
-  // '1/5' arrives before any plan:* marker on the smart path: treat it as stage 0.
-  const stageIndex = Math.max(0, stages.findIndex((s) => s.id === currentStep))
+  const stages = [
+    ...(switching ? [{ id: 'switch', label: `Disconnecting from ${switching.from.label}` }] : []),
+    ...stagesFor(kind),
+  ]
+  // '1/5' arrives before any plan:* marker on the smart path: treat it as the first
+  // stage after the switch (when there is one).
+  const found = stages.findIndex((s) => s.id === currentStep)
+  const stageIndex = found === -1 ? (switching ? 1 : 0) : found
 
   return (
     // Fixed height on purpose: this modal cycles through states of very different
@@ -401,7 +428,9 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
             ) : manualRows.length === 0 ? (
               <p className="text-text-secondary text-sm">
                 {planNodesUnknown
-                  ? "Could not read the plan's node list right now."
+                  ? (tunnelUp
+                    ? "The plan's node list can't be read through the VPN, and none was saved earlier. Pick for me reads it after disconnecting."
+                    : "Could not read the plan's node list right now.")
                   : 'No nodes are linked to this plan right now.'}
               </p>
             ) : (
@@ -546,6 +575,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
           onRetryPurchase={() => void retryPurchase()}
           onStartOver={reset}
           onRetryWithoutDns={paidProtocol ? () => retryTunnel(true) : undefined}
+          goBack={switching?.left ? { from: switching.from, onDone: onClose } : null}
         />
       )}
 

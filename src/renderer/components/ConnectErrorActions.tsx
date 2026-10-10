@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { displayConnectError, isDnsProvisionFailure, isInsufficientFunds, isRpcUnreachable, setupItemsRequired } from '../utils/connect-errors'
+import type { PreviousConnection } from '../utils/switch'
+import { useReconnect } from '../hooks/useReconnect'
 import InsufficientFunds from './InsufficientFunds'
+import Spinner from './Spinner'
 import SystemSetup from './SystemSetup'
 import { useNavigation } from '../contexts/NavigationContext'
 
@@ -24,6 +27,12 @@ interface Props {
    * the failure was wg-quick/awg-quick not finding resolvconf.
    */
   onRetryWithoutDns?: () => void
+  /**
+   * A switch that failed after leaving the old connection ([RN-10]): offer that one
+   * back, so a failed switch never leaves the user without the connection they had.
+   * `onDone` runs once it is up again (the window closes).
+   */
+  goBack?: { from: PreviousConnection; onDone: () => void } | null
 }
 
 /**
@@ -39,6 +48,7 @@ export default function ConnectErrorActions({
   onRetryPurchase,
   onStartOver,
   onRetryWithoutDns,
+  goBack,
 }: Props) {
   const dnsFailure = isDnsProvisionFailure(error)
   // The machine lacks something this connect needs. Not a fault to show in red:
@@ -49,6 +59,7 @@ export default function ConnectErrorActions({
   const [setupReady, setSetupReady] = useState(false)
   const setupHeld = setupItems !== null && !setupReady
   const { openSettings } = useNavigation()
+  const back = goBack ? <GoBack from={goBack.from} onDone={goBack.onDone} /> : null
 
   // The chain was never reached, so retrying against the same endpoint mostly
   // repeats the wait. Point at the endpoint list, and keep the plain retry for
@@ -69,6 +80,7 @@ export default function ConnectErrorActions({
         >
           Try again
         </button>
+        {back}
       </div>
     )
   }
@@ -82,6 +94,7 @@ export default function ConnectErrorActions({
         <button onClick={onStartOver} className="btn btn-primary w-full">
           Try Again
         </button>
+        {back}
       </div>
     )
   }
@@ -160,6 +173,41 @@ export default function ConnectErrorActions({
           Try Again
         </button>
       )}
+      {back}
+    </div>
+  )
+}
+
+/**
+ * Back to the connection a switch left. Its session was never touched, so this is a
+ * plain reconnect: no transaction, and a chain comes back as both hops.
+ */
+function GoBack({ from, onDone }: { from: PreviousConnection; onDone: () => void }) {
+  const reconnect = useReconnect()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const sessionId = from.sessionId
+  if (!sessionId) return null
+
+  async function handleGoBack(id: string) {
+    setBusy(true)
+    setError(null)
+    const result = await reconnect({ id })
+    setBusy(false)
+    if (result.ok) onDone()
+    else setError(result.error ?? 'Reconnection failed')
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <button
+        onClick={() => void handleGoBack(sessionId)}
+        disabled={busy}
+        className="btn btn-secondary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {busy ? <><Spinner /> Reconnecting…</> : `Reconnect to ${from.label}`}
+      </button>
+      {error && <p className="text-danger text-xs">{displayConnectError(error)}</p>}
     </div>
   )
 }

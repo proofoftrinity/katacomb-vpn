@@ -14,8 +14,8 @@ export interface ReconnectOutcome {
  * via the CONNECTION_STATE_CHANGE broadcast (see useConnection), so callers don't
  * need to poll afterwards.
  */
-export function useReconnect(): (session: SessionInfo) => Promise<ReconnectOutcome> {
-  return useCallback(async (session: SessionInfo): Promise<ReconnectOutcome> => {
+export function useReconnect(): (session: Pick<SessionInfo, 'id'>) => Promise<ReconnectOutcome> {
+  return useCallback(async (session: Pick<SessionInfo, 'id'>): Promise<ReconnectOutcome> => {
     try {
       const res = await window.api.connectionReconnect({ sessionId: session.id })
       await window.api.connectionConnect({

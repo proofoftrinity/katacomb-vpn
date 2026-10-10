@@ -1,5 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TunnelProtocol } from '../types'
+import { switchThenBuy, type PreviousConnection } from '../utils/switch'
+
+/**
+ * How long the path gets to settle after a tunnel drops before the chain is asked
+ * anything: routes, the resolver and Chromium's socket pool are being restored, and a
+ * dropped SYN in that window costs seconds (docs/renderer.md, "A probe grades the PATH").
+ */
+const PATH_SETTLE_MS = 2000
+
+/**
+ * Drop the live connection so the chain can be reached: a switch, or ending a session
+ * other than the one carrying the traffic. Only the tunnel goes; its session stays open.
+ */
+export async function leaveConnection(): Promise<void> {
+  await window.api.connectionDisconnect()
+  await new Promise((r) => setTimeout(r, PATH_SETTLE_MS))
+}
+
+/** A switch in progress: the connection it leaves, and whether that one is down yet. */
+export interface SwitchState {
+  from: PreviousConnection
+  /** The old tunnel is down, so going back to it is possible (and, on a failure, offered). */
+  left: boolean
+}
 
 /**
  * The connect-flow state machine every paid connect shares: purchase, then the
@@ -19,12 +43,13 @@ export function useConnectFlow() {
   // that session instead of buying a second one.
   const [paidProtocol, setPaidProtocol] = useState<TunnelProtocol | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
+  const [switching, setSwitching] = useState<SwitchState | null>(null)
   // The mode the flow was STARTED with, so a retry keeps it.
   const modeRef = useRef<'tunnel' | 'proxy'>('tunnel')
   // The last purchase as started, with the user's choices already bound into it.
   const lastPurchaseRef = useRef<{
     purchase: () => Promise<{ sessionId: string; protocol: string }>
-    opts?: { mode?: 'tunnel' | 'proxy' }
+    opts?: { mode?: 'tunnel' | 'proxy'; switchFrom?: PreviousConnection | null }
   } | null>(null)
 
   useEffect(() => {
@@ -48,19 +73,29 @@ export function useConnectFlow() {
   /**
    * Run a purchase (any IPC that returns a paid session), then bring the tunnel
    * up. The purchase callback is the caller's: node subscribe, plan subscribe,
-   * session-from-subscription or smart connect all fit.
+   * session-from-subscription or smart connect all fit. With `switchFrom`, the live
+   * connection is left first ([RN-10]): main refuses a purchase while one is up.
    */
   const start = useCallback(async (
     purchase: () => Promise<{ sessionId: string; protocol: string }>,
-    opts?: { mode?: 'tunnel' | 'proxy' },
+    opts?: { mode?: 'tunnel' | 'proxy'; switchFrom?: PreviousConnection | null },
   ) => {
     lastPurchaseRef.current = { purchase, opts }
     modeRef.current = opts?.mode ?? 'tunnel'
+    const from = opts?.switchFrom ?? null
+    if (from) setSwitching({ from, left: false })
     setConnecting(true)
     setError(null)
-    setCurrentStep('1/5')
+    setCurrentStep(from ? 'switch' : '1/5')
     try {
-      const res = await purchase()
+      const res = await switchThenBuy({
+        leave: from ? leaveConnection : null,
+        onLeft: () => {
+          if (from) setSwitching({ from, left: true })
+          setCurrentStep('1/5')
+        },
+        purchase,
+      })
       setSessionId(res.sessionId)
       const protocol = res.protocol as TunnelProtocol
       setPaidProtocol(protocol)
@@ -80,7 +115,9 @@ export function useConnectFlow() {
    */
   const retryPurchase = useCallback(async () => {
     const last = lastPurchaseRef.current
-    if (last) await start(last.purchase, last.opts)
+    // Only a purchase refusal gets here, which comes after any leave: the old
+    // connection is already down, so the retry must not leave again.
+    if (last) await start(last.purchase, { ...last.opts, switchFrom: null })
   }, [start])
 
   /** Error-state retry when the payment succeeded but the tunnel didn't come up. */
@@ -118,6 +155,7 @@ export function useConnectFlow() {
 
   /** Drop the paid-session context: the "start over" action after an error. */
   const reset = useCallback(() => {
+    setSwitching(null)
     setError(null)
     setCurrentStep(null)
     setStepDetail(null)
@@ -135,6 +173,7 @@ export function useConnectFlow() {
     sessionId,
     paidProtocol,
     disconnecting,
+    switching,
     start,
     retryPurchase,
     retryTunnel,
