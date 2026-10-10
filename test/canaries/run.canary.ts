@@ -69,9 +69,12 @@ async function ranRed(c: Canary): Promise<{ red: boolean; output: string; target
     let output = ''
     for (const target of c.run) {
       try {
+        // The reporter is named, not left to the default: the check below reads spec's ✖,
+        // and Node 22 (CI's) reports TAP to a pipe where Node 23+ reports spec. With the
+        // default, every node canary failed in CI as "no failing test is titled".
         const r = target.startsWith('go:')
           ? await run('go', ['test', '-count=1', target.slice(3)], { cwd: join(dir, 'daemon'), env, maxBuffer: 1 << 26 })
-          : await run(process.execPath, ['--test', target], { cwd: dir, env, maxBuffer: 1 << 26 })
+          : await run(process.execPath, ['--test', '--test-reporter=spec', target], { cwd: dir, env, maxBuffer: 1 << 26 })
         output += r.stdout
       } catch (err) {
         // A non-zero exit from any target turned the run red; the test below checks it
