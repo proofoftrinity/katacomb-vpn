@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { COUNTRY_CODES } from '../../utils/country-codes'
+import { countryCode } from '../../utils/country-codes'
 
 interface Props {
   counts: Map<string, number>
@@ -56,7 +56,7 @@ export default function CountrySidebar({ counts, onSelect }: Props) {
       </div>
       <div className="flex-1 overflow-y-auto">
         {rows.map(([country, count]) => {
-          const code = COUNTRY_CODES[country]
+          const code = countryCode(country)
           return (
             <button
               key={country}

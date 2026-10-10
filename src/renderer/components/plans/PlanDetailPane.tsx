@@ -7,7 +7,7 @@ import { formatBytes, formatDuration, planPriceDisplay, pricePerGb, formatPerGb,
 import { usdEstimate } from '../../utils/provider-format'
 import { protocolMeta } from '../../utils/protocols'
 import { compareToNodes, decadeScale, nodeMedianPerGb } from '../../utils/plan-value'
-import { polyKey } from '../../utils/country-normalization'
+import { countryCode, polyCode } from '../../utils/country-codes'
 import { countryPoint, useWorldCountries } from '../map/world-geo'
 import { FooterReason } from '../ConnectReview'
 import CountryFlag from '../CountryFlag'
@@ -422,17 +422,18 @@ function CoverageMap({ countries }: { countries: [string, number][] }) {
   const world = useWorldCountries()
   const drawn = useMemo(() => {
     if (!world) return null
-    const counts = new Map(countries)
+    const counts = new Map(countries.map(([c, n]) => [countryCode(c), n]))
     const projection = geoNaturalEarth1().fitExtent([[2, 2], [MAP_W - 2, MAP_H - 2]], { type: 'Sphere' })
     const path = geoPath(projection)
-    const byName = new Map(world.map((f) => [polyKey(f), f]))
+    const byCode = new Map(world.map((f) => [polyCode(f), f]))
     const land = world
-      .filter((f) => polyKey(f) !== 'Antarctica')
-      .map((f, i) => ({ key: polyKey(f) || String(i), d: path(f) ?? '', step: coverageStep(counts.get(polyKey(f)) ?? 0) }))
+      .filter((f) => polyCode(f) !== 'aq')
+      .map((f, i) => ({ key: polyCode(f) || String(i), d: path(f) ?? '', step: coverageStep(counts.get(polyCode(f)) ?? 0) }))
     const dots = countries
-      .filter(([c]) => !byName.has(c))
       .flatMap(([c, n]) => {
-        const p = countryPoint(c, byName)
+        const code = countryCode(c)
+        if (!code || byCode.has(code)) return []
+        const p = countryPoint(code, byCode)
         const xy = p ? projection(p) : null
         return xy ? [{ key: c, x: xy[0], y: xy[1], step: coverageStep(n) }] : []
       })

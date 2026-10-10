@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { geoOrthographic, geoPath, geoGraticule10 } from 'd3-geo'
 import geoUrl from '../../assets/world-countries-110m.geojson?url'
-import { polyKey, type PolyFeature } from '../../utils/country-normalization'
+import { countryCode, countryName, polyCode } from '../../utils/country-codes'
 import { shortestAngleDelta } from '../../utils/angles'
 import Spinner from '../Spinner'
 
@@ -10,7 +10,7 @@ interface Props {
   onSelect: (country: string) => void
 }
 
-interface Feature extends PolyFeature {
+interface Feature {
   properties?: { name?: string }
 }
 
@@ -387,10 +387,17 @@ export default function CountryGlobe({ counts, onSelect }: Props) {
 
   const { capColor, strokeColor } = useMemo(() => makeColorFns(counts), [counts])
 
-  const countFor = useCallback(
-    (f: Feature) => counts.get(polyKey(f)) ?? 0,
-    [counts],
-  )
+  // The feed's own name and count for each country code, so a polygon finds its nodes
+  // whatever either side calls the country, and a click hands the Nodes filter the
+  // feed's spelling.
+  const byCode = useMemo(() => {
+    const m = new Map<string, { name: string; count: number }>()
+    for (const [name, count] of counts) {
+      const code = countryCode(name)
+      if (code) m.set(code, { name, count })
+    }
+    return m
+  }, [counts])
 
   // Aggregate stats for the bottom-right chip.
   const totalNodes = useMemo(
@@ -443,18 +450,21 @@ export default function CountryGlobe({ counts, onSelect }: Props) {
           />
 
           {features.map((f, i) => {
-            const count = countFor(f)
+            const code = polyCode(f)
+            const fed = byCode.get(code)
+            const count = fed?.count ?? 0
+            const name = fed?.name ?? countryName(code) ?? f.properties?.name ?? ''
             return (
               <path
-                key={polyKey(f) || i}
+                key={code || i}
                 ref={(el) => { countryRefs.current[i] = el }}
                 fill={capColor(count)}
                 stroke={strokeColor(count)}
                 strokeWidth={0.5}
                 style={{ cursor: count > 0 ? 'pointer' : 'default' }}
-                onPointerEnter={() => setHover({ name: polyKey(f), count })}
+                onPointerEnter={() => setHover({ name, count })}
                 onPointerLeave={() => setHover(null)}
-                onClick={() => { if (count > 0) onSelect(polyKey(f)) }}
+                onClick={() => { if (fed) onSelect(fed.name) }}
               />
             )
           })}

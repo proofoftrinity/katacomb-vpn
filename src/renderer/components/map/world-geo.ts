@@ -32,21 +32,24 @@ export function useWorldCountries(): Country[] | null {
 }
 
 /**
- * Countries too small for the 110m file, which has no polygon for them. Singapore and
- * Hong Kong are common node locations, so without these a map would lose them.
+ * Countries too small for the 110m file, which has no polygon for them, by country
+ * code (utils/country-codes.ts). Singapore and Hong Kong are common node locations, so
+ * without these a map would lose them.
  */
 export const SMALL_COUNTRIES: Record<string, [number, number]> = {
-  Singapore: [103.82, 1.35],
-  'Hong Kong': [114.17, 22.32],
-  Macau: [113.55, 22.17],
-  Malta: [14.45, 35.9],
-  Bahrain: [50.56, 26.07],
-  Monaco: [7.42, 43.74],
-  Andorra: [1.52, 42.51],
-  Liechtenstein: [9.55, 47.16],
-  Mauritius: [57.55, -20.25],
-  Maldives: [73.5, 4.2],
-  Seychelles: [55.45, -4.62],
+  sg: [103.82, 1.35], // Singapore
+  hk: [114.17, 22.32], // Hong Kong
+  mo: [113.55, 22.17], // Macau
+  mt: [14.45, 35.9], // Malta
+  bh: [50.56, 26.07], // Bahrain
+  mc: [7.42, 43.74], // Monaco
+  ad: [1.52, 42.51], // Andorra
+  li: [9.55, 47.16], // Liechtenstein
+  mu: [57.55, -20.25], // Mauritius
+  mv: [73.5, 4.2], // Maldives
+  sc: [55.45, -4.62], // Seychelles
+  km: [43.33, -11.7], // Comoros
+  dm: [-61.37, 15.41], // Dominica
 }
 
 /**
@@ -54,9 +57,9 @@ export const SMALL_COUNTRIES: Record<string, [number, number]> = {
  * geoCentroid of the whole shape puts France in the Atlantic (French Guiana is part of
  * it), and the United States and Norway drift the same way.
  */
-export function countryPoint(country: string, byName: Map<string, Country>): [number, number] | null {
-  const f = byName.get(country)
-  if (!f) return SMALL_COUNTRIES[country] ?? null
+export function countryPoint(code: string, byCode: Map<string, Country>): [number, number] | null {
+  const f = byCode.get(code)
+  if (!f) return SMALL_COUNTRIES[code] ?? null
   const g = f.geometry
   const largest = g.type === 'Polygon'
     ? g

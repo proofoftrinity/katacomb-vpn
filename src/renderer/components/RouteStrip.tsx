@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { COUNTRY_CODES } from '../utils/country-codes'
+import { countryCode } from '../utils/country-codes'
 import InfoTip from './InfoTip'
 import { CheckIcon, CloseIcon, GlobeIcon, LaptopIcon } from './Icons'
 
@@ -259,7 +259,7 @@ function Line({ state, label }: { state: LinkState; label?: string }) {
 
 /** A round flag (flag-icons' square variant), the initials without one, "?" without a country. */
 function Flag({ country, size }: { country: string; size: number }) {
-  const code = COUNTRY_CODES[country]
+  const code = countryCode(country)
   if (!code) {
     return <span className="text-[10px] font-semibold text-text-secondary">{country.slice(0, 2).toUpperCase() || '?'}</span>
   }
