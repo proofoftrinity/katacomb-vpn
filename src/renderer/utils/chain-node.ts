@@ -311,9 +311,11 @@ export function pickChainPair(
   return best === null ? null : { entry: best.entry, exit: best.exit }
 }
 
-/** What stands between the review and Pay. The modal words each one. */
+/**
+ * What stands between the review and Pay. The modal words each one. A live connection
+ * is not one: Pay leaves it first ([RN-10]).
+ */
 export type ChainBlocker =
-  | 'connected'
   | 'pair'
   | 'exit-refused'
   | 'no-wallet'
@@ -325,7 +327,6 @@ export type ChainBlocker =
   | 'unacknowledged'
 
 export interface ChainBuyState {
-  alreadyConnected: boolean
   /** `pairConflict(entry, exit)`. The picker already refuses these; this is the backstop. */
   conflict: PairConflict | null
   /** The exit's grade is a definite no. */
@@ -352,7 +353,6 @@ export interface ChainBuyState {
  * still says it could not check, in amber, never as a pass.
  */
 export function chainBuyBlocker(s: ChainBuyState): ChainBlocker | null {
-  if (s.alreadyConnected) return 'connected'
   if (s.conflict !== null) return 'pair'
   if (s.exitRefused) return 'exit-refused'
   if (s.exitWallet === 'none') return 'no-wallet'

@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import type { SentNode, TunnelProtocol, WalletEntry } from '../../types'
 import { useBalance } from '../../hooks/useBalance'
 import { useConnection } from '../../hooks/useConnection'
+import { leaveConnection, type SwitchState } from '../../hooks/useConnectFlow'
 import { useChainDraft } from '../../contexts/ChainDraftContext'
 import { useNavigation } from '../../contexts/NavigationContext'
 import { pairConflict } from '../../utils/chain-diversity'
+import { connectionRelation, previousConnection, switchFooterText, switchThenBuy } from '../../utils/switch'
 import { chainBuyBlocker, udvpnPrice, type ChainBlocker, type ChainBuyState } from '../../utils/chain-node'
 import { checkFunds, formatP2p, formatP2pCeil, insufficientFundsMessage, udvpnOf, type FundsCheck } from '../../../shared/funds'
 import { SOCKS_DISPLAY_ADDR } from '../../../shared/socks'
@@ -16,7 +18,7 @@ import RouteStrip, { type RouteStage } from '../RouteStrip'
 import {
   AmountStepper, ChecksSection, FooterReason, LimitsSection, ModeField, Note,
   OptionsSection, Receipt, ReceiptLine, ReviewModal, SectionHead, Segmented,
-  dnsCheck, keysLimit, modeSummary, otherVpnCheck, useOtherVpns, useReviewSettings,
+  dnsCheck, keysLimit, modeSummary, otherVpnCheck, switchCheck, useOtherVpns, useReviewSettings,
   type CheckSpec, type Limit,
 } from '../ConnectReview'
 
@@ -77,8 +79,13 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [paid, setPaid] = useState<{ entrySessionId: string; exitSessionId: string } | null>(null)
   const [tunnelConnected, setTunnelConnected] = useState(false)
+  const [switching, setSwitching] = useState<SwitchState | null>(null)
 
-  const alreadyConnected = status.state === 'connected' || status.state === 'reconnecting'
+  // A live connection is not a blocker: Pay leaves it first ([RN-10]). The pair that
+  // already carries it is said, not sold again.
+  const relation = connectionRelation(status, { entry: entry.address, exit: exit.address })
+  const sameChain = relation === 'same'
+  const switchFrom = relation === 'switch' ? previousConnection(status) : null
   // Both purchases and handshakes are done once the modal moves to the bring-up.
   const tunnelStarted = currentStep === '5/5'
 
@@ -175,7 +182,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
   const exitRefused = exitGrade !== undefined && exitGrade.reachable && !exitGrade.exit
 
   const blocker = chainBuyBlocker({
-    alreadyConnected, conflict, exitRefused, exitWallet: exitWalletState,
+    conflict, exitRefused, exitWallet: exitWalletState,
     priceMissing, entryShort, exitShort, acknowledged,
   })
 
@@ -201,25 +208,21 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
 
   async function handleBuild() {
     if (entryPrice === null || exitPrice === null || !exitWalletId) return
+    const from = switchFrom
+    if (from) setSwitching({ from, left: false })
     setConnecting(true)
     setError(null)
-    setCurrentStep('1/5')
-    setHopMarker({ hop: 'entry', phase: 'buy' })
+    setCurrentStep(from ? 'switch' : '1/5')
+    setHopMarker(from ? null : { hop: 'entry', phase: 'buy' })
     try {
-      const result = await window.api.connectionSubscribeChain({
-        entry: {
-          nodeAddress: entry.address, nodeMoniker: entry.moniker, nodeCountry: entry.country,
-          nodeType: entry.type, apiField: entry.api, quoteValue: String(entryPrice),
+      const result = await switchThenBuy({
+        leave: from ? leaveConnection : null,
+        onLeft: () => {
+          if (from) setSwitching({ from, left: true })
+          setCurrentStep('1/5')
+          setHopMarker({ hop: 'entry', phase: 'buy' })
         },
-        exit: {
-          nodeAddress: exit.address, nodeMoniker: exit.moniker, nodeCountry: exit.country,
-          nodeType: exit.type, apiField: exit.api, quoteValue: String(exitPrice),
-        },
-        type: billing,
-        amount,
-        denom: 'udvpn',
-        exitWalletId,
-        ...(mode === 'proxy' ? { proxyMode: true } : {}),
+        purchase: () => buyChain(from !== null),
       })
       setPaid({ entrySessionId: result.sessionId, exitSessionId: result.exitSessionId })
       await connectTunnelOnly(result.protocol as TunnelProtocol)
@@ -228,6 +231,36 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
     } finally {
       setConnecting(false)
     }
+  }
+
+  /**
+   * The two purchases. After a switch's leave, the wallet link is asked again first:
+   * through the tunnel that check often cannot run, which reads amber and does not
+   * block, so the switch must not skip a refusal the idle path would have made.
+   */
+  async function buyChain(afterLeave: boolean) {
+    if (afterLeave) {
+      const link = await window.api.walletLinkCheck(exitWalletId).catch(() => null)
+      if (link) setWalletLink(link)
+      if (link?.linked) {
+        throw new Error(blockerText('wallet-linked', { billing, activeName, exitName, entryFunds, exitFunds }))
+      }
+    }
+    return window.api.connectionSubscribeChain({
+      entry: {
+        nodeAddress: entry.address, nodeMoniker: entry.moniker, nodeCountry: entry.country,
+        nodeType: entry.type, apiField: entry.api, quoteValue: String(entryPrice),
+      },
+      exit: {
+        nodeAddress: exit.address, nodeMoniker: exit.moniker, nodeCountry: exit.country,
+        nodeType: exit.type, apiField: exit.api, quoteValue: String(exitPrice),
+      },
+      type: billing,
+      amount,
+      denom: 'udvpn',
+      exitWalletId,
+      ...(mode === 'proxy' ? { proxyMode: true } : {}),
+    })
   }
 
   /** The bring-up alone. Both sessions stay paid, so this never re-buys. */
@@ -305,6 +338,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
   )
 
   const checks: CheckSpec[] = [
+    ...[switchCheck(switchFrom, settings)].filter((c): c is CheckSpec => c !== null),
     conflict ? {
       id: 'pair',
       tone: 'danger',
@@ -438,11 +472,15 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
 
   const footer = reviewing ? (
     <>
-      {blocker !== null && blocker !== 'unacknowledged' && (
+      {blocker !== null && blocker !== 'unacknowledged' ? (
         <FooterReason
           tone={blocker === 'wallet-checking' ? 'busy' : 'danger'}
           text={blockerText(blocker, { billing, activeName, exitName, entryFunds, exitFunds })}
         />
+      ) : sameChain ? (
+        <FooterReason tone="muted" text="This is the chain you are connected to now." />
+      ) : switchFrom && (
+        <FooterReason tone="muted" text={switchFooterText(switchFrom)} />
       )}
       <label className="flex items-center gap-2 cursor-pointer text-sm text-text-secondary">
         <input
@@ -455,10 +493,10 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
       </label>
       <button
         onClick={handleBuild}
-        disabled={blocker !== null}
+        disabled={blocker !== null || sameChain}
         className="btn btn-primary w-full disabled:opacity-30 disabled:cursor-not-allowed"
       >
-        Pay {formatP2p(costUdvpn)} P2P and connect
+        Pay {formatP2p(costUdvpn)} P2P and {switchFrom ? 'switch' : 'connect'}
       </button>
     </>
   ) : tunnelConnected && paid ? (
@@ -585,6 +623,12 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
               chain repeats steps 1-3 for the second purchase, so it counts up,
               jumps back and counts up again with nothing saying why. */}
           <div className="space-y-2">
+            {switching && (
+              <div className="flex items-start gap-3 text-sm">
+                <span className={`status-dot mt-1.5 ${switching.left ? 'status-dot-active' : 'status-dot-pending'}`} />
+                <span className="text-text-primary min-w-0">Disconnecting from {switching.from.label}</span>
+              </div>
+            )}
             <HopProgress
               label="Entry"
               node={entry}
@@ -643,7 +687,8 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
             // leave the chain where the user can see and end it.
             onStartOver={paid
               ? handleClose
-              : () => { setError(null); setCurrentStep(null) }}
+              : () => { setError(null); setCurrentStep(null); setSwitching(null) }}
+            goBack={switching?.left ? { from: switching.from, onDone: handleClose } : null}
           />
         </div>
       )}
@@ -688,7 +733,6 @@ function blockerText(b: ChainBlocker, c: {
   exitFunds: FundsCheck | null
 }): string {
   switch (b) {
-    case 'connected': return 'A tunnel is already up. Disconnect it first, on the tab behind this window.'
     case 'pair': return 'The two hops must be in different countries and on different networks. Pick another exit.'
     case 'exit-refused': return 'This node cannot be the exit. Pick another exit.'
     case 'no-wallet': return 'The exit needs its own wallet. Set one up above.'
