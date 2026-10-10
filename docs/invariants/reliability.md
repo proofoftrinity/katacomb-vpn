@@ -481,6 +481,42 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     must run AFTER it. **Never pre-stop anything from the quit path.** Still capped by
     `before-quit`'s 5s race, so on the pkexec path an unanswered polkit prompt outlives the
     budget and the next launch's heal finishes the job.
+  - **[REL-36] The desktop session ending is a quit, and the session manager waits for its
+    teardown.** Until 1.16.1 every GNOME logout, and every restart or power-off from GNOME's
+    menu, crashed the app with the window open, so [REL-30] never ran: a tunnel left up
+    outlived the app with nothing watching its quota and no usage floor written, and
+    Ubuntu saved a ~20 MB crash report each time. Measured in the release VM (2026-10-10,
+    kernel signal trace): launched from the app grid, Chromium forks its zygotes before
+    gnome-shell has moved the new PID into the app's scope, so the zygotes, the GPU process
+    and the renderer stay in `org.gnome.Shell@x11.service`; Electron then moves only the
+    main process into `app-katacomb-vpn-<pid>.scope`. Logging out stops GNOME Shell's unit,
+    systemd SIGTERMs those five, and the main process gets no signal at all. It relaunches
+    the GPU process through the dead zygote, which fails in ~0.5 ms, three times per GPU
+    mode, and after six Chromium crashes itself on purpose ("GPU process isn't usable.
+    Goodbye.", SIGTRAP), ~3 ms after the first failure and before `before-quit` could run.
+    Upstream: electron/electron#54547 (Signal, Mattermost). `desktop-session.ts` therefore
+    registers with the session manager (`org.gnome.SessionManager`, which Cinnamon and MATE
+    also implement) over the session D-Bus, and on `EndSession` starts the normal quit,
+    which GNOME waits for before stopping the shell (5 s in a test, without timing out).
+    **`EndSession` is never answered: the app exiting is the answer.** GNOME takes a client
+    that exits as having answered (it went on 145 ms after one did), and our connection
+    only closes when Electron frees Node, after Chromium's main loop has ended and
+    `GpuProcessHost::Get` no longer relaunches anything. Answering after the teardown,
+    right before `app.exit(0)`, was tried first and is too early: Chromium's shutdown after
+    `app.exit` still needs the GPU process for a few hundred ms, GNOME stopped the shell
+    inside that window, and two logouts in three still crashed. Unanswered, six in six
+    were clean, the app gone 23-88 ms before the shell began to stop. A restart from the
+    menu goes the same way: GNOME holds logind's reboot with a delay inhibitor and sends
+    `EndSession` 20 ms into it; the app was gone 0.45 s later and the daemon began to stop
+    0.76 s after that, so the teardown still reaches it. Without this the daemon had stopped
+    first and systemd SIGKILLed the hung app 5 s later. What does NOT work either:
+    `--disable-gpu-process-crash-limit` (no crash, but ~30,000 relaunches in 14 s and the
+    app never exits), and moving the strays into a scope of their own (the app then died
+    8 s later on `D-Bus connection was disconnected. Aborting.`): it has to quit before the
+    session tears down. Not covered: desktops without that session manager (KDE,
+    Xfce; register fails and nothing changes), and a SIGTERM to every app process at once
+    (`systemctl --user stop`, `pkill`), which still crashes it about one time in three,
+    because nothing in-app can run before Chromium does.
   - **[REL-31] Crash** is repaired by `healOrphanedTunnel()` at startup, ordered between
     `detectExistingConnection()` (which sets `activeProtocol`, so `disconnect()` picks the
     matching teardown verb) and `healStrandedKillSwitch()` (which skips while a tunnel is

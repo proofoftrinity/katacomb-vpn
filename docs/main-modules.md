@@ -16,6 +16,13 @@ CLAUDE.md; this is the per-module detail.
 - `vpn-manager.ts`: V2Ray child process lifecycle, WireGuard via polkit helper, tun2socks TUN routing for V2Ray, connection status monitoring. Bundled child-proxy binaries (v2ray, xray, hysteria) verified via SHA-256 before use, with system PATH fallback. tun2socks is no longer a binary: the engine is compiled into the privileged helper (`daemon/internal/tun2socks`), and `tun-up` self-execs it. Likewise the AmneziaWG userspace device (`daemon/internal/amneziawg`), which `awg-up` self-execs: root runs no vendored binary any more.
 - `ipc-handlers.ts`: all IPC channels (registered via a `handle()` wrapper that rejects calls from any frame that isn't our own renderer), pre-connect balance validation, node list fetch from `api.sentnodes.com/v2/nodes` via `net.fetch`, auto-reconnect + a WireGuard liveness monitor. Caches balance/sessions/nodes when VPN is active (RPC unreachable through tunnel).
 - `tray-view.ts`: what the tray shows for a connection state (icon, status rows, its one action, the Quit label), Electron-free and tested row by row; `index.ts` hands it to `Tray`/`Menu`. The state itself is `getConnectionInfo()` in `ipc-handlers.ts` ([REL-35]).
+- `desktop-session.ts`: registers with the desktop's session manager
+  (`org.gnome.SessionManager`, over the session D-Bus) so a logout, or a restart or
+  power-off from the desktop's menu, runs the normal quit before the session tears down
+  ([REL-36]). It never answers `EndSession`: the app exiting is the answer.
+  Electron-free, with its own minimal D-Bus client rather than a library, held to frames
+  recorded from GDBus, dbus-daemon and gnome-session. Where no session manager answers it
+  hangs up and the app behaves as before.
 - `config-guard.ts`: **pure validators for untrusted-node data** — `assertSafeWireguardConfig` (allow-list keys, reject `PostUp`/`PreUp`/… so a node config can't run shell as root via `wg-quick`), `assertSafeV2RayConfig`, `isAllowedBypassCidr`/`sanitizeBypassRoutes` (reject `0.0.0.0/x` split-tunnel routes), `extractWireguardEndpointHost`. Unit-tested; see [docs/invariants/node-trust.md](invariants/node-trust.md).
 - `helper/system-setup.ts` + `ipc/setup.ts`: what the machine needs before a connect (the
   helper matching this build, wireguard-tools, openvpn) and the one-click installs, all

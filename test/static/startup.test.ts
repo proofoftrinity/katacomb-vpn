@@ -58,6 +58,18 @@ test('[REL-31] startup heals in order: migrate, adopt, close the orphan, then cl
     'healStrandedKillSwitch must run in a .then() chained on healOrphanedTunnel')
 })
 
+test('[REL-36] the app registers with the desktop session at startup, and a session end runs the normal quit', () => {
+  const register = whenReadySteps().find((s) => calleeName(s) === 'registerWithDesktopSession')
+  assert.ok(register, 'registerWithDesktopSession() is no longer called at startup')
+  const opts = register.arguments[0]
+  const onEnd = opts && ts.isObjectLiteralExpression(opts)
+    ? opts.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText() === 'onEndSession')
+    : undefined
+  // Not app.exit: the teardown runs in before-quit, and GNOME waits for the app to exit.
+  assert.ok(onEnd && calls(onEnd.initializer).some((c) => c.expression.getText() === 'app.quit'),
+    'onEndSession must start the normal quit, app.quit(), so before-quit runs the teardown')
+})
+
 test('[ARCH-1] every window keeps the renderer isolated, sandboxed and Node-free', () => {
   const windows = sources('src/main').flatMap((f) => nodes(parse(f)).filter((n): n is ts.NewExpression =>
     ts.isNewExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'BrowserWindow'))

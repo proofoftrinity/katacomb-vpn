@@ -273,6 +273,20 @@ export const CANARIES: Canary[] = [
     run: [TEARDOWN],
   },
   {
+    name: '[REL-36] a logout is answered, so GNOME stops the shell during the Chromium shutdown',
+    file: 'src/main/desktop-session.ts',
+    find: "    else if (m.member === 'EndSession' || m.member === 'Stop') quit()",
+    replace: "    else if (m.member === 'EndSession') { agree(); quit() } else if (m.member === 'Stop') quit()",
+    run: ['src/main/desktop-session.test.ts'],
+  },
+  {
+    name: '[REL-36] a logout no longer quits the app',
+    file: 'src/main/index.ts',
+    find: '    onEndSession: () => { forceQuit = true; app.quit() },',
+    replace: '    onEndSession: () => { forceQuit = true },',
+    run: ['test/static/startup.test.ts'],
+  },
+  {
     name: '[REL-20] usage keeps counting after the tunnel stopped answering',
     file: IPC_TS,
     find: '  const until = Math.max(aliveUntilMs, connectedAtMs)',
