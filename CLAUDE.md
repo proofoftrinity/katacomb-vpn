@@ -5,12 +5,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run Commands
 
 ```bash
-npm run dev          # Start Electron + Vite dev server with HMR
-npm run build        # Production build (outputs to out/)
-npm run preview      # Preview production build
-npm run dist         # Build + package for Linux (AppImage + deb)
-npm run dist:deb     # Build + package deb only
-npm run dist:appimage # Build + package AppImage only
 npm test             # Node tests (src/**, test/**; built-in runner) + `go test ./...` in daemon/
 npm run test:daemon  # The Go tests alone (shuffled)
 npm run test:canaries # Mutation canaries: each guarded rule broken must turn the suite red
@@ -123,25 +117,7 @@ Strict Electron security isolation with three process boundaries:
 ### Main process layout
 
 `src/main/` is grouped by what the modules are for. `docs/main-modules.md` has the
-per-module detail; this is the map.
-
-```
-src/main/
-  index.ts          app entry, tray, single-instance lock, startup healing
-  ipc-handlers.ts   the connection state machine + the IPC channels that touch it
-  settings.ts       settings + the multi-wallet store
-  config-guard.ts   THE trust boundary for node data (mirrored by daemon/internal/guard)
-  async-utils.ts  fs-utils.ts  disk-cache.ts  socks-agent.ts  net-fetch.ts
-
-  ipc/         peeled handler groups (diagnostics, provider, setup) + validate, handle
-  helper/      the app side of root: privileged, daemon-client, daemon-protocol, system-setup
-  chain/       RPC clients, tx helpers, queries, guards, and the wallet that signs
-  vpn/         tunnel lifecycle, monitoring, and the pure connect decisions
-  protocols/   the six config builders, the chain builder, the node handshake
-  nodes/       the aggregator feed, its cache, node probing
-  provider/    provider console ops, messages, caches
-  plans/       plan service, the smart-connect ladder, cache
-```
+per-module detail.
 
 `config-guard.ts` stays at the root deliberately rather than under `protocols/`: it
 is the trust boundary the whole node-trust invariant rests on, and burying it one
@@ -162,16 +138,12 @@ side channel between modules, which is the antipattern below.
 ### Architecture diagram (docs/architecture/)
 
 `docs/architecture/katacomb-vpn.architecture.json` is the typed source for the runtime
-map; the Archify agent skill renders it (install and commands in that directory's
-README, and the rendered HTML is gitignored because it is ~800 KB of vendored template
-rewritten whole on every render). **Update it in the same change that changes the
+map; the Archify agent skill renders it (install, commands and the `npm test` check are
+in that directory's README). **Update it in the same change that changes the
 architecture** — a main-process module added or removed, a new helper verb or daemon op,
 a new external service, a process or privilege boundary that moves — and re-run
 `deliver`, which refuses to write an artifact that fails its own checks.
-`npm test` runs `scripts/check-architecture-doc.sh`: it re-pins the JSON to HEAD and
-validates, so a pinned module that was renamed or deleted goes red (and it SKIPS,
-without failing, when the skill is not installed, since it is not a repo dependency).
-Nothing mechanical catches a component that quietly stopped meaning what it says, which
+The check catches a renamed or deleted module; nothing mechanical catches a component that quietly stopped meaning what it says, which
 is why this rule exists. It is twelve components on purpose: an orientation map, not an
 index of `src/main/` — detail belongs in this file, not in more boxes.
 
@@ -215,8 +187,5 @@ This codebase follows Karpathy-style discipline. Apply these in order of precede
 
 ### Blockchain Details
 
-- RPC endpoint: `https://rpc.sentinel.co:443` (configurable via settings)
-- Address prefix: `sent`
-- Gas price: `0.2udvpn`
 - `Long` type (from `long` package) required for session IDs, gigabytes, hours — use `Long.fromNumber(n, true)` (unsigned)
 - CosmJS pinned at 0.38.x for peer compatibility with the JS SDK
