@@ -1,5 +1,5 @@
 // Generate the app's PNG icon set from build/icons/1024x1024.svg, plus the
-// badged tray variants in build/tray/.
+// per-state tray variants in build/tray/.
 //
 // This script exists because Electron's nativeImage cannot decode SVG at all,
 // so every OS-level icon (window/taskbar, tray, About) must be a PNG.
@@ -19,7 +19,7 @@ const SIZES = [16, 20, 24, 32, 48, 64, 128, 256, 512, 1024]
 
 // Tray variants live OUTSIDE build/icons/ on purpose: `linux.icon` in
 // electron-builder.yml points at that directory and derives the launcher/desktop
-// icon set from the PNGs it finds, so a badged 32x32 sitting there risks being
+// icon set from the PNGs it finds, so a tray 32x32 sitting there risks being
 // shipped as the app's launcher icon.
 const trayDir = join(root, 'build/tray')
 
@@ -55,7 +55,7 @@ async function renderSize(svg, size, scale = GLYPH_SCALE) {
     .toBuffer()
 }
 
-// --- Tray icon: flat silhouette + state badge --------------------------------
+// --- Tray icon: the K, filled to show the state -------------------------------
 //
 // The launcher icon (rounded white tile, two-tone bronze gradient) is a branded
 // card meant for docks. Sitting in a system tray next to flat single-color
@@ -66,114 +66,103 @@ async function renderSize(svg, size, scale = GLYPH_SCALE) {
 // the OS's own tray icons are single-color silhouettes that invert between
 // light and dark panels.
 
-/** Strip the source SVG to a flat single-color silhouette: drop the white
- *  background tile and the two-tone gradient fills, leaving just the K+keyhole
- *  outline filled with `ink`. */
-function silhouetteSvg(svg, ink) {
-  return svg
-    .replace(/<defs>[\s\S]*?<\/defs>/, '')
-    .replace(/<rect class="st2"[^>]*\/>/, '')
-    .replace(/class="st0"/g, `fill="${ink}"`)
-    .replace(/class="st1"/g, `fill="${ink}"`)
+/** The source's two shapes, the K (st1) and the keyhole (st0). The keyhole sits
+ *  inside the K, poking past its bottom edge by a sliver, so a one-colour
+ *  silhouette fills both; the outline traces the K. */
+function trayPaths(svg) {
+  const d = (cls) => svg.match(new RegExp(`<path class="${cls}" d="([^"]+)"`))[1]
+  return { k: d('st1'), keyhole: d('st0') }
 }
-
-// Ink pair, swapped at runtime by the tray's own dark/light-panel detection
-// (see trayPanel in src/main/index.ts). Sourced from tokens.css rather than
-// pure black/white so the tray still reads as this app's palette:
-// --color-gunmetal-950 (near-black, for light panels) and --color-gunmetal-100
-// (near-white, for dark panels) — the same pair the app uses for primary text.
-const INK_DARK = '#101114'
-const INK_LIGHT = '#eeeff2'
 
 // 32 is what the tray actually loads; 256 is trayImage()'s empty-file fallback.
 const TRAY_SIZES = [32, 256]
 
-// The tray icon has to say connected / connecting / disconnected / blocked at ~22px
-// on a panel whose background we don't control. Colour alone cannot carry that: a
-// red and a green dot at this size are the classic red-green-blindness collapse, and
-// roughly 8% of men would see one icon. So the badge SHAPE is the signal —
-// nothing / hollow ring / solid disc / no-entry sign, distinguishable in pure
-// greyscale — and the colour only reinforces it.
+// The tray icon has to say disconnected / connecting / connected / blocked at
+// 16-24px on a panel whose background we don't control. How FULL the K is carries
+// that: an outline, the lower part filled, solid, and solid with a slash cut through
+// it, distinguishable in pure greyscale. Colour only reinforces it.
 //
-// Disconnected gets NO badge and no red. It is this app's normal resting state
+// Colour alone was put on a contact sheet (2026-10-10) and fails: simulated for the
+// strongest red-green colour blindness, the green and the red K differ by ΔE 8 on a
+// dark panel (the same colour), and amber and green are equally bright, so in
+// greyscale "reconnecting" (the tunnel is down) looked exactly like "connected".
+// Before that the state was a dot/ring badge on a solid K: 5.5px wide at 22px, and
+// a dot on an app icon reads as "something needs your attention".
+//
+// Disconnected gets no colour and no red. It is this app's normal resting state
 // (you are disconnected whenever you aren't paying for a session), and an icon
 // that is permanently alarmed is an icon nobody reads. Red is kept for the one
 // state that has actually gone wrong: the kill switch still blocking all traffic
 // with no tunnel up.
-
-// Badge geometry, as fractions of the canvas. Placement was measured against the
-// glyph's own alpha map, not guessed: the mark is a SOLID mass, and what makes it
-// read as a K is only the notch cut out of its top-right (the upper third). So the
-// badge is safe anywhere low, and the constraint is grounding — a disc that spills
-// past the ink shows a slice sitting on bare panel and reads as a stray dot beside
-// the icon rather than part of it. The freedesktop bottom-right convention is
-// exactly where that fails here: the mass tapers away diagonally, measuring 71%
-// coverage under the dot and 51% under the wider connecting-state ring. Low-centre
-// grounds both (100% / 98%) while staying clear of the identifying notch. Do not
-// push this left — at 0.30 the dot ate the stem's own left edge.
-const BADGE_CX = 0.5
-const BADGE_CY = 0.62
-const BADGE_R = 0.2 // outer radius, i.e. the ring's edge
-const BADGE_INNER = 0.62 // dot radius / ring centreline, as a fraction of BADGE_R
-const BADGE_STROKE = 0.4 // ring thickness, as a fraction of BADGE_R
-
-// Colours are the app's own semantic tokens (tokens.css): --color-warning,
-// --color-success and --color-danger.
+//
+// Colours are keyed by the PANEL they're for, swapped at runtime by the tray's own
+// dark/light-panel detection (see trayPanel in src/main/index.ts). Disconnected is
+// the app's primary-text pair (tokens.css --color-gunmetal-100 / -950). On a dark
+// panel the others are the app's own semantic tokens (--color-warning, --color-success,
+// --color-danger), 4.8-7.3:1 there; on a light panel those measure 1.6-2.4:1, under
+// the 3:1 graphics need, so it gets darker shades of the same hues (3.9-4.9:1).
 const TRAY_STATES = {
-  disconnected: null,
-  connecting: { color: '#f0b429', shape: 'ring' },
-  connected: { color: '#5fd98b', shape: 'dot' },
-  blocked: { color: '#f5767c', shape: 'no-entry' },
+  disconnected: { fill: 'outline', dark: '#eeeff2', light: '#101114' },
+  connecting: { fill: 'lower', dark: '#f0b429', light: '#a86b00' },
+  connected: { fill: 'solid', dark: '#5fd98b', light: '#1e8a4c' },
+  blocked: { fill: 'slashed', dark: '#f5767c', light: '#c62f37' },
 }
 
-// On a dark panel the glyph is near-white, and a green or amber badge sitting on it
-// measured 1.55:1 and 1.62:1 (graphics need 3:1); in greyscale the dot and the ring
-// all but vanished. So the dark-panel variants cut a transparent gap around the badge
-// and it sits on the panel's own (dark) colour instead: ~7:1. On a light panel the
-// ink is near-black and the badge already reads at ~10:1, so those keep it on the ink.
-const BADGE_GAP = 0.05 // as a fraction of the canvas
+// Geometry in the source SVG's units (a 1024 viewBox). The K is ~808 of them tall
+// and shows ~15px tall in a 22px panel slot, so 90 units is ~1.7px. Each was picked
+// on the contact sheet at 16, 22 and 24px.
+const OUTLINE = 90 // stroke width, inside the K's edge
+const LOWER_FILL = 0.46 // of the K's height, from its bottom; leaves a clear gap above at 16px
+// The blocked cut is a '/' through the K's bottom-left corner. At 48° (a touch steeper
+// than the box's own diagonal) it leaves the arm's tip as a separate piece, so it reads
+// as a K cut through; a '\' runs parallel to the K's own leg and reads as a different
+// shape, not as a slash.
+const SLASH = 130 // width of the cut
+const SLASH_ANGLE = 48 // degrees above horizontal
 
-/** The badge's outer radius in px: what the gap is measured from. */
-function badgeExtent(size, shape) {
-  const r = size * BADGE_R
-  return shape === 'dot' ? r * BADGE_INNER : r * (BADGE_INNER + BADGE_STROKE / 2)
+/** The K's ink box in a 1024px render: every state is cropped to it, so the icon
+ *  does not move or resize when the state changes (a slash would shrink a trim). */
+async function trayBox(paths) {
+  const { info } = await sharp(traySvg(paths, null, 'solid', '#000')).trim({ threshold: 1 }).toBuffer({ resolveWithObject: true })
+  return { left: -info.trimOffsetLeft, top: -info.trimOffsetTop, width: info.width, height: info.height }
 }
 
-/** The status badge as an SVG overlay sized to the icon canvas. */
-function badgeSvg(size, { color, shape }) {
-  const cx = size * BADGE_CX
-  const cy = size * BADGE_CY
-  const r = size * BADGE_R
-  const inner = r * BADGE_INNER
-  let mark
-  if (shape === 'dot') {
-    mark = `<circle cx="${cx}" cy="${cy}" r="${inner}" fill="${color}"/>`
-  } else if (shape === 'ring') {
-    mark = `<circle cx="${cx}" cy="${cy}" r="${inner}" fill="none" stroke="${color}" stroke-width="${r * BADGE_STROKE}"/>`
+/** One state as a 1024px SVG. */
+function traySvg({ k, keyhole }, box, fill, color) {
+  const solid = `<path d="${k}" fill="${color}"/><path d="${keyhole}" fill="${color}"/>`
+  const outline = `<path d="${k}" fill="none" stroke="${color}" stroke-width="${2 * OUTLINE}" clip-path="url(#k)"/>`
+  let defs = `<clipPath id="k"><path d="${k}"/><path d="${keyhole}"/></clipPath>`
+  let body
+  if (fill === 'solid') body = solid
+  else if (fill === 'outline') body = outline
+  else if (fill === 'lower') {
+    const y = box.top + box.height * (1 - LOWER_FILL)
+    body = `${outline}<rect y="${y}" width="1024" height="1024" fill="${color}" clip-path="url(#k)"/>`
   } else {
-    // A disc as wide as the ring with a bar cut through it (evenodd), so what shows in
-    // the bar is whatever is underneath: the ink on a light panel, the panel on a dark one.
-    const d = badgeExtent(size, shape)
-    const bw = d * 0.78
-    const bh = d * 0.22
-    mark = `<path fill-rule="evenodd" fill="${color}" d="M ${cx - d} ${cy} a ${d} ${d} 0 1 0 ${2 * d} 0 a ${d} ${d} 0 1 0 ${-2 * d} 0 Z ` +
-      `M ${cx - bw} ${cy - bh} h ${2 * bw} v ${2 * bh} h ${-2 * bw} Z"/>`
+    const a = (SLASH_ANGLE * Math.PI) / 180
+    const [x, y, dx, dy] = [box.left, box.top + box.height, 1500 * Math.cos(a), 1500 * Math.sin(a)]
+    defs += `<mask id="cut"><rect width="1024" height="1024" fill="#fff"/><line x1="${x - dx}" y1="${y + dy}" ` +
+      `x2="${x + dx}" y2="${y - dy}" stroke="#000" stroke-width="${SLASH}"/></mask>`
+    body = `<g mask="url(#cut)">${solid}</g>`
   }
-  return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">${mark}</svg>`)
+  return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><defs>${defs}</defs>${body}</svg>`)
 }
 
-/** A disc the size of the badge plus its gap, for erasing the ink under it. */
-function gapSvg(size, shape) {
-  const r = badgeExtent(size, shape) + size * BADGE_GAP
-  return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${size * BADGE_CX}" cy="${size * BADGE_CY}" r="${r}" fill="#000"/></svg>`)
-}
-
-/** One tray icon: the flat silhouette, plus a state badge if any. */
-async function renderTrayIcon(base, size, state, panel) {
-  const badge = TRAY_STATES[state]
-  if (!badge) return base
-  const gap = panel === 'dark' ? [{ input: gapSvg(size, badge.shape), blend: 'dest-out' }] : []
-  return sharp(base).composite([...gap, { input: badgeSvg(size, badge) }]).png().toBuffer()
+/** One tray icon: the state's K, cropped to the K's box and padded like renderSize. */
+async function renderTrayIcon(paths, box, size, state, panel) {
+  const { fill, [panel]: color } = TRAY_STATES[state]
+  const glyphPx = Math.round(size * TRAY_GLYPH_SCALE)
+  const glyph = await sharp(traySvg(paths, box, fill, color))
+    .extract(box)
+    .resize(glyphPx, glyphPx, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .toBuffer()
+  const pad = Math.floor((size - glyphPx) / 2)
+  return sharp({
+    create: { width: size, height: size, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .composite([{ input: glyph, left: pad, top: pad }])
+    .png()
+    .toBuffer()
 }
 
 const svg = readFileSync(SOURCE, 'utf-8')
@@ -185,16 +174,16 @@ for (const size of SIZES) {
 console.log(`${SIZES.length} sizes -> build/icons/`)
 
 mkdirSync(trayDir, { recursive: true })
+const paths = trayPaths(svg)
+const box = await trayBox(paths)
 let trayCount = 0
 // Filenames are keyed by the PANEL the variant is for, not the ink used, so the
 // runtime pick (nativeTheme.shouldUseDarkColors ? 'dark' : 'light') maps to a
 // filename with no inversion to get backwards.
-for (const [panel, ink] of [['light', INK_DARK], ['dark', INK_LIGHT]]) {
-  const silhouette = silhouetteSvg(svg, ink)
+for (const panel of ['light', 'dark']) {
   for (const size of TRAY_SIZES) {
-    const base = await renderSize(silhouette, size, TRAY_GLYPH_SCALE)
     for (const state of Object.keys(TRAY_STATES)) {
-      writeFileSync(join(trayDir, `${state}-${panel}-${size}x${size}.png`), await renderTrayIcon(base, size, state, panel))
+      writeFileSync(join(trayDir, `${state}-${panel}-${size}x${size}.png`), await renderTrayIcon(paths, box, size, state, panel))
       trayCount++
     }
   }

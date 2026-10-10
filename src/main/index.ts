@@ -117,7 +117,7 @@ function trayPanel(): 'dark' | 'light' {
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
 }
 
-/** Which tray PNG a state wants right now: state badge + current panel ink. */
+/** Which tray PNG a state wants right now: the state's K + the current panel. */
 function trayIconKeyFor(icon: TrayView['icon']): string {
   return `${icon}-${trayPanel()}`
 }

@@ -60,9 +60,9 @@ extraResources:
     to: icons/
     filter:
       - "**/*"
-  # Badged per-state tray icons (getTrayIconPath). Deliberately a sibling of
+  # Per-state tray icons (getTrayIconPath). Deliberately a sibling of
   # build/icons/ rather than a subdirectory of it: `linux.icon` derives the
-  # launcher icon set from the PNGs it finds under build/icons, and a badged
+  # launcher icon set from the PNGs it finds under build/icons, and a tray
   # 32x32 must not be a candidate for it.
   - from: build/tray/
     to: tray/
