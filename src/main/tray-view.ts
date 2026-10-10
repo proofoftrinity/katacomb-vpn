@@ -4,9 +4,9 @@ import type { ConnectionInfo } from './ipc-handlers'
  * What the tray shows for a connection state, kept free of Electron so the whole of it
  * is a tested table (tray-view.test.ts); index.ts only hands it to Tray and Menu.
  *
- * The icon's badge SHAPE carries the state (none, hollow ring, solid disc, no-entry
- * sign), so it reads in greyscale and to a colour-blind user; colour only reinforces it
- * (scripts/build-icons.mjs draws them).
+ * How FULL the icon's K is carries the state (outline, lower part filled, solid, solid
+ * with a slash cut through), so it reads in greyscale and to a colour-blind user; colour
+ * only reinforces it (scripts/build-icons.mjs draws them).
  */
 export interface TrayView {
   icon: 'disconnected' | 'blocked' | 'connecting' | 'connected'

@@ -10,7 +10,7 @@ import type { ConnectionInfo } from './ipc-handlers.ts'
 const idle: ConnectionInfo = { state: 'idle', blocked: false, proxyMode: false, killSwitchFailed: false }
 const up: ConnectionInfo = { ...idle, state: 'connected', nodeMoniker: 'node-wg' }
 
-test('idle: no badge, and the one action says what it reconnects', () => {
+test('idle: the outline K, and the one action says what it reconnects', () => {
   assert.deepEqual(trayView(idle), {
     icon: 'disconnected',
     tooltip: 'Katacomb VPN: Disconnected',
@@ -36,7 +36,7 @@ test('[REL-35] connecting offers no action: a second connect or a racing disconn
   assert.deepEqual(trayView({ ...idle, state: 'connecting' }).statusLines, ['Connecting…'], 'a node not known yet is not guessed')
 })
 
-test('reconnecting: amber, the attempt, and Disconnect stops the ladder', () => {
+test('reconnecting: the connecting K, the attempt, and Disconnect stops the ladder', () => {
   const view = trayView({ ...idle, state: 'reconnecting', nodeMoniker: 'node-wg', reconnectAttempt: 2, reconnectMaxAttempts: 5 })
   assert.deepEqual(view, {
     icon: 'connecting',
@@ -47,7 +47,7 @@ test('reconnecting: amber, the attempt, and Disconnect stops the ladder', () => 
   })
 })
 
-test('connected: green, the node, Disconnect, and Quit says it disconnects', () => {
+test('connected: the solid K, the node, Disconnect, and Quit says it disconnects', () => {
   assert.deepEqual(trayView(up), {
     icon: 'connected',
     tooltip: 'Katacomb VPN: Connected to node-wg',
@@ -67,7 +67,7 @@ test('local-proxy mode says nothing but the SOCKS5 listener is routed', () => {
   assert.deepEqual(trayView({ ...up, proxyMode: true }).statusLines, ['Connected to node-wg', 'Proxy only (SOCKS5)'])
 })
 
-test('a kill switch that failed to arm is said, not hidden behind the green dot', () => {
+test('a kill switch that failed to arm is said, not hidden behind the green K', () => {
   assert.deepEqual(trayView({ ...up, killSwitchFailed: true }).statusLines, ['Connected to node-wg', '⚠ Kill switch inactive'])
 })
 
