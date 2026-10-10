@@ -356,7 +356,7 @@ test('pickChainPair returns null when every pair conflicts', () => {
 // ---- chainBuyBlocker ----
 
 const ready: ChainBuyState = {
-  alreadyConnected: false, conflict: null, exitRefused: false, exitWallet: 'clean',
+  conflict: null, exitRefused: false, exitWallet: 'clean',
   priceMissing: false, entryShort: false, exitShort: false, acknowledged: true,
 }
 
@@ -365,7 +365,6 @@ test('chainBuyBlocker is null only when everything is in place', () => {
 })
 
 test('chainBuyBlocker names each blocker on its own', () => {
-  assert.equal(chainBuyBlocker({ ...ready, alreadyConnected: true }), 'connected')
   assert.equal(chainBuyBlocker({ ...ready, conflict: sameCountry }), 'pair')
   assert.equal(chainBuyBlocker({ ...ready, exitRefused: true }), 'exit-refused')
   assert.equal(chainBuyBlocker({ ...ready, exitWallet: 'none' }), 'no-wallet')
@@ -384,11 +383,11 @@ test('a link check that could not run never blocks', () => {
 
 test('chainBuyBlocker names the first blocker when several apply', () => {
   const everything: ChainBuyState = {
-    alreadyConnected: true, conflict: sameCountry, exitRefused: true, exitWallet: 'none',
+    conflict: sameCountry, exitRefused: true, exitWallet: 'none',
     priceMissing: true, entryShort: true, exitShort: true, acknowledged: false,
   }
-  assert.equal(chainBuyBlocker(everything), 'connected')
-  assert.equal(chainBuyBlocker({ ...everything, alreadyConnected: false }), 'pair')
-  assert.equal(chainBuyBlocker({ ...everything, alreadyConnected: false, conflict: null, exitRefused: false }), 'no-wallet')
+  assert.equal(chainBuyBlocker(everything), 'pair')
+  assert.equal(chainBuyBlocker({ ...everything, conflict: null }), 'exit-refused')
+  assert.equal(chainBuyBlocker({ ...everything, conflict: null, exitRefused: false }), 'no-wallet')
   assert.equal(chainBuyBlocker({ ...ready, entryShort: true, exitShort: true, acknowledged: false }), 'entry-short')
 })

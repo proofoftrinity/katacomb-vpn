@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { WalletStoreStatus, AppSettings, DerivationPreview } from '../../types'
 import Spinner from '../Spinner'
 import CopyButton from '../CopyButton'
+import DisconnectButton from '../DisconnectButton'
 import { ReviewModal, SectionHead, OptionsSection, Note, FooterReason } from '../ConnectReview'
 import { AlertIcon, CheckIcon, CopyIcon, EyeIcon, KeyIcon, LockIcon, PencilIcon, PlusIcon, TrashIcon } from '../Icons'
 import { useBalance } from '../../hooks/useBalance'
@@ -136,7 +137,12 @@ export default function WalletsTab({
             erroring. Rename, New wallet and Recovery phrase never change the
             active wallet, so they stay usable. */}
         {connected && (
-          <Note>You are connected. Switching, adding and removing wallets waits until you disconnect.</Note>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <Note>You are connected. Switching, adding and removing wallets waits until you disconnect.</Note>
+            </div>
+            <DisconnectButton />
+          </div>
         )}
 
         <div className="flex items-center justify-between">

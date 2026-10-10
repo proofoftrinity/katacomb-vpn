@@ -6,6 +6,7 @@ import { SOCKS_DISPLAY_ADDR } from '../../shared/socks'
 import { v2rayEncryption } from '../utils/v2ray-connection'
 import { protocolMeta } from '../utils/protocols'
 import { versionSignsReplies } from '../../shared/node-signing'
+import { switchFacts, type PreviousConnection } from '../utils/switch'
 import CountryFlag from './CountryFlag'
 import InfoTip from './InfoTip'
 import Spinner from './Spinner'
@@ -517,12 +518,13 @@ export function FooterReason({ text, tone = 'danger' }: { text: string; tone?: '
 }
 
 /**
- * The setting a review reads: the DNS resolver (the leak no connection closes by
- * itself). null until read; a failed read just leaves the DNS check out rather than
- * guessing.
+ * The settings a review reads: the DNS resolver (the leak no connection closes by
+ * itself), and the kill switch, which a switch lifts while it runs. null until read;
+ * a failed read just leaves the DNS check out rather than guessing.
  */
 export function useReviewSettings() {
   const [dnsResolver, setDnsResolver] = useState<string | null>(null)
+  const [killSwitch, setKillSwitch] = useState(false)
   const [dnsBusy, setDnsBusy] = useState(false)
   const [dnsError, setDnsError] = useState<string | null>(null)
 
@@ -532,6 +534,7 @@ export function useReviewSettings() {
       .then((s) => {
         if (cancelled) return
         setDnsResolver(s.dnsResolver)
+        setKillSwitch(s.killSwitch)
       })
       .catch(() => { /* the DNS check simply doesn't render */ })
     return () => { cancelled = true }
@@ -554,7 +557,25 @@ export function useReviewSettings() {
     }
   }
 
-  return { dnsResolver, dnsBusy, dnsError, switchToEncryptedDns }
+  return { dnsResolver, killSwitch, dnsBusy, dnsError, switchToEncryptedDns }
+}
+
+/**
+ * The switch row ([RN-10]), first in the checks while another connection is live:
+ * Pay leaves it, so the window says what that costs before the press, not after.
+ * Amber, a thing to note: being connected never blocks a connect.
+ */
+export function switchCheck(prev: PreviousConnection | null, s: ReturnType<typeof useReviewSettings>): CheckSpec | null {
+  if (!prev) return null
+  const facts = switchFacts(prev, s.killSwitch)
+  return {
+    id: 'switch',
+    tone: 'warning',
+    text: facts.text,
+    tipLabel: 'Why the connection drops first',
+    tip: facts.tip,
+    body: <>{facts.lines.map((l) => <p key={l}>{l}</p>)}</>,
+  }
 }
 
 /**

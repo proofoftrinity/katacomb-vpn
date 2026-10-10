@@ -4,6 +4,8 @@ import { usePlansContext } from '../contexts/PlansContext'
 import { formatBytes as formatPlanBytes, formatDuration as formatPlanDuration } from '../utils/format'
 import { useTrafficStats } from '../hooks/useTrafficStats'
 import { useReconnect } from '../hooks/useReconnect'
+import { leaveConnection } from '../hooks/useConnectFlow'
+import { previousConnection } from '../utils/switch'
 import Spinner from './Spinner'
 import { displayConnectError, setupItemsRequired } from '../utils/connect-errors'
 import SystemSetup from './SystemSetup'
@@ -97,6 +99,8 @@ export default function ActiveSessions({
   // silent no-op, which reads as a broken control. Proxy mode leaves routing alone, so
   // the RPC endpoint stays reachable there and the refresh still does something real.
   const chainFrozen = vpnConnected && !status.proxyMode
+  // What a Reconnect on another card leaves first, by name.
+  const liveLabel = previousConnection(status)?.label ?? 'your current connection'
   // Live interface counter (bytes used this session). The on-chain session
   // counters are frozen while connected (RPC is unreachable through the tunnel)
   // and lag node settlement anyway, so the connected session's usage is driven
@@ -219,6 +223,17 @@ export default function ActiveSessions({
     setBusy(session.id)
     setError(null)
     setSetupSessionId(session.id)
+    // Another session is live: leave it first, like any switch ([RN-10]). Its session
+    // stays open, and its card keeps its own Reconnect if this one fails.
+    if (vpnConnected) {
+      try {
+        await leaveConnection()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Disconnect failed')
+        setBusy(null)
+        return
+      }
+    }
     const result = await reconnect(session)
     if (!result.ok) setError(result.error || 'Reconnection failed')
     else await refreshConnection()
@@ -269,9 +284,8 @@ export default function ActiveSessions({
     let endError: string | null = null
     try {
       if (vpnConnected) {
-        await window.api.connectionDisconnect()
+        await leaveConnection()
         await refreshConnection()
-        await new Promise((r) => setTimeout(r, 2000))
       }
 
       await window.api.walletEndSession(session.id)
@@ -579,7 +593,7 @@ export default function ActiveSessions({
                             // 'reconnecting' too: the tunnel is briefly down but
                             // auto-reconnect is restoring it, and main refuses a
                             // competing reconnect in that window (assertNotConnected).
-                            disabled={isBusy || busy !== null || vpnConnected || status.state === 'reconnecting' || quotaUsedUp || setupHeld}
+                            disabled={isBusy || busy !== null || status.state === 'reconnecting' || quotaUsedUp || setupHeld}
                             className="btn btn-primary text-xs px-3 py-1 disabled:opacity-30 disabled:cursor-not-allowed"
                             title={
                               setupHeld
@@ -587,7 +601,7 @@ export default function ActiveSessions({
                                 : quotaUsedUp
                                 ? 'This session has used everything it was paid for. End it and start a new one'
                                 : vpnConnected
-                                  ? 'Disconnect current VPN first'
+                                  ? `Disconnects from ${liveLabel} first (its session stays open), then ${isChain ? 'rebuilds both hops of this chain' : 'resumes this one'}. No new transaction.`
                                   : isChain
                                     ? 'Rebuilds both hops of the chain'
                                     : 'Resume this session on the same node. No new transaction.'

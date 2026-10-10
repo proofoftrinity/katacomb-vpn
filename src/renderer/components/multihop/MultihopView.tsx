@@ -27,6 +27,7 @@ import { COUNTRY_CODES } from '../../utils/country-codes'
 import { polyKey } from '../../utils/country-normalization'
 import NodeFilters, { Chip } from '../nodes/NodeFilters'
 import CountryFlag from '../CountryFlag'
+import DisconnectButton from '../DisconnectButton'
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -109,7 +110,7 @@ const TONE_CLASS = {
  * than a weaker copy of them.
  */
 export default function MultihopView() {
-  const { status, disconnect } = useConnection()
+  const { status } = useConnection()
   const { results: testResults, testing: testingNodes, batchProgress, testBatch, cancelBatch, testNode } = useNodeTest()
   const { entry, exit, activeSlot, setActiveSlot, setSlot, swap, billing, eligibility } = useChainDraft()
 
@@ -122,7 +123,6 @@ export default function MultihopView() {
   // rendered off the draft, clearing it would unmount the modal mid-success and take
   // the two session ids with it.
   const [reviewing, setReviewing] = useState<{ entry: SentNode; exit: SentNode } | null>(null)
-  const [disconnecting, setDisconnecting] = useState(false)
 
   const latencyMap = useMemo(() => {
     const map = new Map<string, number | null>()
@@ -232,10 +232,9 @@ export default function MultihopView() {
     return <ChevronIcon direction={sortDir === 'asc' ? 'up' : 'down'} className="w-3 h-3 text-accent" />
   }
 
-  const alreadyConnected = status.state === 'connected' || status.state === 'reconnecting'
   // `chainExit` is set only while a two-hop chain is up, so it is what tells this
   // page's own product apart from any other tunnel.
-  const chainActive = alreadyConnected && status.chainExit !== undefined
+  const chainActive = (status.state === 'connected' || status.state === 'reconnecting') && status.chainExit !== undefined
   // What the pair costs in BOTH units. Which one you are billed in is chosen in the
   // review modal, so quoting only one here reads as the price and is wrong half the
   // time. Either can be absent: a node need not quote udvpn for both.
@@ -284,52 +283,24 @@ export default function MultihopView() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Two different facts, and reporting them the same way was alarming: the
-          moment a chain came up, the page behind the success modal warned that a
-          tunnel was in the way, about the chain the user had just paid for. A chain
-          of our own is reported as the good news it is; anything else keeps the
-          warning, because it really does have to go first. */}
-      {alreadyConnected && (
+      {/* A chain of our own is reported as the good news it is. Any other tunnel gets no
+          banner at all: it used to get an amber "disconnect first" here before anything
+          was picked, about a connection that is not a fault. The review window offers
+          the switch and says what it does ([RN-10]). */}
+      {chainActive && (
         <div className="bg-bg-secondary px-4 pt-3">
-          <div className={`border p-3 rounded-md flex items-center justify-between gap-4 ${
-            chainActive ? 'bg-success-subtle border-success' : 'bg-warning-subtle border-warning'
-          }`}>
+          <div className="border p-3 rounded-md flex items-center justify-between gap-4 bg-success-subtle border-success">
             <div>
-              {chainActive ? (
-                <>
-                  <p className="text-success text-sm flex items-center gap-2">
-                    <span className="status-dot status-dot-active" />
-                    Your chain is connected.
-                  </p>
-                  <p className="text-text-secondary text-xs">
-                    {status.nodeMoniker || status.nodeCountry} → {status.chainExit?.moniker || status.chainExit?.country}
-                    . Both hops are in the Sessions tab. Building another chain replaces this one.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-warning text-sm">A tunnel is already up.</p>
-                  <p className="text-text-secondary text-xs">
-                    Building a chain replaces it. Disconnect first. The current session stays paid and
-                    can be reconnected from the Sessions tab.
-                  </p>
-                </>
-              )}
+              <p className="text-success text-sm flex items-center gap-2">
+                <span className="status-dot status-dot-active" />
+                Your chain is connected.
+              </p>
+              <p className="text-text-secondary text-xs">
+                {status.nodeMoniker || status.nodeCountry} → {status.chainExit?.moniker || status.chainExit?.country}
+                . Both hops are in the Sessions tab. Building another chain switches to it, and this one stays open there.
+              </p>
             </div>
-            <button
-              onClick={async () => {
-                setDisconnecting(true)
-                try {
-                  await disconnect()
-                } finally {
-                  setDisconnecting(false)
-                }
-              }}
-              disabled={disconnecting}
-              className="btn btn-danger text-xs px-3 py-1 disabled:opacity-50 shrink-0"
-            >
-              {disconnecting ? 'Disconnecting…' : 'Disconnect'}
-            </button>
+            <DisconnectButton />
           </div>
         </div>
       )}

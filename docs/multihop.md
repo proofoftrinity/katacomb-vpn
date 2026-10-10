@@ -51,7 +51,9 @@ xray-core is a strict superset of what the builder emits, so it lands in
   a failure, and heads the Sessions card in compact form), how private the pair is
   (four checks, each carrying its own fix), and what it costs (one line per hop, against
   the wallet that pays it). Pay sits in a footer that never scrolls away and always names
-  the first `chainBuyBlocker` (`chain-node.ts`, unit-tested, the order is the test). The
+  the first `chainBuyBlocker` (`chain-node.ts`, unit-tested, the order is the test). A live
+  connection is not one of them: Pay switches, and after leaving the old connection asks
+  the wallet link check again, since through the tunnel it often could not run ([RN-10]). The
   "I understand" box is kept, every time, by decision. The single-hop windows were rebuilt
   the same way from the same pieces (`ConnectReview.tsx`; see docs/renderer.md).
 - **[MH-1] The two ends must be apart, with no override** (decided 2026-10-05). `pairConflict`

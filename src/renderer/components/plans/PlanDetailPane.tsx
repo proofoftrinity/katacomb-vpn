@@ -99,13 +99,14 @@ export default function PlanDetailPane({ plan, provider, tokenPrice, activeSubsc
   const noneHealthy = !tunnelUp && coverage !== null && !nodesUnknown && coverage.total > 0 && coverage.healthy === 0
 
   // The footer's one line: what stops the button, or what to know before pressing it.
+  // Connected through something else is not a reason: the review offers the switch
+  // ([RN-10]) and says what it does.
   const reason: { text: string; tone: 'danger' | 'muted' } | null =
     connectedViaPlan ? { text: 'This plan is serving your current connection.', tone: 'muted' }
-      : tunnelUp ? { text: 'Disconnect first to start a new session.', tone: 'muted' }
-        : plan.status !== 1 ? { text: 'This plan is not active on chain, so it cannot be bought.', tone: 'danger' }
-          : confirmedNoNodes ? { text: 'Nothing to connect to: no nodes are linked to this plan.', tone: 'danger' }
-            : noneHealthy ? { text: 'You can buy it, but none of its nodes passes the health check right now.', tone: 'muted' }
-              : null
+      : plan.status !== 1 ? { text: 'This plan is not active on chain, so it cannot be bought.', tone: 'danger' }
+        : confirmedNoNodes ? { text: 'Nothing to connect to: no nodes are linked to this plan.', tone: 'danger' }
+          : noneHealthy ? { text: 'You can buy it, but none of its nodes passes the health check right now.', tone: 'muted' }
+            : null
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -249,7 +250,7 @@ export default function PlanDetailPane({ plan, provider, tokenPrice, activeSubsc
         <button
           data-plan-cta
           onClick={() => setShowConnect(true)}
-          disabled={tunnelUp || plan.status !== 1 || confirmedNoNodes}
+          disabled={connectedViaPlan || plan.status !== 1 || confirmedNoNodes}
           className="btn btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {connectedViaPlan

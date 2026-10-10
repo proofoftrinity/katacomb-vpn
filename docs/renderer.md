@@ -196,7 +196,8 @@ from `src/main/`; `src/shared/` is the only overlap.
   (`ConnectionModal`), Plans (`PlanConnectModal`) and Multi-hop (`ChainReviewModal`)
   answer the same questions in the same order: the route (`RouteStrip.tsx`, one hop or
   two, which stays on screen through the build and the result and heads every Sessions
-  card in compact form), the checks (each row carries its own fix), the cost (one
+  card in compact form), the checks (each row carries its own fix; while another
+  connection is live, the switch row heads them, [RN-10]), the cost (one
   receipt line per payment, against the wallet that pays it), the limits, folded
   options, and a footer that never scrolls away and always names what stops Pay. Change
   a shared piece there, not in one window. A single hop's strip says the node sees your
@@ -205,6 +206,28 @@ from `src/main/`; `src/shared/` is the only overlap.
   has no "I understand" box, by decision. The other-VPN confirm at Pay replaces the Pay
   button rather than the whole form. Steps are in plain words ("Buying the session on
   chain"), not main's ("Broadcasting subscription tx"); `ProgressSteps` is gone.
+- **[RN-10] Connected is a state, not an error.** Picking another node, plan or chain while
+  connected is the everyday case of a VPN app, and every way of starting one used to refuse
+  it: the Nodes and Plans windows ended in a red "Disconnect first" over a dead Pay,
+  Multi-hop put an amber banner over the page before anything was picked, and the fix (the
+  header's Disconnect) sat behind the window (2026-10-10). So a connect window offers the
+  switch in place. A "Switches from X" row heads its checks (`switchCheck`, its words in
+  `utils/switch.ts`) and states both costs: the connection drops before the purchase, so
+  apps go out directly until the new one is up and the kill switch is off for that time;
+  and the session left behind stays open, to go back to or end from Sessions. Pay's verb
+  becomes "switch", and one press leaves through `leaveConnection()` (performDisconnect plus
+  the 2 s path settle Sessions' End already waited), then buys: `switchThenBuy` never buys
+  if the leave failed. A failure after the leave offers "Reconnect to X"
+  (`ConnectErrorActions`' `goBack`), so a failed switch never strands the user without the
+  connection they had. What already carries the connection is said, not sold
+  (`connectionRelation`: the same node as a single hop, the plan subscription serving it,
+  the same chain pair). A chain switch asks the wallet link check again after the leave:
+  through the tunnel it often cannot run, and its amber "couldn't check" must not let a
+  linked wallet through. Chain-only work that cannot be a switch (Provider, Manage
+  subscription, wallet changes, the helper update) puts `DisconnectButton` beside its one
+  stated reason, and the Provider tab offers Resume after a Disconnect pressed there. A
+  Sessions Reconnect on another card leaves the live one the same way. main's
+  `assertNotConnected` [REL-3] is unchanged and stays the enforcement.
 - **Encryption claims go through `v2rayEncryption`, never `v2rayConnectionCategory`
   alone.** The category helper predates XRAY and files every non-`tls` security under
   VLess-none, so asked directly it calls a Reality node unencrypted. 22 of the 23 XRAY

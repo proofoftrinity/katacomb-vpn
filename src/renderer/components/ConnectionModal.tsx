@@ -9,9 +9,10 @@ import RouteStrip, { singleHopStep, type RouteStage } from './RouteStrip'
 import {
   AmountStepper, ChecksSection, FooterReason, LimitsSection, ModeField, OptionsSection,
   Receipt, ReceiptLine, ReviewModal, SectionHead, Segmented, StepList, VpnConfirm,
-  dnsCheck, encryptionCheck, keysLimit, modeSummary, otherVpnCheck, seesBothLimit, signingCheck, useActiveWalletName, useOtherVpns, useReviewSettings,
+  dnsCheck, encryptionCheck, keysLimit, modeSummary, otherVpnCheck, seesBothLimit, signingCheck, switchCheck, useActiveWalletName, useOtherVpns, useReviewSettings,
   type CheckSpec, type Limit,
 } from './ConnectReview'
+import { connectionRelation, previousConnection, switchFooterText } from '../utils/switch'
 import { useNavigation } from '../contexts/NavigationContext'
 import { useConnection } from '../hooks/useConnection'
 import { protocolMeta, isProtocolSupported, isProxyCapable } from '../utils/protocols'
@@ -49,20 +50,17 @@ export default function ConnectionModal({ node, onClose }: Props) {
   const canOverrideHealth = nodeStatus.state === 'unhealthy'
   const [healthAcknowledged, setHealthAcknowledged] = useState(false)
   const { goToPlansForNode, setMainTab } = useNavigation()
-  // Live connection status — when the tunnel is already up to THIS node we show a
-  // "Connected" panel + Disconnect instead of the subscribe form (which would create
-  // a redundant second session). `reconnecting` counts so we don't flash the form
-  // during a same-node reconnect blip.
+  // Live connection status — when the tunnel is already up to THIS node (alone, not as
+  // a chain's entry) we show a "Connected" panel + Disconnect instead of the subscribe
+  // form (which would create a redundant second session). `reconnecting` counts so we
+  // don't flash the form during a same-node reconnect blip.
   const { status } = useConnection()
-  const onThisNode =
-    status.nodeAddress === node.address &&
-    (status.state === 'connected' || status.state === 'reconnecting')
+  const relation = connectionRelation(status, { node: node.address })
+  const onThisNode = relation === 'same'
   // Connected, but not to THIS node: another node, a plan session, a chain or a
-  // local proxy. Pay is disabled with a disconnect-first reason, because a second
-  // session would orphan the live one (main refuses it too, via assertNotConnected;
-  // this is the half that explains instead of erroring).
-  const connectedElsewhere =
-    (status.state === 'connected' || status.state === 'reconnecting') && !onThisNode
+  // local proxy. Pay switches ([RN-10]): it leaves that connection first, because main
+  // refuses a second session beside a live one (assertNotConnected).
+  const switchFrom = relation === 'switch' ? previousConnection(status) : null
   // Plans compatible with THIS node. null = still loading.
   const [compatiblePlans, setCompatiblePlans] = useState<PlanInfo[] | null>(null)
   // The wallet's plan allocations, for the reuse-vs-fresh-subscribe decision.
@@ -72,7 +70,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
   const { udvpn, refresh: refreshBalance, refreshing: refreshingBalance } = useBalance()
   // The purchase-then-tunnel state machine, shared with the Plans tab's modal.
   const {
-    connecting, currentStep, stepDetail, error, tunnelConnected, sessionId, paidProtocol, disconnecting,
+    connecting, currentStep, stepDetail, error, tunnelConnected, sessionId, paidProtocol, disconnecting, switching,
     start, retryPurchase, retryTunnel, disconnect: disconnectFlow, reset,
   } = useConnectFlow()
   // Full tunnel vs. local SOCKS proxy. Only the child-proxy protocols expose a
@@ -196,7 +194,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
         quoteValue: selectedPrice.raw,
         ...(proxyCapable && mode === 'proxy' ? { proxyMode: true } : {}),
       })
-    }, { mode: effectiveMode })
+    }, { mode: effectiveMode, switchFrom })
   }
 
   function handleSeePlansForNode() {
@@ -238,12 +236,17 @@ export default function ConnectionModal({ node, onClose }: Props) {
         : { kind: 'review' }
 
   // ---- checks ----
+  // While connected, the probe leaves through the live tunnel like any other traffic,
+  // so its time includes that route, and a timeout may be the route's, not the node's.
+  const live = relation !== 'idle'
   const probeLine = probeResult?.reachable
     ? `This app's own probe: ${probeResult.latencyMs} ms, reachable.`
     : probeResult
       ? `This app's own probe got no answer${probeResult.error ? `: ${probeResult.error}` : ''}.`
       : null
-  const probeTip = "This is this app's own probe of the node's API port. A node can answer it and still fail to build a tunnel; a failed handshake is cancelled and refunded automatically."
+  const probeTip = `This is this app's own probe of the node's API port${
+    live ? ', sent through your current connection, so its time includes that route' : ''
+  }. A node can answer it and still fail to build a tunnel; a failed handshake is cancelled and refunded automatically.`
   const healthCheck: CheckSpec = !isProtocolSupported(node.type) ? {
     id: 'health',
     tone: 'danger',
@@ -291,10 +294,13 @@ export default function ConnectionModal({ node, onClose }: Props) {
     text: "Active, but it didn't answer this app's probe",
     tipLabel: 'What was measured',
     tip: probeTip,
-    body: probeResult?.error ? <p>{probeResult.error}</p> : undefined,
+    body: probeResult?.error || live
+      ? <p>{[probeResult?.error && `${probeResult.error}.`, live && 'Sent through your current connection.'].filter(Boolean).join(' ')}</p>
+      : undefined,
   }
 
   const checks: CheckSpec[] = [
+    ...[switchCheck(switchFrom, settings)].filter((c): c is CheckSpec => c !== null),
     healthCheck,
     ...(isProtocolSupported(node.type) ? [encryptionCheck(node)] : []),
     ...[signingCheck(node), dnsCheck(settings, effectiveMode, 'this node'), otherVpnCheck(otherVpns)]
@@ -316,34 +322,34 @@ export default function ConnectionModal({ node, onClose }: Props) {
 
   // ---- the footer's one reason ----
   const blocker: { text: string; tone: 'danger' | 'muted' } | null =
-    connectedElsewhere
-      ? { text: `You are connected${status.nodeMoniker ? ` to ${status.nodeMoniker}` : ''}. Disconnect first to start a new session.`, tone: 'danger' }
-      : !isProtocolSupported(node.type)
-        ? { text: `${protocol.label} isn't supported by this client yet. This node is shown for filtering only.`, tone: 'danger' }
-        : nodeStatus.state === 'inactive'
-          ? { text: 'Connecting is disabled because this node is not active on chain.', tone: 'danger' }
-          : !connectable && !(canOverrideHealth && healthAcknowledged)
-            ? { text: 'Tick "Try it anyway" above to connect to a node that failed its health check.', tone: 'muted' }
-            : !matchingAllocation && !selectedPrice
-              ? { text: `This node has no P2P price for ${subType === 'gigabytes' ? 'data' : 'time'}. Switch the billing.`, tone: 'danger' }
-              : cantAfford && funds
-                ? { text: `Not enough P2P: short by ${formatP2pCeil(funds.shortfall)}, fees included.`, tone: 'danger' }
-                : null
+    !isProtocolSupported(node.type)
+      ? { text: `${protocol.label} isn't supported by this client yet. This node is shown for filtering only.`, tone: 'danger' }
+      : nodeStatus.state === 'inactive'
+        ? { text: 'Connecting is disabled because this node is not active on chain.', tone: 'danger' }
+        : !connectable && !(canOverrideHealth && healthAcknowledged)
+          ? { text: 'Tick "Try it anyway" above to connect to a node that failed its health check.', tone: 'muted' }
+          : !matchingAllocation && !selectedPrice
+            ? { text: `This node has no P2P price for ${subType === 'gigabytes' ? 'data' : 'time'}. Switch the billing.`, tone: 'danger' }
+            : cantAfford && funds
+              ? { text: `Not enough P2P: short by ${formatP2pCeil(funds.shortfall)}, fees included.`, tone: 'danger' }
+              : null
 
   const footer = reviewing ? (
     vpnWarning ? (
       <VpnConfirm vpns={vpnWarning} onContinue={() => void handleSubscribe()} onCancel={() => setVpnWarning(null)} disabled={cantAfford} />
     ) : (
       <>
-        {blocker && <FooterReason text={blocker.text} tone={blocker.tone} />}
+        {blocker
+          ? <FooterReason text={blocker.text} tone={blocker.tone} />
+          : switchFrom && <FooterReason text={switchFooterText(switchFrom)} tone="muted" />}
         <button
           onClick={handleSubscribe}
           disabled={blocker !== null}
           className="btn btn-primary w-full disabled:opacity-30 disabled:cursor-not-allowed"
         >
           {matchingAllocation
-            ? `Connect via plan #${matchingAllocation.planId}`
-            : `Pay ${selectedPrice ? formatP2p(costUdvpn) : '0.00'} P2P and connect`}
+            ? `${switchFrom ? 'Switch' : 'Connect'} via plan #${matchingAllocation.planId}`
+            : `Pay ${selectedPrice ? formatP2p(costUdvpn) : '0.00'} P2P and ${switchFrom ? 'switch' : 'connect'}`}
         </button>
       </>
     )
@@ -369,6 +375,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
   ) : undefined
 
   const steps = [
+    ...(switching ? [{ id: 'switch', label: `Disconnecting from ${switching.from.label}` }] : []),
     { id: '1/5', label: 'Preparing' },
     { id: '2/5', label: matchingAllocation ? 'Starting a session on your plan' : 'Buying the session on chain' },
     { id: '3/5', label: 'Confirming the session' },
@@ -532,6 +539,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
           onRetryPurchase={() => void retryPurchase()}
           onStartOver={reset}
           onRetryWithoutDns={paidProtocol ? () => retryTunnel(true) : undefined}
+          goBack={switching?.left ? { from: switching.from, onDone: onClose } : null}
         />
       )}
 
