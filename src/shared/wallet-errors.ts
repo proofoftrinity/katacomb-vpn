@@ -17,9 +17,15 @@ export interface WalletExists {
  * dead-ending on "already exists".
  */
 export function parseWalletExists(message: string): WalletExists | null {
+  // What reaches the renderer is wrapped by ipcRenderer.invoke [RN-1], so the
+  // marker is never at the start of a raw err.message: strip the wrapper here,
+  // where both callers (import screen, New wallet window) get it.
+  const unwrapped = message
+    .replace(/^Error invoking remote method '[^']*':\s*/, '')
+    .replace(/^Error:\s*/, '')
   const prefix = `${WALLET_EXISTS}:`
-  if (!message.startsWith(prefix)) return null
-  const rest = message.slice(prefix.length)
+  if (!unwrapped.startsWith(prefix)) return null
+  const rest = unwrapped.slice(prefix.length)
   const separator = rest.indexOf(':')
   if (separator === -1) return null
   const id = rest.slice(0, separator).trim()

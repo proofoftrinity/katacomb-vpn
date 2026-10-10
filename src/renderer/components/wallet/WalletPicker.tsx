@@ -1,6 +1,12 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { WalletStoreStatus } from '../../types'
 import Spinner from '../Spinner'
+import CopyButton from '../CopyButton'
+import { AlertIcon, PlusIcon } from '../Icons'
+import { groupWalletsBySeed } from '../../../shared/seed-groups'
+import { displayConnectError } from '../../utils/connect-errors'
+
+type StoredWallet = WalletStoreStatus['wallets'][number]
 
 interface Props {
   status: WalletStoreStatus
@@ -42,7 +48,7 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
       if (entry) await window.api.walletSwitch(entry.id)
       await onChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to derive a wallet')
+      setError(displayConnectError(err instanceof Error ? err.message : 'Failed to derive a wallet'))
     } finally {
       setBusyId(null)
     }
@@ -55,7 +61,7 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
       await window.api.walletDeleteAll()
       await onChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove the seed')
+      setError(displayConnectError(err instanceof Error ? err.message : 'Failed to remove the seed'))
     } finally {
       setBusyId(null)
     }
@@ -72,7 +78,7 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
       }
       await onChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to open that wallet')
+      setError(displayConnectError(err instanceof Error ? err.message : 'Failed to open that wallet'))
     } finally {
       setBusyId(null)
     }
@@ -85,7 +91,7 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
       await window.api.walletDeleteAll()
       await onChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete wallets')
+      setError(displayConnectError(err instanceof Error ? err.message : 'Failed to delete wallets'))
     } finally {
       setBusyId(null)
     }
@@ -112,10 +118,11 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
           )}
 
           <div className="space-y-2">
-            <label className="text-text-secondary text-xs font-medium uppercase tracking-wide block">
+            <label htmlFor="seed-wallet-name" className="text-text-secondary text-xs block">
               Wallet name
             </label>
             <input
+              id="seed-wallet-name"
               type="text"
               value={seedWalletName}
               onChange={(e) => setSeedWalletName(e.target.value)}
@@ -123,12 +130,12 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
               placeholder="e.g. Wallet 1"
               maxLength={100}
               autoFocus
-              className="w-full bg-bg-tertiary border border-border text-text-primary text-sm px-2.5 py-2 rounded-sm focus:outline-none focus:border-border-focus"
+              className="w-full bg-bg-secondary border border-border text-text-primary text-sm px-2.5 py-2 rounded-sm focus:outline-none focus:border-border-focus"
             />
             <button
               onClick={deriveFromRetainedSeed}
               disabled={busyId !== null}
-              className="btn btn-primary w-full disabled:opacity-50 flex items-center justify-center gap-2"
+              className="btn btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {busyId === 'derive' && <Spinner />}
               Derive a wallet
@@ -136,32 +143,19 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
           </div>
 
           {confirmingRemove ? (
-            <div className="border border-danger bg-danger-subtle rounded-md p-3 space-y-3">
-              <p className="text-danger text-xs font-medium">
-                Remove the saved seed from this device?
-              </p>
+            <DangerConfirm
+              question="Remove the saved seed from this device?"
+              confirmLabel="Remove seed"
+              busy={busyId !== null}
+              spinning={busyId === 'remove'}
+              onCancel={() => setConfirmingRemove(false)}
+              onConfirm={removeSavedSeed}
+            >
               <p className="text-text-secondary text-xs">
                 Without your written-down recovery phrase it cannot be restored. Funds stay
                 on-chain, reachable only by importing the phrase again.
               </p>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={() => setConfirmingRemove(false)}
-                  disabled={busyId !== null}
-                  className="text-text-secondary hover:text-text-primary text-xs px-3 py-1.5 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={removeSavedSeed}
-                  disabled={busyId !== null}
-                  className="btn btn-danger text-xs px-3 py-1.5 disabled:opacity-50 flex items-center gap-2"
-                >
-                  {busyId === 'remove' && <Spinner />}
-                  Remove seed
-                </button>
-              </div>
-            </div>
+            </DangerConfirm>
           ) : (
             <button
               onClick={() => setConfirmingRemove(true)}
@@ -175,6 +169,44 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
       </div>
     )
   }
+
+  // The same cards as Settings > Wallets: one per seed, a row per wallet, and the
+  // ones that cannot be unlocked together under one note rather than one per row.
+  const { groups, locked } = groupWalletsBySeed(status.wallets)
+  const plural = (n: number) => `${n} ${n === 1 ? 'wallet' : 'wallets'}`
+
+  const row = (w: StoredWallet) => (
+    <div
+      key={w.id}
+      className={`relative flex items-center gap-3 px-4 py-3 before:absolute before:inset-y-0 before:left-0 before:w-0.5 ${
+        w.unlockable ? '' : 'before:bg-warning'
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-text-primary text-sm font-medium truncate">{w.name}</div>
+        <div className="flex items-center gap-1.5 min-w-0 mt-0.5">
+          {w.address ? (
+            <>
+              <span className="text-text-tertiary font-mono text-[11px] truncate">{w.address}</span>
+              <CopyButton value={w.address} label="Copy address" />
+            </>
+          ) : (
+            <span className="text-text-tertiary text-[11px]">address not yet derived</span>
+          )}
+        </div>
+      </div>
+      {w.unlockable && (
+        <button
+          onClick={() => use(w.id)}
+          disabled={busyId !== null}
+          className="btn btn-secondary text-xs px-3 py-1 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+        >
+          {busyId === w.id && <Spinner className="text-accent" />}
+          Use
+        </button>
+      )}
+    </div>
+  )
 
   return (
     <div className="h-full flex items-center justify-center p-8">
@@ -195,54 +227,57 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
           </div>
         )}
 
-        <div className="space-y-2">
-          {status.wallets.map((w) => (
-            <div
-              key={w.id}
-              className={`border rounded-md px-4 py-3 flex items-center gap-3 ${
-                w.unlockable ? 'border-border bg-bg-tertiary' : 'border-warning bg-warning-subtle'
-              }`}
-            >
-              <div className="flex-1 min-w-0">
-                <div className="text-text-primary text-sm font-medium">{w.name}</div>
-                <div className="text-text-secondary font-mono text-xs truncate mt-0.5">
-                  {w.address || 'address not yet derived'}
-                </div>
-                {!w.unlockable && (
-                  <p className="text-warning text-xs mt-1.5">
-                    Saved under the app's previous name, so its seed can no longer be unlocked.
-                    Import the same recovery phrase again. Your funds are on-chain and unaffected.
-                  </p>
-                )}
+        <div className="space-y-5">
+          {groups.map((g) => (
+            <section key={g.key}>
+              <h2 className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary mb-2">
+                {g.label} · {plural(g.members.length)}
+              </h2>
+              <div className="bg-bg-secondary border border-border rounded-md divide-y divide-border overflow-hidden">
+                {g.members.map(row)}
               </div>
-              {w.unlockable && (
-                <button
-                  onClick={() => use(w.id)}
-                  disabled={busyId !== null}
-                  className="btn btn-primary text-sm px-4 shrink-0 disabled:opacity-50 flex items-center gap-2"
-                >
-                  {busyId === w.id && <Spinner />}
-                  Use
-                </button>
-              )}
-            </div>
+            </section>
           ))}
+          {locked.length > 0 && (
+            <section>
+              <h2 className="text-[11px] font-semibold uppercase tracking-wider text-warning mb-2">
+                Cannot be unlocked · {plural(locked.length)}
+              </h2>
+              <p className="text-text-secondary text-xs mb-2">
+                Saved under the app's previous name, so {locked.length === 1 ? 'its seed' : 'their seeds'} can
+                no longer be unlocked. Import the same recovery phrase again. Your funds are on-chain
+                and unaffected.
+              </p>
+              <div className="bg-bg-secondary border border-border rounded-md divide-y divide-border overflow-hidden">
+                {locked.map(row)}
+              </div>
+            </section>
+          )}
         </div>
 
         <div className="space-y-3">
-          <button onClick={onAddAnother} disabled={busyId !== null} className="btn btn-secondary w-full disabled:opacity-50">
+          <button
+            onClick={onAddAnother}
+            disabled={busyId !== null}
+            className="btn btn-secondary w-full disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5"
+          >
+            <PlusIcon className="w-3.5 h-3.5" />
             Add another wallet
           </button>
           {confirmingRemove ? (
-            <div className="border border-danger bg-danger-subtle rounded-md p-3 space-y-3">
-              <p className="text-danger text-xs font-medium">
-                Delete {status.wallets.length} stored wallet
-                {status.wallets.length === 1 ? '' : 's'} and start fresh?
-              </p>
-              <ul className="text-text-secondary text-xs space-y-1 list-disc pl-4">
+            <DangerConfirm
+              question={`Delete ${status.wallets.length} stored wallet${status.wallets.length === 1 ? '' : 's'} and start fresh?`}
+              confirmLabel="Delete all wallets"
+              busy={busyId !== null}
+              spinning={busyId === 'all'}
+              onCancel={() => setConfirmingRemove(false)}
+              onConfirm={deleteAll}
+            >
+              <ul className="space-y-1 text-xs">
                 {status.wallets.map((w) => (
-                  <li key={w.id}>
-                    <span className="text-text-primary">{w.name}</span> · {w.address || 'address unknown'}
+                  <li key={w.id} className="flex items-baseline gap-2 min-w-0">
+                    <span className="text-text-primary shrink-0">{w.name}</span>
+                    <span className="text-text-tertiary font-mono truncate">{w.address || 'address unknown'}</span>
                   </li>
                 ))}
               </ul>
@@ -251,24 +286,7 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
                 recovery phrase they cannot be restored. Funds stay on-chain, reachable only by
                 re-importing the phrase. App settings are kept.
               </p>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={() => setConfirmingRemove(false)}
-                  disabled={busyId !== null}
-                  className="text-text-secondary hover:text-text-primary text-xs px-3 py-1.5 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={deleteAll}
-                  disabled={busyId !== null}
-                  className="btn btn-danger text-xs px-3 py-1.5 disabled:opacity-50 flex items-center gap-2"
-                >
-                  {busyId === 'all' && <Spinner />}
-                  Delete all wallets
-                </button>
-              </div>
-            </div>
+            </DangerConfirm>
           ) : (
             <button
               onClick={() => setConfirmingRemove(true)}
@@ -279,6 +297,44 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
             </button>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** The inline two-step confirm both screens use before dropping seeds: a question, what goes, Cancel and the act. */
+function DangerConfirm({ question, confirmLabel, busy, spinning, onCancel, onConfirm, children }: {
+  question: string
+  confirmLabel: string
+  busy: boolean
+  spinning: boolean
+  onCancel: () => void
+  onConfirm: () => void
+  children: ReactNode
+}) {
+  return (
+    <div className="bg-danger-subtle rounded-md px-3.5 py-3 space-y-3">
+      <p className="flex items-center gap-2 text-danger text-sm font-medium">
+        <AlertIcon className="w-4 h-4 shrink-0" />
+        {question}
+      </p>
+      <div className="pl-6 space-y-2">{children}</div>
+      <div className="flex gap-2 pl-6">
+        <button
+          onClick={onCancel}
+          disabled={busy}
+          className="btn btn-secondary text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={busy}
+          className="btn btn-danger text-xs py-1.5 flex-1 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5"
+        >
+          {spinning && <Spinner />}
+          {confirmLabel}
+        </button>
       </div>
     </div>
   )

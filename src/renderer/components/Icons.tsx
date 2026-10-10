@@ -246,3 +246,13 @@ export function ChartIcon(p: IconProps) {
     </Svg>
   )
 }
+
+export function TrashIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M2.5 4h11M6.5 4V2.5h3V4" />
+      <path d="M4 4l.7 9a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1L12 4" />
+      <path d="M6.7 7v4.2M9.3 7v4.2" />
+    </Svg>
+  )
+}

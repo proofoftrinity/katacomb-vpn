@@ -436,6 +436,13 @@ export const CANARIES: Canary[] = [
     run: ['src/renderer/utils/session-card.test.ts'],
   },
   {
+    name: '[RN-9] closing the create screen cancels the clipboard wipe of a copied phrase',
+    file: 'src/renderer/components/wallet/MnemonicInput.tsx',
+    find: '  const copyClearTimer = useRef<number | null>(null)\n',
+    replace: '  const copyClearTimer = useRef<number | null>(null)\n  useEffect(() => () => {\n    if (copyClearTimer.current !== null) window.clearTimeout(copyClearTimer.current)\n  }, [])\n',
+    run: ['test/static/renderer-rules.test.ts'],
+  },
+  {
     name: '[REL-24] Connect is offered on a session that has used its paid hour',
     file: 'src/renderer/utils/session-card.ts',
     find: '  return (hasTimeCap && timePct >= 100) || (hasByteCap && dataPct >= 100)',

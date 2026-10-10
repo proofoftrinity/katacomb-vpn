@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Spinner from '../Spinner'
+import CopyButton from '../CopyButton'
+import { ArrowRightIcon, ChevronIcon, RefreshIcon } from '../Icons'
 import { useBalance } from '../../hooks/useBalance'
 import { useNavigation } from '../../contexts/NavigationContext'
 
@@ -17,7 +19,6 @@ interface Props {
 export default function WalletPanel({ address, name, chainFrozen }: Props) {
   const { display: balance, refresh: refreshBalance } = useBalance()
   const { openSettings } = useNavigation()
-  const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -29,8 +30,15 @@ export default function WalletPanel({ address, name, chainFrozen }: Props) {
         setExpanded(false)
       }
     }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setExpanded(false)
+    }
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKey)
+    }
   }, [expanded])
 
   async function refresh() {
@@ -42,102 +50,66 @@ export default function WalletPanel({ address, name, chainFrozen }: Props) {
     }
   }
 
-  async function copyAddress() {
-    if (!address) return
-    await navigator.clipboard.writeText(address)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-
   if (!address) return null
 
   return (
     <div className="relative" ref={containerRef}>
-      <div className="flex items-center gap-1.5 text-sm">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-text-secondary hover:text-accent transition-colors"
-          title="Wallet details"
-        >
-          Wallet
-        </button>
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-text-secondary hover:text-accent transition-colors"
-          title="Wallet details"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            {expanded ? <polyline points="18 15 12 9 6 15" /> : <polyline points="6 9 12 15 18 9" />}
-          </svg>
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+        title="Wallet details"
+        className={`flex items-center gap-1.5 text-sm transition-colors ${
+          expanded ? 'text-accent' : 'text-text-secondary hover:text-accent'
+        }`}
+      >
+        Wallet
+        <ChevronIcon direction={expanded ? 'up' : 'down'} className="w-3.5 h-3.5" />
+      </button>
 
       {expanded && (
-        <div className="absolute right-0 top-full mt-2 bg-bg-secondary border border-border p-4 w-80 z-50 space-y-3 rounded-lg shadow-overlay">
-          {name && (
-            <div className="text-text-primary text-sm font-semibold pb-2 border-b border-border">
-              {name}
-            </div>
-          )}
-          <div className="space-y-2 text-sm">
-            <div>
-              <div className="flex items-center justify-between">
-                <span className="text-text-secondary text-xs">Address</span>
-                <button
-                  onClick={copyAddress}
-                  className="text-text-secondary hover:text-accent transition-colors text-xs"
-                  title="Copy address"
-                >
-                  {copied ? 'Copied!' : 'Copy'}
-                </button>
-              </div>
-              <button
-                onClick={copyAddress}
-                className="text-text-primary font-mono text-xs break-all mt-0.5 text-left w-full hover:text-accent transition-colors"
-                title="Copy address"
-              >
-                {address}
-              </button>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-text-secondary">Balance</span>
-              <div className="flex items-center gap-2">
-                {chainFrozen && (
-                  <span
-                    className="text-text-tertiary text-xs"
-                    title="Connected to the VPN, so the chain is unreachable through the tunnel. This is the balance from before you connected."
-                  >
-                    cached
-                  </span>
-                )}
-                <span className="text-success font-mono">{balance || '...'} P2P</span>
-                <button
-                  onClick={refresh}
-                  disabled={refreshing || chainFrozen}
-                  className="text-text-secondary hover:text-accent transition-colors disabled:opacity-50"
-                  title={chainFrozen ? 'Balance refresh is unavailable while connected (RPC routes through the tunnel)' : 'Refresh balance'}
-                  aria-label="Refresh balance"
-                >
-                  {refreshing ? (
-                    <Spinner />
-                  ) : (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="23 4 23 10 17 10" />
-                      <polyline points="1 20 1 14 7 14" />
-                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                    </svg>
-                  )}
-                </button>
-              </div>
+        <div className="absolute right-0 top-full mt-2 bg-bg-secondary border border-border w-[22rem] z-50 rounded-lg shadow-overlay divide-y divide-border">
+          <div className="px-4 py-3 space-y-1">
+            {name && <div className="text-text-primary text-sm font-semibold truncate">{name}</div>}
+            <div className="flex items-start gap-1.5">
+              <span className="text-text-tertiary font-mono text-[11px] break-all leading-relaxed">{address}</span>
+              <CopyButton value={address} label="Copy address" className="mt-0.5" />
             </div>
           </div>
 
+          <div className="px-4 py-2.5 flex items-center gap-2 text-sm">
+            <span className="text-text-secondary text-xs">Balance</span>
+            {chainFrozen && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full leading-none bg-bg-tertiary text-text-tertiary"
+                title="Connected to the VPN, so the chain is unreachable through the tunnel. This is the balance from before you connected."
+              >
+                cached
+              </span>
+            )}
+            <span className="ml-auto font-mono text-text-primary">
+              {balance ?? '…'} <span className="text-text-tertiary text-xs">P2P</span>
+            </span>
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={refreshing || chainFrozen}
+              className="text-text-tertiary hover:text-accent transition-colors disabled:opacity-30 disabled:hover:text-text-tertiary"
+              title={chainFrozen ? 'Balance refresh is unavailable while connected (RPC routes through the tunnel)' : 'Refresh balance'}
+              aria-label="Refresh balance"
+            >
+              {refreshing ? <Spinner className="text-accent" /> : <RefreshIcon className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+
           <button
+            type="button"
             onClick={() => { setExpanded(false); openSettings('wallets') }}
-            className="text-text-secondary hover:text-accent text-sm transition-colors w-full text-center"
+            className="w-full px-4 py-2.5 flex items-center justify-between text-xs text-text-secondary hover:text-accent hover:bg-bg-hover transition-colors rounded-b-lg"
             title="Switch, add or remove stored wallets"
           >
-            Manage Wallets
+            Manage wallets
+            <ArrowRightIcon className="w-3.5 h-3.5" />
           </button>
         </div>
       )}

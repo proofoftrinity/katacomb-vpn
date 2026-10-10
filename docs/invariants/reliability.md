@@ -57,9 +57,9 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   mid-session switch makes `WALLET_END_SESSION` and the reconnect handshake sign with the
   wrong key: x/session rejects the cancel and the deposit is stranded until expiry, while
   `lastKnownSessions`/`lastKnownBalance` (now cleared on switch) showed the old wallet's data
-  under the new address. The Settings Wallets tab greys Switch / Add Wallet / Delete / Remove
-  seed out behind a banner; the handlers are the enforcement. Rename, Derive Subaccount and
-  Recovery Phrase are deliberately not gated: none changes who signs. The same predicate
+  under the new address. The Settings Wallets tab greys Switch / Add wallet / Delete / a seed's Remove
+  out behind a note; the handlers are the enforcement. Rename, New wallet and
+  Recovery phrase are deliberately not gated: none changes who signs. The same predicate
   (`connectionIsLive()`, true in local-proxy mode and the reconnect window where
   `isVpnActive()` is false) refuses ending the live session and cancelling the subscription
   behind it, which the Sessions tab's disconnect-first step does not cover mid-reconnect. The

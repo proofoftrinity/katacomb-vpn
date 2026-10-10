@@ -307,7 +307,7 @@ export interface WalletEntry {
   providerMode?: boolean
 }
 
-/** One candidate derivation path in the Derive Subaccount picker. */
+/** One candidate derivation path in the Wallets tab's New wallet picker. */
 export interface DerivationPreview {
   addressIndex: number
   path: string
