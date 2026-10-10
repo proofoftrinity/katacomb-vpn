@@ -245,3 +245,11 @@ Put it in `resources/npm-licenses/<dir>/` and map `name@version` to it in
 is bumped, re-read its licence before remapping it. The SDK's 2.0.4 declares ISC and
 its repository's `package.json` declares Apache-2.0 from 2.1.1, and from 2.1.1 its npm
 release should carry the text itself, so its entry can simply go.
+
+**`package.json` overrides `global-agent` to 4.x, for the build machine only.**
+electron-builder 26's `@electron/get` 3 asks for `global-agent` ^3, whose `roarr` →
+`sprintf-js` chain carries GHSA-hp3w-g68c-fv3c, and no fixed `sprintf-js` exists. 4.x
+keeps the one call `@electron/get` makes (`require('global-agent').bootstrap()`, inside
+a try/catch, and only when `ELECTRON_GET_USE_PROXY` is set) and drops `roarr`. Nothing of
+it reaches the app. Drop the override once electron-builder moves to `@electron/get` 5,
+which Electron's own installer already uses without `global-agent`.
