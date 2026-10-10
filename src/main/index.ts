@@ -14,6 +14,7 @@ import { onChainPathChanged, runAutoRpcSelection, startRpcMonitor, stopRpcMonito
 import { sweepStaleSessionFiles } from './chain/chain-service'
 import { migrateLegacyUserData, dedupeWalletEntries, migrateProviderModeToWallet, migrateRpcMode } from './settings'
 import { listProviders } from './provider/provider-service'
+import { registerWithDesktopSession } from './desktop-session'
 import { IPC } from '../shared/ipc-channels'
 import { setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net'
 
@@ -353,6 +354,16 @@ app.whenReady().then(() => {
   probeTrayHost()
   createWindow()
   createTrayIcon()
+  // A logout or a shutdown from the desktop must run the normal quit, teardown included,
+  // before the session goes: GNOME's logout kills the GPU process out from under the
+  // app, and Chromium then crashes itself instead of quitting ([REL-36]). GNOME waits
+  // until the app has exited.
+  registerWithDesktopSession({
+    address: process.env['DBUS_SESSION_BUS_ADDRESS'],
+    uid: process.getuid?.() ?? 0,
+    startupId: process.env['DESKTOP_AUTOSTART_ID'] ?? '',
+    onEndSession: () => { forceQuit = true; app.quit() },
+  })
   // Keep the tray icon, tooltip + menu in sync with connect/disconnect (incl. from
   // the renderer, auto-reconnect, or the tray itself). Forced: these are the few
   // repaints a session that must not be skipped, and the connect path publishes
