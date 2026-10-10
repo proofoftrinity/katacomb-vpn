@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import type { WalletStoreStatus } from '../../types'
+import SetupLayout from './SetupLayout'
 import Spinner from '../Spinner'
 import CopyButton from '../CopyButton'
 import { AlertIcon, PlusIcon } from '../Icons'
@@ -101,7 +102,7 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
   // through to the import form and the saved seed would be unreachable.
   if (status.wallets.length === 0 && status.retainedSeedId) {
     return (
-      <div className="h-full flex items-center justify-center p-8">
+      <SetupLayout>
         <div className="w-full max-w-xl space-y-8">
           <div className="space-y-3">
             <h1 className="text-accent font-semibold text-2xl">Your seed is saved</h1>
@@ -166,7 +167,7 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
             </button>
           )}
         </div>
-      </div>
+      </SetupLayout>
     )
   }
 
@@ -209,7 +210,7 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
   )
 
   return (
-    <div className="h-full flex items-center justify-center p-8">
+    <SetupLayout>
       <div className="w-full max-w-xl space-y-8">
         <div className="space-y-3">
           <h1 className="text-accent font-semibold text-2xl">Welcome back</h1>
@@ -298,7 +299,7 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
           )}
         </div>
       </div>
-    </div>
+    </SetupLayout>
   )
 }
 

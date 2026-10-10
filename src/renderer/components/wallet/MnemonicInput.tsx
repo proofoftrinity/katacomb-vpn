@@ -1,7 +1,15 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, type ReactNode } from 'react'
 import { checkMnemonic } from '../../../shared/mnemonic'
 import { parseWalletExists } from '../../../shared/wallet-errors'
 import { displayConnectError } from '../../utils/connect-errors'
+import { countryCode, polyCode } from '../../utils/country-codes'
+import { DENSITY_STEPS, densityStep, dotMap } from '../../utils/world-dots'
+import { useNodes } from '../../hooks/useNodes'
+import { SMALL_COUNTRIES, countryPoint, useWorldCountries } from '../map/world-geo'
+import AppLogo from '../AppLogo'
+import SetupLayout from './SetupLayout'
+import { KeyIcon, LayersIcon, LockIcon, ShieldIcon } from '../Icons'
+import ProtocolIcon from '../ProtocolIcon'
 
 interface Props {
   onImport: (mnemonic: string, name?: string) => Promise<void>
@@ -126,58 +134,130 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
   }
 
   // --- Choose screen ---
+  const choices = (
+    <div className="space-y-2.5">
+      <button
+        onClick={() => setMode('create')}
+        className="btn btn-primary w-full"
+      >
+        Create a new wallet
+      </button>
+      <button
+        onClick={() => setMode('import')}
+        className="btn btn-secondary w-full"
+      >
+        Import an existing wallet
+      </button>
+    </div>
+  )
+
+  // First run: nothing is stored, so this is the first screen a new install shows. It
+  // says what the app is, shows the network live, and says what the user will need
+  // (P2P to pay with) before asking for anything. The card is vertically centred and
+  // the map takes up the slack, so the buttons are on screen at the 960x600 minimum.
+  if (mode === 'choose' && !onBackToWallets) {
+    return (
+      <div className="h-full overflow-y-auto setup-backdrop">
+        <div className="h-full max-w-6xl mx-auto px-10 grid grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem] gap-10 xl:gap-16">
+          <section className="min-h-0 flex flex-col gap-5 py-8">
+            <header className="space-y-4 shrink-0">
+              <div className="flex items-center gap-4">
+                <AppLogo size={56} className="shrink-0" />
+                <div>
+                  <h1 className="text-text-primary font-semibold text-3xl tracking-tight">Katacomb VPN</h1>
+                  <p className="text-accent">A decentralized VPN client</p>
+                </div>
+              </div>
+              <p className="text-text-secondary text-sm leading-relaxed max-w-xl">
+                Connect through independent nodes all over the world. There is no account and no
+                single provider: you buy bandwidth directly from the people who run the nodes, with a
+                wallet only you hold the keys to.
+              </p>
+            </header>
+
+            <NetworkMap />
+
+            <ul className="grid grid-cols-2 gap-x-8 gap-y-4 shrink-0">
+              <Highlight icon={<KeyIcon className="w-4 h-4" />} title="You hold the keys">
+                No sign-up. Your wallet pays each node directly, on chain.
+              </Highlight>
+              <Highlight icon={<ProtocolIcon type={1} className="w-4 h-4" />} title="Six protocols">
+                WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY and Hysteria2.
+              </Highlight>
+              <Highlight icon={<LayersIcon className="w-4 h-4" />} title="Multi-hop">
+                Chain two nodes: one sees your IP, the other the sites, neither sees both.
+              </Highlight>
+              <Highlight icon={<ShieldIcon className="w-4 h-4" />} title="Kill switch and your own DNS">
+                Block everything outside the tunnel, and pick the resolver your lookups go to.
+              </Highlight>
+            </ul>
+          </section>
+
+          <aside className="self-center py-8">
+            <div className="bg-bg-secondary border border-border rounded-lg shadow-overlay p-6 space-y-6">
+              <h2 className="text-text-primary font-semibold text-lg">Get started</h2>
+              <ol>
+                <Step n={1} title="Create or import a wallet">
+                  Make a new one here, or bring one you have with its recovery phrase.
+                </Step>
+                <Step n={2} title="Add P2P">
+                  The network's token. Send some to your wallet's address from an exchange or
+                  another wallet.
+                </Step>
+                <Step n={3} title="Pick a node and connect" last>
+                  Pay it by the gigabyte or by the hour, or subscribe to a plan, and Katacomb
+                  brings the tunnel up.
+                </Step>
+              </ol>
+              {choices}
+              <p className="flex gap-2 text-text-tertiary text-xs leading-relaxed">
+                <LockIcon className="w-3.5 h-3.5 shrink-0 mt-px" />
+                Your recovery phrase is encrypted by your system keyring and never leaves this
+                device.
+              </p>
+            </div>
+          </aside>
+        </div>
+      </div>
+    )
+  }
+
+  // Adding another wallet: the user already knows the app, so just the choice.
   if (mode === 'choose') {
     return (
-      <div className="h-full flex items-center justify-center p-8">
+      <SetupLayout>
         <div className="w-full max-w-xl space-y-8">
           <div className="space-y-3">
-            {onBackToWallets && (
-              <button
-                type="button"
-                onClick={onBackToWallets}
-                className="text-text-secondary text-sm hover:text-accent transition-colors"
-              >
-                &larr; Back to my wallets
-              </button>
-            )}
-            <h1 className="text-accent font-semibold text-2xl">
-              Katacomb VPN
+            <button
+              type="button"
+              onClick={onBackToWallets}
+              className="text-text-secondary text-sm hover:text-accent transition-colors"
+            >
+              &larr; Back to my wallets
+            </button>
+            <h1 className="text-text-primary font-semibold text-2xl">
+              Add a wallet
             </h1>
             <p className="text-text-secondary text-sm leading-relaxed">
-              {onBackToWallets
-                ? 'Add another wallet by creating a new one or importing an existing seed phrase.'
-                : 'Create a new wallet or import an existing one to connect to the decentralized VPN network.'}
+              Add another wallet by creating a new one or importing an existing seed phrase.
             </p>
           </div>
 
-          <div className="space-y-3">
-            <button
-              onClick={() => setMode('create')}
-              className="btn btn-primary w-full"
-            >
-              Create New Wallet
-            </button>
-            <button
-              onClick={() => setMode('import')}
-              className="btn btn-secondary w-full"
-            >
-              Import Existing Wallet
-            </button>
-          </div>
+          {choices}
 
-          <p className="text-text-tertiary text-xs text-center">
-            Your mnemonic is encrypted at rest using your OS keyring.
-            It never leaves this device.
+          <p className="flex justify-center gap-2 text-text-tertiary text-xs">
+            <LockIcon className="w-3.5 h-3.5 shrink-0" />
+            Your recovery phrase is encrypted by your system keyring and never leaves this device.
           </p>
         </div>
-      </div>
+      </SetupLayout>
     )
   }
 
   // --- Import screen ---
   if (mode === 'import') {
     return (
-      <div className="h-full flex items-center justify-center p-8">
+      <SetupLayout>
         <form onSubmit={handleImportSubmit} className="w-full max-w-xl space-y-6">
           <div className="space-y-2">
             <button
@@ -253,13 +333,13 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
             {loading ? 'Importing...' : 'Import Wallet'}
           </button>
         </form>
-      </div>
+      </SetupLayout>
     )
   }
 
   // --- Create screen ---
   return (
-    <div className="h-full flex items-center justify-center p-8">
+    <SetupLayout>
       <div className="w-full max-w-xl space-y-6">
         <div className="space-y-2">
           <button
@@ -391,6 +471,132 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
           </>
         )}
       </div>
-    </div>
+    </SetupLayout>
+  )
+}
+
+/** One of the welcome's four points: what the app does, in a line. */
+function Highlight({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+  return (
+    <li className="flex gap-3 min-w-0">
+      <span className="w-8 h-8 shrink-0 rounded-md bg-accent-subtle text-accent grid place-items-center">{icon}</span>
+      <div className="min-w-0">
+        <div className="text-text-primary text-sm font-medium">{title}</div>
+        <p className="text-text-secondary text-xs leading-relaxed mt-0.5">{children}</p>
+      </div>
+    </li>
+  )
+}
+
+/** A numbered step of Get started, joined to the next one by a hairline. */
+function Step({ n, title, last = false, children }: { n: number; title: string; last?: boolean; children: ReactNode }) {
+  return (
+    <li className="relative flex gap-3 pb-4 last:pb-0">
+      {!last && <span aria-hidden className="absolute left-3 top-7 bottom-1 w-px bg-border" />}
+      <span className="w-6 h-6 shrink-0 rounded-full bg-accent-subtle text-accent text-xs font-semibold grid place-items-center">
+        {n}
+      </span>
+      <div className="min-w-0 pt-0.5">
+        <div className="text-text-primary text-sm font-medium">{title}</div>
+        <p className="text-text-secondary text-xs leading-relaxed mt-0.5">{children}</p>
+      </div>
+    </li>
+  )
+}
+
+const MAP_W = 640
+const MAP_PITCH = 5
+// Written out in full for Tailwind; global.css defines them.
+const DOT_CLASS = ['network-dot-0', 'network-dot-1', 'network-dot-2', 'network-dot-3'] as const
+const DOT_R = [1.35, 1.6, 1.65, 1.7] as const
+
+/**
+ * Where the nodes are right now: the land as dots, each country lit by how many nodes
+ * it holds. The list is the one main fetches at launch and every minute for the Map
+ * tab, so this makes no request of its own, and it is counted through useNodes with
+ * the Nodes tab's default filters, so the figure is the one the Map tab shows once the
+ * wallet is set up. Static SVG: it redraws only when the list changes.
+ */
+function NetworkMap() {
+  const world = useWorldCountries()
+  const { nodes, lastFetched, error, refresh } = useNodes()
+  const map = useMemo(() => {
+    if (!world) return null
+    const byCode = new Map(world.map((f) => [polyCode(f), f]))
+    return dotMap({
+      world,
+      codeOf: polyCode,
+      pointOf: (code) => countryPoint(code, byCode),
+      extraCodes: Object.keys(SMALL_COUNTRIES),
+      width: MAP_W,
+      pitch: MAP_PITCH,
+    })
+  }, [world])
+  const counts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const n of nodes) {
+      const code = countryCode(n.country)
+      if (code) m.set(code, (m.get(code) ?? 0) + 1)
+    }
+    return m
+  }, [nodes])
+
+  const figure = lastFetched
+    ? `${nodes.length.toLocaleString('en-US')} nodes online in ${counts.size} ${counts.size === 1 ? 'country' : 'countries'}`
+    : null
+
+  return (
+    <figure className="flex-1 min-h-[120px] flex flex-col gap-3">
+      <div className="flex-1 min-h-0">
+        {map && (
+          <svg
+            viewBox={`0 0 ${map.width} ${map.height}`}
+            preserveAspectRatio="xMinYMid meet"
+            role="img"
+            aria-label={figure ? `World map of the nodes: ${figure}` : 'World map of the nodes'}
+            className="w-full h-full block"
+          >
+            {map.dots.map((d) => {
+              const step = densityStep(counts.get(d.code) ?? 0)
+              return <circle key={`${d.x},${d.y}`} cx={d.x} cy={d.y} r={DOT_R[step]} className={DOT_CLASS[step]} />
+            })}
+          </svg>
+        )}
+      </div>
+      <figcaption className="flex items-center justify-between gap-4 flex-wrap shrink-0">
+        {figure ? (
+          <span
+            className="text-text-primary text-sm"
+            title="Active nodes that passed the node directory's latest health check, counted as the Nodes tab counts them. Refreshed every minute."
+          >
+            {figure}
+          </span>
+        ) : error ? (
+          <span className="text-text-secondary text-sm flex items-center gap-2">
+            The node list could not be loaded.
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="text-accent hover:text-accent-hover transition-colors"
+            >
+              Retry
+            </button>
+          </span>
+        ) : (
+          <span role="status" aria-label="Loading the node list" className="skeleton h-4 w-56" />
+        )}
+        <span className="flex items-center gap-3 text-[11px] text-text-tertiary">
+          Nodes per country
+          {DENSITY_STEPS.map((s, i) => (
+            <span key={s.label} className="flex items-center gap-1">
+              <svg width="8" height="8" aria-hidden="true">
+                <circle cx="4" cy="4" r="3.5" className={DOT_CLASS[i + 1]} />
+              </svg>
+              {s.label}
+            </span>
+          ))}
+        </span>
+      </figcaption>
+    </figure>
   )
 }

@@ -341,6 +341,17 @@ from `src/main/`; `src/shared/` is the only overlap.
   click, because Switch reloads the whole app. **Only the active wallet shows a balance**:
   reading every stored address at once would tell the RPC operator that one IP owns them
   all, which undoes the point of a second wallet for Multi-hop.
+- **The wallet setup screens sit on `SetupLayout`** (create, import, add a wallet, Welcome
+  back, Your seed is saved): the logo and name across the top and the `.setup-backdrop`
+  page, which scrolls, so a long wallet list is never cut off. The first-run welcome
+  (`MnemonicInput`'s choose step with nothing stored) draws a larger lockup instead and
+  says what the app is before it asks for anything: "A decentralized VPN client" (the
+  promo wording), four highlights, and Get started steps that name P2P. Its map is
+  `utils/world-dots.ts`, lit through `useNodes()` with the Nodes tab's default filters,
+  so "N nodes online in M countries" is the figure the Map tab shows after setup. It
+  makes no request of its own (main reads the directory at launch and every minute,
+  wallet or not) and does not animate. The card is centred and the map takes up the
+  slack, so the buttons stay on screen at the 960x600 minimum (2026-10-10).
 - **[RN-8] Dark-only** — bg `#16181d`, accent `#e1bc99`. There is deliberately no theme switch:
   `tokens.css` `:root` holds the only semantic tokens, and components read those (never
   primitives, never a `dark:` variant). Don't reintroduce a `.dark` selector.
