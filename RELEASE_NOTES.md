@@ -1,117 +1,102 @@
-# Katacomb VPN 1.15.0
+# Katacomb VPN 1.16.0
 
 A desktop client for the Sentinel decentralized VPN network. Pick a node, pay for a
 session on-chain, and tunnel through WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY or
 Hysteria2.
 
-1.15.0 rebuilds the Plans and Provider tabs to match the rest of the app, and reads
-plans with more than 50 nodes in full. It also fixes three reconnect bugs. In one, every
-automatic reconnect put you back on the node's own DNS servers.
+1.16.0 lets you switch to another node, plan or chain while you are connected, where it
+used to tell you to disconnect first. It also opens on a new welcome screen, redesigns the
+wallets, and makes the tray show every connection state. Among the fixes: a double click
+on Pay could buy two sessions, and a copied recovery phrase could stay on the clipboard.
 
 ## Highlights
 
-- **Plans are easier to compare.** The Plans tab is now a sortable table of every plan,
-  with a detail pane beside it. The pane shows the plan's value per GB against every
-  other listed plan and against paying a node directly. It also shows a map of the
-  countries its nodes cover and the protocols they run. Up, Down, Home and End move
-  through the table, and Enter opens the selected plan's review. Under My plans, each
-  active plan subscription shows how much of its time and its data you have used.
-- **Plans with more than 50 nodes are read in full.** A bug in the blockchain's own
-  query (sentinelhub v12.0.2) cut every plan's node list at 50: plan 41 showed 50 of its
-  more than 800 nodes. The app now works around it in the catalog, the plan's detail pane, smart
-  connect's list of candidates and the Provider tab. Smart connect now has the whole
-  list to work through, so it stops after 10 nodes fail the checks it runs before paying,
-  and says that nothing was bought.
-- **The Provider tab is rebuilt**, for anyone selling bandwidth:
-  - one bar at the top carries your provider, with its Burn, In escrow and Income
-    figures; the setup steps are laid out as a route below it;
-  - an Overview shows when each lease runs out (soonest first), what each node costs
-    per day, and the income from each plan;
-  - each plan gets a workspace:
-    - switches for its status and visibility;
-    - a break-even meter, showing how many active subscribers would cover your
-      running leases;
-    - a **Will subscribers find it?** checklist;
-    - **See it as a subscriber**, which opens the catalog on that plan and names any
-      filter that hides it;
-  - a plan's nodes are listed with a bar for each lease, and an **Add nodes** drawer
-    leases and links more;
-  - an amber dot on the Provider tab warns while a lease set never to renew has less
-    than a day left.
-- **New plan and Edit details follow the same layout.**
-  - **New plan** shows:
-    - the terms, with presets and their break-even;
-    - the draft's value against the plans subscribers see;
-    - the same checklist;
-    - the limits on size, days and price.
-  - **Edit details** previews the catalog heading as you type, and warns when a name
-    will be filed under Test plans.
-  - **Renaming your provider shows in the catalog at once.** Before, a provider renamed
-    away from a test-looking name stayed under Test plans for up to an hour.
-- **Lease and link asks once.** It no longer stacks a second confirmation on top of its
-  own review window.
-- **Automatic reconnect keeps your DNS choice.** On WireGuard and AmneziaWG, the
-  resolver you pick in Settings replaces the node's own DNS servers when you connect.
-  Every automatic reconnect brought the node's servers back, for the rest of that
-  connection. It now applies your choice again. With System Default selected, nothing
-  changes.
-- **Reconnecting from the Sessions tab brings up the session you clicked.** After a
-  connect to one session failed, reconnecting a different session from the Sessions tab
-  could bring up the first session's tunnel, while the app counted usage against the
-  second. This affected WireGuard with System Default DNS, and V2Ray.
-- **Giving up on reconnecting no longer races the last attempt.** Automatic reconnect
-  could run out of attempts just as a V2Ray, XRAY or Hysteria2 core exited. Its cleanup
-  then ran alongside the last attempt while that attempt was still bringing the tunnel
-  up. The cleanup now waits its turn, and does nothing if you have disconnected or the
-  attempt succeeded.
-- **A bundled binary without a recorded checksum is refused.** Before running a bundled
-  protocol binary, the app checks it against a SHA-256 checksum recorded in the app. A
-  binary with no recorded checksum used to be let through; it is now refused. Every
-  binary in 1.15.0 has one, so nothing changes in use.
+- **Switch while connected.** Picking another node, plan or chain while connected used to
+  end in "Disconnect first" over a greyed-out Pay. The review window in the Nodes, Plans
+  and Multi-hop tabs now offers the switch in place:
+  - a "Switches from" row heads the checks and states both costs: the current connection
+    drops before the purchase, so your apps go out directly and the kill switch is off
+    until the new one is up; and the session you leave stays open, to go back to or end
+    from the Sessions tab;
+  - Pay reads "Pay N P2P and switch". If the current connection cannot be dropped,
+    nothing is bought;
+  - if the new connection fails after the old one dropped, the error offers to reconnect
+    to the one you had;
+  - picking what already carries your connection (the same node, the plan subscription
+    serving it, or the same chain) says so instead of selling it to you again;
+  - a chain switch runs the wallet link check again after leaving, since through the
+    tunnel it often cannot run.
+
+  In the Sessions tab, Reconnect on another session also works while connected, with no
+  new purchase.
+- **Disconnect sits next to whatever needs it.** The Provider tab, Manage subscription,
+  wallet changes and the VPN helper update still need the connection down. Each now has a
+  Disconnect button beside its reason, instead of pointing you at the header. After a
+  Disconnect in the Provider tab, a Resume bar brings the connection back once your
+  changes are done. The "a tunnel is already up" banner over the Multi-hop tab is gone.
+- **A welcome screen on first launch.** A new install opens on a page that says what the
+  app is: the logo, how it works, a live world map of where the nodes are (for example
+  "1,453 nodes online in 84 countries"), what it offers, and three steps to a first
+  connection, including that you will need P2P. The map uses the node list the app
+  already downloads, and its count is the one the Map tab shows. Create, Import, Welcome
+  back and the other wallet setup screens now carry the logo too, and Welcome back
+  scrolls when the wallet list is long.
+- **The wallets are redesigned.** Settings > Wallets shows one card per seed, with a row
+  per wallet. The active wallet is highlighted and shows its balance. Switch is the only
+  button on a row; rename, copy and delete are icons. The Welcome back screen and the
+  top bar's Wallet menu use the same look. Only the active wallet's balance is read:
+  reading every address at once would tell the RPC operator they belong to one person.
+- **A copied recovery phrase no longer stays on the clipboard.** Copying a phrase sets a
+  wipe for 30 seconds later, but closing the screen that copied it cancelled the wipe.
+  The create screen closes the moment the new wallet opens, and the Recovery phrase
+  window closes on Done, so the phrase usually stayed on the clipboard. The wipe now runs
+  whether or not the screen is still open.
+- **One connection is set up at a time.** Buying a session and bringing it up takes 10 to
+  40 seconds with no tunnel yet, and in that window a second purchase or reconnect could
+  start beside the first: a double click on Pay, the tray's Connect, or a Reconnect in
+  the Sessions tab. That could buy a second session, or leave the tunnel and the quota
+  the app watches belonging to different sessions. A second one is now refused until the
+  first finishes. Reconnecting a session that has used everything it was paid for is
+  refused too.
+- **The tray shows every connection state.** The tray icon's K is an outline when
+  disconnected, fills from the bottom (amber) while connecting or reconnecting, is solid
+  green when connected, and turns red with a slash through it while the kill switch
+  blocks all traffic, so the state reads without relying on colour. Its menu says what is
+  happening, with the node's name ("Connecting to …", "Reconnecting to … (2 of 5)",
+  "Internet blocked by the kill switch"), and offers the one action that fits: Disconnect,
+  Restore internet, or Reconnect last session, which reconnects your most recent open
+  session and shows any error on the Sessions tab. A chain is named by its exit node, and
+  Quit reads "Disconnect and quit" while connected.
+- **Gas and fee failures are no longer reported as "not enough P2P".** A transaction that
+  ran out of gas, or offered a fee under the network's minimum, said your wallet was
+  short, that nothing was charged, and to top up, which fixes neither. Out of gas now
+  says the fee may have been charged and asks you to retry; a low fee shows the chain's
+  own message. A funds failure inside a block no longer claims nothing was charged.
+- **Every country has its flag, and Turkey is on the globe.** 21 countries in the node
+  list had no flag, among them Angola, Chad, Kosovo, South Sudan and Syria. Turkey's
+  nodes were missing from the globe and the maps because they expected "Türkiye", and
+  Congo (DRC) the same way. Countries are now matched by ISO code everywhere.
 - **Smaller fixes:**
-  - dollar estimates no longer print as "$1.9e-7";
-  - disabled buttons look disabled in every tab;
-  - the Sessions and Multi-hop tab badges have their tint back, and the globe's
-    recenter button and stats chip have their panel back;
-  - "Leased, not linked" no longer offers Link on a node that is already linked;
-  - the Provider plan list no longer cuts off its counters.
-- **A test suite now guards the app's rules.** 95 of the app's 98 documented rules now
-  have a test that goes red if a change breaks it. The other three are facts about the
-  blockchain, re-checked against it by a separate script. The tested rules include:
-  - refunds after a failed connection;
-  - one connection at a time;
-  - the kill switch's life cycle;
-  - what may reach root.
+  - importing a seed that is already stored now offers "Use that wallet", instead of
+    showing a raw error;
+  - a refused wallet rename now says why, instead of doing nothing;
+  - choosing another account index in New wallet no longer keeps the previous account's
+    address selected;
+  - on a first launch, the app no longer reads the whole node directory twice at once,
+    which got one of the reads refused (HTTP 429);
+  - GitHub links point at the proofoftrinity account after its rename.
+- **The test suite now covers the Provider tab.** 108 of the app's 111 documented rules
+  have a test that goes red if a change breaks it; the other three are blockchain facts,
+  re-checked by a separate script. The Provider console, which escrows lease funds and
+  pays the registration deposit, had none; it now has seven rules with tests and nine
+  mutation canaries. A canary now counts as caught only when its own rule's test fails.
+  Nothing changes in use.
+- **Nothing else changes.** The packaging is the same as in 1.15.0, apart from the
+  redrawn tray icons.
 
-  Each money, root and privacy rule is also broken on purpose to prove its tests catch
-  it. The suite found the three reconnect bugs above. Nothing changes in use.
-- **Nothing else changes.** The packaging is the same as in 1.14.1.
+## Fixes in 1.16.0
 
-## Fixes in 1.15.0
-
-- Add npm run check:chain, a mainnet re-check of the SL-2..SL-4 chain facts
-- Keep the chosen resolver when the reconnect ladder brings WireGuard back
-- Pin the partial rules and the install scripts, and run the copy rules
-- Move the Sessions card's rules into tested pure functions
-- Fuzz the parsers root exposes, and hold both sides of the socket to one corpus
-- Pin the user's data across upgrades, credential storage, and the signed reply
-- Pin how a connection ends, what main asks of signing nodes, and the root sinks
-- Mutation canaries: prove the suite still catches each money, root and privacy regression
-- Record the two reconnect fixes in the reliability invariants
-- Run the reconnect give-up teardown under the connection lock
-- Connect brings up the config it is handed, not one stashed by a failed connect
-- Drive the real connection state machine in tests: money, lifecycle, wallet, trust
-- Pin the rules that live in the code's shape: static checks and a CI build
-- Make the test suite the invariant: rule IDs, a registry, typed tests
-- New plan: terms beside the value strip, no steps card
-- Bring New plan and Edit details in line with the redesign
-- Document the colour-class rule and the linked-list rule
-- Fix the remaining dead colour classes and a false Link offer
-- Add the deferred Plans and Provider items
-- Align the Provider node tables and document the new tabs
-- Rebuild the Provider tab in the app's visual language
-- Rebuild the Plans tab in the app's visual language
-- Read every node of a plan, not the first 50
+<!-- regenerated by release.sh from v1.15.0..HEAD at cut time; leave the heading -->
 
 ## Known limitations
 

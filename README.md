@@ -38,9 +38,10 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
   its nodes cover. *My plans* shows how much time and data each subscription has used,
   and manages cancelling and the auto-renewal policy.
 - **Sessions**: every active session with usage, price and remaining allowance;
-  reconnect or end it from here. Ended sessions, which stay listed while the blockchain
-  settles them, are hidden behind *Show ended*. A chain that has lost a hop is marked
-  *Chain broken*, with End for the hop still open.
+  reconnect or end it from here. Reconnect works while another session is connected: it
+  switches to this one, with no new transaction. Ended sessions, which stay listed while
+  the blockchain settles them, are hidden behind *Show ended*. A chain that has lost a hop
+  is marked *Chain broken*, with End for the hop still open.
 
 **Connecting**
 
@@ -56,6 +57,11 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
 - **Local Network Sharing**: reach other devices on your network (SSH, printers, NAS)
   while the kill switch is on. It opens the private ranges in the firewall and changes
   no routing, so that traffic stays on your LAN and is not carried by the VPN.
+- **Switch while connected**: pick another node, plan or chain while connected and the
+  review offers the switch in place. It states both costs first: the connection drops
+  before the purchase, so apps go out directly and the kill switch is off until the new
+  one is up; and the session you leave stays open, to go back to or end from Sessions. If
+  the new connection fails, it offers to reconnect to the one you had.
 - **Auto-reconnect**: up to 5 attempts with backoff when a tunnel drops.
 - **Proxy mode**: for the SOCKS-capable protocols, run just the local listener at
   `127.0.0.1:1080` without touching system routing or asking for root.
@@ -70,7 +76,11 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
   `resolvconf`) stops before anything is paid and installs it in one click with apt, dnf
   or pacman. Settings > System shows the same checks. The .deb installs the helper,
   WireGuard tools and OpenVPN with the package.
-- Live traffic stats, real egress IP/geo check, tray connect.
+- **Tray**: the K in the icon is an outline when disconnected, fills while connecting,
+  is solid when connected and has a slash through it while the kill switch blocks all
+  traffic. Its menu names the node and the state, and offers Disconnect, Restore internet
+  or Reconnect last session.
+- Live traffic stats, real egress IP/geo check.
 
 **Wallet**
 
@@ -78,6 +88,8 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
   chosen account index.
 - Seeds are encrypted at rest with Electron `safeStorage` (the OS keyring, libsecret on
   Linux). If the keyring is unavailable, secrets are **not** written in plaintext instead.
+- A copied recovery phrase is wiped from the clipboard 30 seconds later, even if the
+  screen that copied it has closed.
 - The active wallet is locked while a session is running: nothing on disk records which
   wallet paid for one, so switching mid-session would leave it uncancellable. Renaming,
   deriving a subaccount and reading a recovery phrase stay available.
