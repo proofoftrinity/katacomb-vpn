@@ -266,6 +266,19 @@ from `src/main/`; `src/shared/` is the only overlap.
 - **`map/world-geo.ts` owns the small maps' world file**: `useWorldCountries`,
   `countryPoint` and the small-country fallbacks, shared by the Multi-hop `RouteMap` and
   the Plans coverage map. The Map tab's globe still loads its own copy.
+- **[RN-11] A country reaches its flag and its place on the map through one table, by
+  ISO code.** The node feed sends a country name, never a code, in its own spelling
+  ("Congo (DRC)", "Ivory Coast", "Turkey"). `utils/country-codes.ts` lists every ISO
+  3166-1 country and Kosovo with the spellings the common sources use, and compares names
+  with case, accents, punctuation, "&", "St." and "the" folded away. Flags look up
+  `countryCode(name)`; the globe, the Multi-hop route map and the Plans coverage map match
+  a polygon to the nodes by `polyCode`, never by name, and the small-country fallbacks are
+  keyed by code too. Until 2026-10-10 the flags came from a hand-kept list that had no
+  entry for 21 countries the feed was reporting (Angola, Chad, Comoros, Kosovo, South
+  Sudan and Syria among them), and the maps from a second rename table that turned the
+  world file's "Turkey" into a "Türkiye" the feed never sent, so Turkey's 144 nodes did
+  not show on the globe. A new spelling goes into its country's row, never into a
+  table of its own.
 - **A disabled filled button drops its fill** (`global.css`, every tab). The accent at the
   buttons' `disabled:opacity-40` turned a pane muddy brown when a row of them shared one
   blocking reason. Every filled button that can be disabled carries that opacity utility,

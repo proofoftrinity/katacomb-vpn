@@ -23,8 +23,7 @@ import {
 } from '../../utils/chain-node'
 import { pairConflict } from '../../utils/chain-diversity'
 import { formatP2p } from '../../../shared/funds'
-import { COUNTRY_CODES } from '../../utils/country-codes'
-import { polyKey } from '../../utils/country-normalization'
+import { countryCode, polyCode } from '../../utils/country-codes'
 import NodeFilters, { Chip } from '../nodes/NodeFilters'
 import CountryFlag from '../CountryFlag'
 import DisconnectButton from '../DisconnectButton'
@@ -674,7 +673,7 @@ function HopPill({ role, node, active, latency, onActivate, onClear }: {
   onActivate: () => void
   onClear: () => void
 }) {
-  const code = node ? COUNTRY_CODES[node.country] || '' : ''
+  const code = node ? countryCode(node.country) ?? '' : ''
   return (
     <div
       role="button"
@@ -786,13 +785,13 @@ function RouteMap({ entry, exit, clash }: { entry: SentNode | null; exit: SentNo
   // An empty frame until (or unless) the file loads: the pills carry the same facts in words.
   const world = useWorldCountries()
 
-  const entryCountry = entry?.country ?? null
-  const exitCountry = exit?.country ?? null
+  const entryCode = entry ? countryCode(entry.country) ?? null : null
+  const exitCode = exit ? countryCode(exit.country) ?? null : null
   const drawn = useMemo(() => {
     if (!world) return null
-    const byName = new Map(world.map((f) => [polyKey(f), f]))
-    const a = entryCountry !== null ? countryPoint(entryCountry, byName) : null
-    const b = exitCountry !== null ? countryPoint(exitCountry, byName) : null
+    const byCode = new Map(world.map((f) => [polyCode(f), f]))
+    const a = entryCode !== null ? countryPoint(entryCode, byCode) : null
+    const b = exitCode !== null ? countryPoint(exitCode, byCode) : null
     const projection = geoNaturalEarth1()
     if (a && b) {
       // Rotate to the arc's midpoint before fitting, so a pair across the antimeridian
@@ -816,14 +815,14 @@ function RouteMap({ entry, exit, clash }: { entry: SentNode | null; exit: SentNo
     const path = geoPath(projection)
     return {
       land: world.map((f) => {
-        const name = polyKey(f)
-        return { name, d: path(f) ?? '', hot: name !== '' && (name === entryCountry || name === exitCountry) }
+        const code = polyCode(f)
+        return { code, d: path(f) ?? '', hot: code !== '' && (code === entryCode || code === exitCode) }
       }),
       arc: a && b ? path({ type: 'LineString', coordinates: [a, b] }) ?? '' : '',
       entry: a ? projection(a) : null,
       exit: b ? projection(b) : null,
     }
-  }, [world, entryCountry, exitCountry])
+  }, [world, entryCode, exitCode])
 
   return (
     <svg
@@ -836,7 +835,7 @@ function RouteMap({ entry, exit, clash }: { entry: SentNode | null; exit: SentNo
     >
       <title>Entry ring, exit dot. Your own location is never looked up.</title>
       {drawn?.land.map((c, i) => c.d && (
-        <path key={c.name || i} d={c.d} className={c.hot ? 'route-map-hot' : 'route-map-land'} />
+        <path key={c.code || i} d={c.d} className={c.hot ? 'route-map-hot' : 'route-map-land'} />
       ))}
       {drawn?.arc && <path d={drawn.arc} className={clash ? 'route-map-arc route-map-arc-clash' : 'route-map-arc'} />}
       {drawn?.entry && <circle cx={drawn.entry[0]} cy={drawn.entry[1]} r={3} className="route-map-entry" />}
