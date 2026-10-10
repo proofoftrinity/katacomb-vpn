@@ -41,6 +41,9 @@ CLAUDE.md; this is the per-module detail.
   parallel (sequential would outrun the 60s refresh interval); a failed page fails the
   whole refresh, deliberately — a partial list replacing the full one is worse than the
   last good cache. Both shapes parse, so an upstream revert doesn't break it again.
+  Reads that overlap share one in flight (`nodesFetchInFlight`): on a first launch the
+  startup refresh and the window's own fetch (NodesContext, empty cache) start together,
+  and the second full fan-out came back 429.
   **Nothing in the renderer should call `nodesFetch()` just to read the list** — that's
   the whole paginated refresh; take `useNodesContext().allNodes`, which is already
   populated from cache + `NODES_UPDATE` pushes. Only a user-driven Refresh should fetch.

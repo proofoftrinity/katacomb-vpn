@@ -400,3 +400,40 @@ describe('what CONNECTION_CONNECT accepts', () => {
     })
   }
 })
+
+describe('the node directory', () => {
+  // Two pages, so a read is more than one request: page 1 names the last page.
+  const directory = async (url: string) => {
+    const page = url.includes('page=2') ? 2 : 1
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: { nodes: [{ address: `sentnode1p${page}` }], pagination: { lastPage: 2 } } }),
+    }
+  }
+
+  test('reads that overlap share one set of requests, and the next read fetches afresh', async (t) => {
+    // A first launch has no disk cache, so main's startup refresh and the window's own
+    // NODES_FETCH start together; each sent every page at once, and the directory
+    // answered the second set with 429 (found 2026-10-10, on the new welcome screen).
+    const h = ipc.fresh({ fakes: { electron: { 'net.fetch': directory } } })
+    t.after(() => h.dispose())
+    const [a, b] = await Promise.all([h.invoke('NODES_FETCH'), h.invoke('NODES_FETCH')])
+    assert.equal(h.calls('electron', 'net.fetch').length, 2, 'one read: page 1, then page 2')
+    assert.deepEqual(a, b)
+    assert.equal((a as unknown[]).length, 2)
+
+    await h.invoke('NODES_FETCH')
+    assert.equal(h.calls('electron', 'net.fetch').length, 4, 'a finished read is not reused')
+  })
+
+  test('a failed read is not kept: the next one asks the directory again', async (t) => {
+    let fail = true
+    const h = ipc.fresh({ fakes: { electron: { 'net.fetch': async (url: string) => (fail ? { ok: false, status: 429 } : directory(url)) } } })
+    t.after(() => h.dispose())
+    const err = await h.settleError(h.invoke('NODES_FETCH'))
+    assert.match(err.message, /429/)
+    fail = false
+    assert.equal(((await h.invoke('NODES_FETCH')) as unknown[]).length, 2)
+  })
+})
