@@ -70,9 +70,9 @@
 #                 section's healthy state), so no diff can police it - only you
 #                 can notice a fixed limitation still listed, or a new one missing.
 #                 You do NOT have to work out whether step 2 applies: preflight
-#                 diffs electron-builder.yml and resources/linux/ against the last
-#                 tag and says so, and the closing output prints the steps that
-#                 follow from its answer.
+#                 diffs electron-builder.yml and resources/linux/ (and the Electron
+#                 version) against the last tag and says so, and the closing output
+#                 prints the steps that follow from its answer.
 #
 #   1. cut        ./scripts/release.sh <version> --dry-run     (preflight is real)
 #                 ./scripts/release.sh <version>
@@ -534,6 +534,11 @@ ok "signing key $SIGNING_KEY present"
 # exists: the AppArmor defect shipped while the config read perfectly, and only
 # installing and launching the package could have caught it. Informational, not a
 # refusal - the run itself needs root, a GUI, and the build this is about to make.
+# A new Electron counts too, though no packaging file moves: its binary is most of
+# the package, and its NEEDED libraries are what the deb's Depends answer for
+# (docs/packaging.md). 1.16.1's 41.10.2 -> 41.10.7 read as "unchanged" without it.
+electron_version() { git show "$1:package-lock.json" 2>/dev/null | grep -A1 '^    "node_modules/electron": {' | sed -n 's/.*"version": "\(.*\)",/\1/p'; }
+[ -n "$(electron_version HEAD)" ] || die "cannot read Electron's version from package-lock.json: fix electron_version() before trusting the packaging check"
 PREV_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
 PACKAGING_CHANGED=0
 if [ -z "$PREV_TAG" ]; then
@@ -544,6 +549,9 @@ elif [ -n "$(git diff --name-only "$PREV_TAG"..HEAD -- electron-builder.yml reso
   info "packaging changed since $PREV_TAG, verify-deb-portability.sh is REQUIRED:"
   git diff --stat "$PREV_TAG"..HEAD -- electron-builder.yml resources/linux/ daemon/ scripts/build-daemon.sh \
     | sed 's/^/          /'
+elif [ "$(electron_version "$PREV_TAG")" != "$(electron_version HEAD)" ]; then
+  PACKAGING_CHANGED=1
+  info "Electron $(electron_version "$PREV_TAG") -> $(electron_version HEAD) since $PREV_TAG, verify-deb-portability.sh is REQUIRED"
 else
   ok "packaging unchanged since $PREV_TAG, verify-deb-portability.sh can be skipped"
 fi

@@ -276,10 +276,14 @@ else
   RANGE_END=HEAD
   PREV_TAG="$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)"
 fi
+# A new Electron counts as a packaging change (see release.sh's preflight for why).
+electron_version() { git show "$1:package-lock.json" 2>/dev/null | grep -A1 '^    "node_modules/electron": {' | sed -n 's/.*"version": "\(.*\)",/\1/p'; }
 PACKAGING_CHANGED=0
 if [ -z "$PREV_TAG" ]; then
   PACKAGING_CHANGED=1
 elif [ -n "$(git diff --name-only "$PREV_TAG".."$RANGE_END" -- electron-builder.yml resources/linux/ daemon/ scripts/build-daemon.sh 2>/dev/null)" ]; then
+  PACKAGING_CHANGED=1
+elif [ "$(electron_version "$PREV_TAG")" != "$(electron_version "$RANGE_END")" ]; then
   PACKAGING_CHANGED=1
 fi
 if [ "$PACKAGING_CHANGED" = 0 ]; then
