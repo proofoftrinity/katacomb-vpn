@@ -5,7 +5,8 @@
 # not a CI script. Installs and removes the real package on this machine. Re-run
 # after touching electron-builder.yml, either maintainer script (postinstall.sh /
 # postrm.sh), or the systemd unit — those are exactly what regressed the AppArmor
-# profile and the deb dependency list before (see CLAUDE.md "Packaging").
+# profile and the deb dependency list before (see CLAUDE.md "Packaging"). Also re-run
+# after any Electron version change, which replaces the binary the deb's Depends serve.
 #
 # Run each phase in order, as root, from the repo root:
 #     sudo ./scripts/verify-deb-portability.sh phase1
