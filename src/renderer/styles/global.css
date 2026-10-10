@@ -220,6 +220,25 @@
   .coverage-2 { fill: color-mix(in srgb, var(--color-accent) 80%, var(--color-bg-primary)); }
   .coverage-3 { fill: var(--color-accent); }
   .coverage-1, .coverage-2, .coverage-3 { stroke: var(--color-bg-primary); stroke-width: 0.4; }
+
+  /* The page under the wallet setup screens (wallet/SetupLayout.tsx, and the first-run
+     welcome in wallet/MnemonicInput.tsx): a faint bronze light from the top left, where
+     the logo sits, and a fainter one from the bottom right. */
+  .setup-backdrop {
+    background:
+      radial-gradient(70rem 40rem at 8% -12%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%),
+      radial-gradient(50rem 30rem at 105% 115%, color-mix(in srgb, var(--color-accent) 5%, transparent), transparent 70%),
+      var(--color-bg-primary);
+  }
+
+  /* The welcome's network map (utils/world-dots.ts): land a step above the page, and
+     the countries with nodes in three steps of the accent, as the coverage map above.
+     No stroke: on a dot this small it would eat the fill. Each class is written out in
+     full in MnemonicInput's DOT_CLASS (Tailwind). */
+  .network-dot-0 { fill: color-mix(in srgb, var(--color-text-tertiary) 40%, var(--color-bg-primary)); }
+  .network-dot-1 { fill: color-mix(in srgb, var(--color-accent) 50%, var(--color-bg-primary)); }
+  .network-dot-2 { fill: color-mix(in srgb, var(--color-accent) 78%, var(--color-bg-primary)); }
+  .network-dot-3 { fill: var(--color-accent); }
 }
 
 @keyframes route-flow {

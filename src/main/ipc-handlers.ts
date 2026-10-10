@@ -2462,7 +2462,20 @@ async function fetchNodesPage(page: number): Promise<NodesPage> {
   return parseNodesPage(await response.json())
 }
 
-async function fetchNodes(): Promise<unknown[]> {
+/**
+ * The read in flight, which every caller that arrives meanwhile shares. On a first launch
+ * (no disk cache) the startup refresh and the window's own NODES_FETCH begin together,
+ * each sent every page at once, and the directory answered the second set with 429
+ * (2026-10-10). Cleared when the read settles, so a failure is never kept.
+ */
+let nodesFetchInFlight: Promise<unknown[]> | null = null
+
+function fetchNodes(): Promise<unknown[]> {
+  nodesFetchInFlight ??= fetchAllNodePages().finally(() => { nodesFetchInFlight = null })
+  return nodesFetchInFlight
+}
+
+async function fetchAllNodePages(): Promise<unknown[]> {
   // The feed is paginated at a fixed 200/page (no perPage/limit override is
   // honoured), so the whole list is ~10 requests. Page 1 tells us how many
   // there are; the rest go out together, because sequentially they'd take

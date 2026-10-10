@@ -337,7 +337,8 @@ function AppInner() {
 
   if (wallet.loading) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <div className="h-full flex flex-col items-center justify-center gap-5 setup-backdrop">
+        <AppLogo size={56} />
         <div className="text-text-secondary text-sm flex items-center gap-2">
           <Spinner />
           Initializing...

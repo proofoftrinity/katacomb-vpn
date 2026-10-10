@@ -46,6 +46,8 @@ export interface FakesFor {
   'nodes/node-tester'?: Partial2<typeof import('../../src/main/nodes/node-tester.ts')>
   'net-fetch'?: Partial2<typeof import('../../src/main/net-fetch.ts')>
   'ipc/setup'?: Partial2<typeof import('../../src/main/ipc/setup.ts')>
+  /** The node directory and the other plain HTTPS reads main makes itself. */
+  electron?: { 'net.fetch'?: (url: string, init?: unknown) => Promise<unknown> }
 }
 
 /** What the faked vpn-manager pretends the machine's tunnel is doing. */
