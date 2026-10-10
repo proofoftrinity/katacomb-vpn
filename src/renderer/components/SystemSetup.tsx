@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { SetupStatus } from '../types'
 import { displayConnectError, type SetupItem } from '../utils/connect-errors'
 import Spinner from './Spinner'
+import DisconnectButton from './DisconnectButton'
 
 interface Props {
   /** Only these rows: what a refused connect named. Absent = all three (Settings, System). */
@@ -136,7 +137,10 @@ export default function SystemSetup({ only, connected = false, onReadyChange }: 
                 </p>
               )}
               {!ready && helperBlocked && (
-                <p className="text-text-secondary text-xs mt-1">Disconnect first: this restarts the service that holds the tunnel up.</p>
+                <div className="flex items-center gap-2 flex-wrap mt-1">
+                  <p className="text-text-secondary text-xs">Disconnect first: this restarts the service that holds the tunnel up.</p>
+                  <DisconnectButton />
+                </div>
               )}
               {error && <p className="text-danger text-xs mt-1">{error}</p>}
             </div>

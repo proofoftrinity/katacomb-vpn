@@ -1,14 +1,17 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ProviderState } from '../../hooks/useProvider'
 import { useConnection } from '../../hooks/useConnection'
+import { useReconnect } from '../../hooks/useReconnect'
+import { previousConnection, type PreviousConnection } from '../../utils/switch'
 import { useRpcHealth } from '../../hooks/useRpcHealth'
 import { isChainUnreachable } from '../../../shared/rpc-health'
 import { providerDetailsProblem } from '../../../shared/provider-details'
 import { displayConnectError } from '../../utils/connect-errors'
 import { STATUS_ACTIVE, formatUdvpn } from '../../utils/provider-format'
 import { providerSetupSteps, setupComplete, type SetupStep } from '../../utils/provider-setup'
-import type { ProviderDetailsInput } from '../../types'
+import type { ConnectionStatus, ProviderDetailsInput } from '../../types'
 import ChainUnreachable from '../ChainUnreachable'
+import DisconnectButton from '../DisconnectButton'
 import { useConfirm } from '../ConfirmModal'
 import ProviderDetailsFields from './ProviderDetailsFields'
 import ProviderIdentityCard, { useProviderStatus } from './ProviderIdentityCard'
@@ -56,6 +59,13 @@ export default function ProviderConsole({
   const [confirmedLinkedNodes, setConfirmedLinkedNodes] = useState<number | null>(null)
   // One status control for the bar's button and the workspace's "Activate provider".
   const status = useProviderStatus(plans, leases, refresh)
+  // The connection a Disconnect pressed on this tab dropped, offered back once the
+  // changes are made ([RN-10]). Lives as long as the tab: Sessions has it after that.
+  const [resumable, setResumable] = useState<PreviousConnection | null>(null)
+  const onDisconnected = (was: ConnectionStatus) => setResumable(previousConnection(was))
+  const resumeBar = !tunnelUp && resumable
+    ? <ResumeBar from={resumable} onResumed={() => setResumable(null)} />
+    : null
 
   // The first read, in the shape of the tab it becomes: the bar, the plan list and
   // the Overview. A re-read keeps the previous render, so this shows only once.
@@ -97,6 +107,7 @@ export default function ProviderConsole({
             your provider from this session yet.
           </p>
           <p className="text-text-tertiary text-xs mt-2">Disconnect the VPN to manage your provider.</p>
+          <div className="mt-3"><DisconnectButton onDisconnected={onDisconnected} /></div>
         </Centered>
       )
     }
@@ -129,7 +140,16 @@ export default function ProviderConsole({
   })
 
   if (!provider.registered) {
-    return <ProviderOnboarding address={provider.address} steps={steps} readOnly={readOnly} onRegistered={refresh} />
+    return (
+      <ProviderOnboarding
+        address={provider.address}
+        steps={steps}
+        readOnly={readOnly}
+        onRegistered={refresh}
+        onDisconnected={onDisconnected}
+        resumeBar={resumeBar}
+      />
+    )
   }
 
   return (
@@ -144,18 +164,24 @@ export default function ProviderConsole({
         onChanged={refresh}
       />
       {readOnly ? (
-        <div className="px-5 py-1.5 border-b border-border bg-warning-subtle shrink-0">
+        <div className="px-5 py-1.5 border-b border-border bg-warning-subtle shrink-0 flex items-center justify-between gap-3">
           <p className="text-warning text-xs">
             Showing cached data: the chain is not reachable while the VPN is connected. Reads stay
             available, actions need you to disconnect first.
           </p>
+          <DisconnectButton onDisconnected={onDisconnected} />
         </div>
-      ) : !setupComplete(steps) && (
-        // Shown only while incomplete. An inactive provider always lands here, since
-        // Activate is one of the steps, which is what replaced the separate banner.
-        <div className="px-5 py-3 border-b border-border shrink-0">
-          <SetupRoute steps={steps} />
-        </div>
+      ) : (
+        <>
+          {resumeBar && <div className="px-5 py-1.5 border-b border-border shrink-0">{resumeBar}</div>}
+          {!setupComplete(steps) && (
+            // Shown only while incomplete. An inactive provider always lands here, since
+            // Activate is one of the steps, which is what replaced the separate banner.
+            <div className="px-5 py-3 border-b border-border shrink-0">
+              <SetupRoute steps={steps} />
+            </div>
+          )}
+        </>
       )}
       <ProviderPlans
         plans={plans}
@@ -229,6 +255,45 @@ function SetupRoute({ steps }: { steps: SetupStep[] }) {
   )
 }
 
+/**
+ * The way back to the connection a Disconnect on this tab dropped. Its session was
+ * never touched, so this is a plain reconnect: no transaction, and a chain comes back
+ * as both hops.
+ */
+function ResumeBar({ from, onResumed }: { from: PreviousConnection; onResumed: () => void }) {
+  const reconnect = useReconnect()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const sessionId = from.sessionId
+  if (!sessionId) return null
+
+  async function handleResume(id: string) {
+    setBusy(true)
+    setError(null)
+    const result = await reconnect({ id })
+    setBusy(false)
+    if (result.ok) onResumed()
+    else setError(result.error ?? 'Reconnection failed')
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <p className="text-text-secondary text-xs">
+        Disconnected from {from.label} so changes can reach the chain. Its session stays open.
+        {error && <span className="block text-danger">{displayConnectError(error)}</span>}
+      </p>
+      <button
+        type="button"
+        onClick={() => void handleResume(sessionId)}
+        disabled={busy}
+        className="btn btn-secondary text-xs px-3 py-1 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {busy ? 'Resuming…' : `Resume ${from.label}`}
+      </button>
+    </div>
+  )
+}
+
 function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-full flex items-center justify-center px-8">
@@ -249,11 +314,14 @@ type DepositState = 'loading' | 'failed' | { denom: string; amount: string }
  * Registration is refused until the deposit has actually been read: a money
  * confirmation must never show "Deposit: …" with the figure missing.
  */
-function ProviderOnboarding({ address, steps, readOnly, onRegistered }: {
+function ProviderOnboarding({ address, steps, readOnly, onRegistered, onDisconnected, resumeBar }: {
   address: string
   steps: SetupStep[]
   readOnly: boolean
   onRegistered: () => void
+  onDisconnected: (was: ConnectionStatus) => void
+  /** The way back to a connection dropped here, once the tab is live again. */
+  resumeBar: ReactNode
 }) {
   const [details, setDetails] = useState<ProviderDetailsInput>(EMPTY_DETAILS)
   const [deposit, setDeposit] = useState<DepositState>('loading')
@@ -324,12 +392,15 @@ function ProviderOnboarding({ address, steps, readOnly, onRegistered }: {
           <SetupRoute steps={steps} />
         </div>
 
-        {readOnly && (
-          <div className="bg-warning-subtle border border-warning rounded-md px-3 py-2">
+        {readOnly ? (
+          <div className="bg-warning-subtle border border-warning rounded-md px-3 py-2 flex items-center justify-between gap-3">
             <p className="text-warning text-xs">
               Registering needs the chain, which is not reachable while the VPN is connected. Disconnect first.
             </p>
+            <DisconnectButton onDisconnected={onDisconnected} />
           </div>
+        ) : resumeBar && (
+          <div className="border border-border rounded-md px-3 py-2">{resumeBar}</div>
         )}
 
         {/* What it costs and what it binds you to on the left, the record on the right.
