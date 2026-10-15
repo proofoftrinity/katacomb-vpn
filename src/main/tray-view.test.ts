@@ -10,12 +10,22 @@ import type { ConnectionInfo } from './ipc-handlers.ts'
 const idle: ConnectionInfo = { state: 'idle', blocked: false, proxyMode: false, killSwitchFailed: false }
 const up: ConnectionInfo = { ...idle, state: 'connected', nodeMoniker: 'node-wg' }
 
-test('idle: the outline K, and the one action says what it reconnects', () => {
+test('[REL-38] idle: the outline K, and the one action reconnects the session main chose', () => {
+  assert.deepEqual(trayView({ ...idle, reconnectSessionId: '2001' }), {
+    icon: 'disconnected',
+    tooltip: 'Katacomb VPN: Disconnected',
+    statusLines: ['Disconnected'],
+    action: { label: 'Reconnect last session', run: 'reconnect', sessionId: '2001' },
+    quitLabel: 'Quit',
+  })
+})
+
+test('[REL-38] idle with no session main would reconnect: no action at all', () => {
   assert.deepEqual(trayView(idle), {
     icon: 'disconnected',
     tooltip: 'Katacomb VPN: Disconnected',
     statusLines: ['Disconnected'],
-    action: { label: 'Reconnect last session', run: 'reconnect' },
+    action: null,
     quitLabel: 'Quit',
   })
 })

@@ -632,3 +632,17 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   "Restore internet" (a full disconnect, the same call as the window's banner) while
   blocked, Disconnect while reconnecting, and "Disconnect and quit" whenever Quit would
   disconnect ([REL-30]).
+- **[REL-38] The tray offers "Reconnect last session" only for a session main would
+  reconnect, and reconnects exactly that one.** It used to be offered whenever the app was
+  idle, and the renderer then picked the newest active session itself: with none, the
+  press only opened the Nodes tab, and a newest session used up ([SL-5]) or on a broken
+  chain ([MH-10]) was refused after the window had come up for it. Main now picks:
+  `trayReconnectTarget()` is the newest active row in the session cache that
+  `reconnectRefusal()` accepts, the same function `CONNECTION_RECONNECT` refuses with, so
+  the offer and the handler cannot drift apart. It reaches the tray as
+  `ConnectionInfo.reconnectSessionId` and goes back with the press
+  (`CONNECTION_TRAY_CONNECT` carries the id). With none, the idle tray offers no action at
+  all. The cache is the renderer's: it reads sessions at startup, on every connect and
+  disconnect, after main changes one, and every two minutes. A change to what the tray
+  would offer pushes `notifyTray()` ([REL-35]), and so does a wallet switch, delete or
+  logout, which leave no session of that wallet to reconnect.

@@ -13,8 +13,9 @@ export interface TrayView {
   tooltip: string
   /** Disabled rows at the top of the menu: what is true now. */
   statusLines: string[]
-  /** The one connection action offered, or none while a connect is being set up. */
-  action: { label: string; run: 'reconnect' | 'disconnect' } | null
+  /** The one connection action offered: none while a connect is being set up, or while
+   *  idle with no session main would reconnect ([REL-38]). */
+  action: { label: string; run: 'reconnect'; sessionId: string } | { label: string; run: 'disconnect' } | null
   /** Quit runs the full disconnect ([REL-30]), so while a tunnel is up it says so. */
   quitLabel: string
 }
@@ -46,6 +47,8 @@ export function trayView(info: ConnectionInfo): TrayView {
       // The same press as the window's "Restore internet": a full disconnect, which
       // takes the kill switch's DROP-all chain down.
       if (info.blocked) return view('blocked', ['Internet blocked by the kill switch'], { label: 'Restore internet', run: 'disconnect' })
-      return view('disconnected', ['Disconnected'], { label: 'Reconnect last session', run: 'reconnect' })
+      return view('disconnected', ['Disconnected'], info.reconnectSessionId
+        ? { label: 'Reconnect last session', run: 'reconnect', sessionId: info.reconnectSessionId }
+        : null)
   }
 }

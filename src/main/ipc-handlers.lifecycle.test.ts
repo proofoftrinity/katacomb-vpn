@@ -310,6 +310,83 @@ describe('reconnecting a saved session', () => {
     })
   })
 
+  // The tray's Reconnect is main's pick, off the same session cache and the same refusals
+  // as CONNECTION_RECONNECT: offered only when that handler would go ahead.
+  describe('[REL-38] the tray offers Reconnect only for a session main would reconnect', () => {
+    const row = (id: string, startAt: string, extra: Record<string, unknown> = {}) => ({
+      id, nodeAddress: NODE_WG, status: 'active', downloadBytes: '0', uploadBytes: '0', maxBytes: '0',
+      durationSeconds: 600, maxDurationSeconds: 3600, inactiveAt: null, startAt,
+      subscriptionId: null, priceDenom: 'udvpn', priceValue: '5000000', ...extra,
+    })
+    type Info = { state: string; reconnectSessionId?: string }
+    const offered = (h: IpcHarness) => (h.main.getConnectionInfo() as Info).reconnectSessionId
+    const pushes = (h: IpcHarness) => {
+      const seen: Info[] = []
+      ;(h.main.onConnectionStateChanged as (cb: (i: Info) => void) => void)((i) => seen.push(i))
+      return seen
+    }
+
+    test('[REL-38] no session, or none with a saved config: nothing is offered', async (t) => {
+      const h = ipc.fresh({ chainSessions: [row('2001', '2026-10-06T00:00:00Z')] }) // loadSessionConfig: null
+      t.after(() => h.dispose())
+      assert.equal(offered(h), undefined, 'nothing read yet')
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      assert.equal(offered(h), undefined, 'an active row main has no config for cannot be reconnected')
+      const err = await h.settleError(h.invoke('CONNECTION_RECONNECT', { sessionId: '2001' }))
+      assert.match(err.message, /No saved config/, 'and the handler agrees')
+    })
+
+    test('[REL-38] the newest session main would accept, passing over each one it refuses', async (t) => {
+      const h = ipc.fresh({
+        chainSessions: [
+          row('2000', '2026-10-01T00:00:00Z'),
+          row('2001', '2026-10-02T00:00:00Z'),
+          row('2002', '2026-10-03T00:00:00Z'), // a chain whose exit hop has ended
+          row('2003', '2026-10-04T00:00:00Z'), // a tombstone: credentials cleared
+          row('2004', '2026-10-05T00:00:00Z', { status: 'inactive_pending' }), // ended on chain
+          row('2005', '2026-10-06T00:00:00Z', { durationSeconds: 5673 }), // used up ([SL-5])
+        ],
+        fakes: { 'chain/chain-service': {
+          loadSessionConfig: (id: string) =>
+            id === '2002' ? SAVED(id, { chainPeerSessionId: '2009', chainRole: 'entry' })
+              : id === '2009' ? SAVED(id, { chainPeerSessionId: '2002', chainRole: 'exit', configString: '' })
+                : id === '2003' ? SAVED(id, { configString: '' })
+                  : SAVED(id),
+        } },
+      })
+      t.after(() => h.dispose())
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      assert.equal(offered(h), '2001')
+      for (const [id, why] of [['2005', /used everything/], ['2003', /credentials were cleared/], ['2002', /hop of this chain/]] as const) {
+        assert.match((await h.settleError(h.invoke('CONNECTION_RECONNECT', { sessionId: id }))).message, why, `#${id} is passed over because the handler refuses it`)
+      }
+      await h.settle(h.invoke('CONNECTION_RECONNECT', { sessionId: '2001' })) // control: the offer is accepted
+    })
+
+    test('[REL-38] the tray hears when the offer changes, and only then', async (t) => {
+      const rows = [row('2001', '2026-10-06T00:00:00Z')]
+      const h = ipc.fresh({ chainSessions: rows, fakes: { 'chain/chain-service': { loadSessionConfig: (id: string) => SAVED(id) } } })
+      t.after(() => h.dispose())
+      const seen = pushes(h)
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      assert.deepEqual(seen.map((i) => i.reconnectSessionId), ['2001'])
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      assert.equal(seen.length, 1, 'the two-minute poll does not rebuild the tray menu for nothing')
+      rows.length = 0 // the chain settled it
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      assert.deepEqual(seen.map((i) => i.reconnectSessionId), ['2001', undefined])
+    })
+
+    test('[REL-38] a wallet switch withdraws the previous wallet\'s session at once', async (t) => {
+      const h = ipc.fresh({ chainSessions: [row('2001', '2026-10-06T00:00:00Z')], fakes: { 'chain/chain-service': { loadSessionConfig: (id: string) => SAVED(id) } } })
+      t.after(() => h.dispose())
+      const seen = pushes(h)
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      await h.settle(h.invoke('WALLET_SWITCH', 'w2'))
+      assert.equal(seen.at(-1)?.reconnectSessionId, undefined)
+    })
+  })
+
   // Found by this suite (2026-10-07), fixed with the user's approval. CONNECTION_CONNECT
   // preferred the STASHED WireGuard / V2Ray config over the one it was handed, and
   // RECONNECT re-points the session without clearing that stash. So: a connect of
