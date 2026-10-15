@@ -17,12 +17,17 @@ CLAUDE.md; this is the per-module detail.
 - `ipc-handlers.ts`: all IPC channels (registered via a `handle()` wrapper that rejects calls from any frame that isn't our own renderer), pre-connect balance validation, node list fetch from `api.sentnodes.com/v2/nodes` via `net.fetch`, auto-reconnect + a WireGuard liveness monitor. Caches balance/sessions/nodes when VPN is active (RPC unreachable through tunnel).
 - `tray-view.ts`: what the tray shows for a connection state (icon, status rows, its one action, the Quit label), Electron-free and tested row by row; `index.ts` hands it to `Tray`/`Menu`. The state itself is `getConnectionInfo()` in `ipc-handlers.ts` ([REL-35]).
 - `desktop-session.ts`: registers with the desktop's session manager
-  (`org.gnome.SessionManager`, over the session D-Bus) so a logout, or a restart or
-  power-off from the desktop's menu, runs the normal quit before the session tears down
-  ([REL-36]). It never answers `EndSession`: the app exiting is the answer.
-  Electron-free, with its own minimal D-Bus client rather than a library, held to frames
-  recorded from GDBus, dbus-daemon and gnome-session. Where no session manager answers it
-  hangs up and the app behaves as before.
+  (`org.gnome.SessionManager`, then `org.xfce.SessionManager`, over the session D-Bus) so a
+  logout, or a restart or power-off from the desktop's menu, runs the normal quit before the
+  session tears down ([REL-36]). It never answers `EndSession`: the app exiting is the
+  answer. On Xfce it also asks to be left out of the restored session. Electron-free, with
+  its own minimal D-Bus client rather than a library, held to frames recorded from GDBus,
+  dbus-daemon, gnome-session and xfce4-session. Where neither answers it resolves false.
+- `xsmp-session.ts`: the same for KDE Plasma, whose ksmserver speaks only XSMP: `index.ts`
+  calls it when `desktop-session.ts` resolved false. Quits on `Die`, never answers it, and
+  asks to be left out of the restored session. Its own minimal ICE/XSMP client rather than
+  libICE, held to frames recorded between libSM and ksmserver. Where there is no
+  `SESSION_MANAGER` it does nothing.
 - `config-guard.ts`: **pure validators for untrusted-node data** — `assertSafeWireguardConfig` (allow-list keys, reject `PostUp`/`PreUp`/… so a node config can't run shell as root via `wg-quick`), `assertSafeV2RayConfig`, `isAllowedBypassCidr`/`sanitizeBypassRoutes` (reject `0.0.0.0/x` split-tunnel routes), `extractWireguardEndpointHost`. Unit-tested; see [docs/invariants/node-trust.md](invariants/node-trust.md).
 - `helper/system-setup.ts` + `ipc/setup.ts`: what the machine needs before a connect (the
   helper matching this build, wireguard-tools, openvpn) and the one-click installs, all

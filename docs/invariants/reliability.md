@@ -513,10 +513,45 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     `--disable-gpu-process-crash-limit` (no crash, but ~30,000 relaunches in 14 s and the
     app never exits), and moving the strays into a scope of their own (the app then died
     8 s later on `D-Bus connection was disconnected. Aborting.`): it has to quit before the
-    session tears down. Not covered: desktops without that session manager (KDE,
-    Xfce; register fails and nothing changes), and a SIGTERM to every app process at once
-    (`systemctl --user stop`, `pkill`), which still crashes it about one time in three,
-    because nothing in-app can run before Chromium does.
+    session tears down.
+    **Xfce** (4.18) has the same calls and signals under `org.xfce.SessionManager`, tried
+    second. It saves every registered client in the session it restores at the next login,
+    so there the app also sets `RestartStyleHint` to never, and a refusal fails the whole
+    registration: better the old behaviour than a VPN client that starts itself at every
+    login. Ten logouts and a restart from its menu were clean, and the next login did not
+    start the app. **KDE Plasma** (5.27, X11) has no D-Bus registration: ksmserver speaks only
+    XSMP, over ICE, and a logout takes X down ~0.35 s after the request, which Electron
+    answers with `LOG(FATAL) "Failed to shutdown."` (SIGTRAP at every logout before this).
+    When no D-Bus session manager takes the app, `xsmp-session.ts` registers over XSMP
+    instead (only then: GNOME and Xfce answer XSMP too, and a client registered twice is
+    waited for twice), agrees to `SaveYourself` at once, and on `Die` starts the normal quit,
+    again never answered. Traced in the release VM: `Die`, the teardown, the socket closing
+    when Electron frees Node 38 ms after the teardown's last step, and only then ksmserver
+    ending the session. It waits up to 10 s; the teardown is capped at 5 s. Seven logouts
+    were clean. ksmserver files two different cookies per address in `ICEAUTHORITY`, one
+    under ICE and one under XSMP, and accepts only the ICE one, at both steps (libICE sends
+    that one twice): the first build sent the XSMP one for XSMP, was rejected, and never
+    registered. **A restart or power-off that skips the desktop's end-session phase**
+    (`sudo reboot`, GNOME's restart while another user is logged in, KDE's restart) takes X
+    down ~70 ms after logind starts it. The `powerMonitor` `'shutdown'` listener holds it:
+    with one, Electron takes a logind delay inhibitor, `preventDefault()` keeps it until the
+    app exits, and the listener starts the normal quit. It must not be powerMonitor's first
+    listener: Electron 41 creates its power monitor for the first listener and only then
+    starts watching for `'shutdown'` ones, so a `'shutdown'` listener that came first took no
+    lock (no inhibitor, and two reboots crashed). With it two `sudo reboot`s and a KDE
+    restart were clean. Not covered: `systemctl --user stop` of the app's scope, which
+    SIGTERMs every app process at once from outside and still crashed six times in six:
+    `before-quit` never runs, so [REL-37] cannot apply, and the next launch's heal
+    ([REL-31]) closes a tunnel left up. Plasma on Wayland was not tested.
+  - **[REL-37] The quit turns off Chromium's GPU crash limit before the teardown starts.** A
+    SIGTERM to every app process at once (`pkill`, a kill of every PID) kills the zygote with
+    the GPU process. The main process's SIGTERM still starts the normal quit, but Chromium
+    relaunches the GPU process through the dead zygote, and after six failures crashes
+    itself on purpose mid-teardown: 6 of 12 in the release VM. `before-quit` therefore
+    appends `disable-gpu-process-crash-limit` before `cleanupOnQuit()`. Chromium reads the
+    switch at each crash, so setting it then takes effect at once: 12 of 12 were clean. Not
+    at startup: there a GPU process that cannot start becomes ~30,000 relaunches in 14 s and
+    an app that never exits ([REL-36]); during the quit, the 5 s race ends the app anyway.
   - **[REL-31] Crash** is repaired by `healOrphanedTunnel()` at startup, ordered between
     `detectExistingConnection()` (which sets `activeProtocol`, so `disconnect()` picks the
     matching teardown verb) and `healStrandedKillSwitch()` (which skips while a tunnel is

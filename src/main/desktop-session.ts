@@ -17,12 +17,17 @@
  * answered, and this connection only closes when Electron frees Node, after Chromium's main
  * loop has ended and it no longer relaunches the GPU process. An answer sent just before
  * app.exit(0) was too early: Chromium's shutdown after it still needs the GPU process, GNOME
- * stopped the shell inside that window, and two logouts in three still crashed. Where no
- * session manager answers, this gives up quietly and the app behaves as before.
+ * stopped the shell inside that window, and two logouts in three still crashed.
  *
- * No D-Bus library: the client sends four calls and reads three signals, and the wire
+ * Xfce's session manager has the same calls and signals under its own names, and is tried
+ * second. Unlike GNOME's it saves every registered client in the session it restores at the
+ * next login, so there the app also asks to be left out (RestartStyleHint never): a VPN client
+ * that starts itself is not something the user chose. Where neither answers (KDE) this
+ * resolves false, and index.ts tries XSMP instead (xsmp-session.ts).
+ *
+ * No D-Bus library: the client sends five calls and reads three signals, and the wire
  * format below is only as much of the spec as those need. The tests hold it to bytes
- * recorded from GDBus, dbus-daemon and gnome-session.
+ * recorded from GDBus, dbus-daemon, gnome-session and xfce4-session.
  */
 import { createConnection, type Socket } from 'node:net'
 
@@ -43,8 +48,26 @@ const F_SENDER = 7
 const F_SIGNATURE = 8
 
 const BUS = 'org.freedesktop.DBus'
-const SM = 'org.gnome.SessionManager'
-const CLIENT = 'org.gnome.SessionManager.ClientPrivate'
+
+interface SessionManager {
+  /** Its bus name, which is also the sender its signals carry. */
+  name: string
+  path: string
+  interface: string
+  /** The interface of the client object it hands back. */
+  client: string
+  /** It saves every registered client in the session it restores at the next login, so the
+   *  app must ask not to be: a VPN client that starts itself is not something the user chose. */
+  restores: boolean
+}
+/** The session managers that speak this protocol, tried in order: GNOME's (kept by Cinnamon
+ *  and MATE) and Xfce's, which has the same calls and signals under its own names. */
+const MANAGERS: SessionManager[] = [
+  { name: 'org.gnome.SessionManager', path: '/org/gnome/SessionManager', interface: 'org.gnome.SessionManager', client: 'org.gnome.SessionManager.ClientPrivate', restores: false },
+  { name: 'org.xfce.SessionManager', path: '/org/xfce/SessionManager', interface: 'org.xfce.Session.Manager', client: 'org.xfce.Session.Client', restores: true },
+]
+/** XSMP's SmRestartNever: leave the client out of the saved session. */
+const RESTART_NEVER = 3
 /** The desktop entry's id; the session manager shows it as the client's name. */
 const APP_ID = 'katacomb-vpn'
 /** Far above anything this client is sent; a bigger frame is a broken stream. */
@@ -56,7 +79,8 @@ export interface Call {
   path: string
   interface: string
   member: string
-  args: Array<['s', string] | ['b', boolean]>
+  /** `a{sv}` here is a dictionary of byte variants, the only kind this client sends. */
+  args: Array<['s', string] | ['b', boolean] | ['a{sv}', Array<[string, number]>]>
   flags?: number
 }
 
@@ -89,9 +113,23 @@ class Writer {
 /** A little-endian method call, header fields in the order GDBus writes them. */
 export function encodeCall(serial: number, c: Call): Buffer {
   const body = new Writer()
-  for (const [type, value] of c.args) {
-    if (type === 's') body.string(value)
-    else body.u32(value ? 1 : 0)
+  for (const arg of c.args) {
+    if (arg[0] === 's') body.string(arg[1])
+    else if (arg[0] === 'b') body.u32(arg[1] ? 1 : 0)
+    else {
+      body.u32(0) // the array's length in bytes, filled in below
+      const lengthAt = body.out.length - 4
+      body.align(8)
+      const start = body.out.length
+      for (const [key, byte] of arg[1]) {
+        body.align(8)
+        body.string(key)
+        body.signature('y')
+        body.byte(byte)
+      }
+      const n = body.out.length - start
+      body.out.splice(lengthAt, 4, n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, n >>> 24)
+    }
   }
   const signature = c.args.map(([type]) => type).join('')
   const h = new Writer()
@@ -198,13 +236,17 @@ export interface DesktopSessionOptions {
   onEndSession: () => void
 }
 
-export function registerWithDesktopSession(opts: DesktopSessionOptions): void {
+/** Resolves whether a session manager took the app on; false lets the caller try XSMP. */
+export function registerWithDesktopSession(opts: DesktopSessionOptions): Promise<boolean> {
   const socketPath = busSocketPath(opts.address)
-  if (!socketPath) return
+  if (!socketPath) return Promise.resolve(false)
+  let settle!: (registered: boolean) => void
+  const registered = new Promise<boolean>((resolve) => { settle = resolve })
 
   let socket: Socket | null = createConnection({ path: socketPath })
   let serial = 0
   const pending = new Map<number, { resolve: (m: Message) => void, reject: (e: Error) => void }>()
+  let sm: SessionManager | null = null
   let clientPath: string | null = null
   let manager: string | null = null // the unique name that registered us; only it is obeyed
   let ended = false
@@ -214,6 +256,7 @@ export function registerWithDesktopSession(opts: DesktopSessionOptions): void {
     console.log(`[session] ${why}`)
     socket.destroy()
     socket = null
+    settle(false) // a no-op once registered
     for (const p of pending.values()) p.reject(new Error(why))
     pending.clear()
   }
@@ -228,7 +271,7 @@ export function registerWithDesktopSession(opts: DesktopSessionOptions): void {
   /** The answer to QueryEndSession: yes. Sent without waiting for its reply. */
   const agree = (): void => {
     socket?.write(encodeCall(++serial, {
-      destination: SM, path: clientPath!, interface: CLIENT, member: 'EndSessionResponse',
+      destination: sm!.name, path: clientPath!, interface: sm!.client, member: 'EndSessionResponse',
       args: [['b', true], ['s', '']],
     }))
   }
@@ -247,7 +290,7 @@ export function registerWithDesktopSession(opts: DesktopSessionOptions): void {
       else p.resolve(m)
       return
     }
-    if (m.type !== SIGNAL || m.path !== clientPath || m.interface !== CLIENT || m.sender !== manager) return
+    if (m.type !== SIGNAL || m.path !== clientPath || m.interface !== sm?.client || m.sender !== manager) return
     // Agreed at once: the app never objects to a logout, it only needs the time to quit.
     if (m.member === 'QueryEndSession') agree()
     // Never answered: the app exiting is the answer (see the top of this file).
@@ -257,19 +300,39 @@ export function registerWithDesktopSession(opts: DesktopSessionOptions): void {
   const register = async (): Promise<void> => {
     try {
       await call({ destination: BUS, path: '/org/freedesktop/DBus', interface: BUS, member: 'Hello', args: [] })
-      const reply = await call({
-        destination: SM, path: '/org/gnome/SessionManager', interface: SM, member: 'RegisterClient',
-        args: [['s', APP_ID], ['s', opts.startupId]], flags: NO_AUTO_START,
-      })
+      const refused: string[] = []
+      let reply: Message | null = null
+      for (const candidate of MANAGERS) {
+        try {
+          reply = await call({
+            destination: candidate.name, path: candidate.path, interface: candidate.interface, member: 'RegisterClient',
+            args: [['s', APP_ID], ['s', opts.startupId]], flags: NO_AUTO_START,
+          })
+          sm = candidate
+          break
+        } catch (e) {
+          refused.push((e as Error).message)
+        }
+      }
+      if (!sm || !reply) throw new Error(refused.join('; '))
       if (!reply.arg0 || !reply.sender) throw new Error('RegisterClient returned no client')
       clientPath = reply.arg0
       manager = reply.sender
+      if (sm.restores) {
+        // Refused, the whole registration fails: better the old behaviour than an app that
+        // starts itself at every login.
+        await call({
+          destination: sm.name, path: clientPath, interface: sm.client, member: 'SetSmProperties',
+          args: [['a{sv}', [['RestartStyleHint', RESTART_NEVER]]]],
+        })
+      }
       await call({
         destination: BUS, path: '/org/freedesktop/DBus', interface: BUS, member: 'AddMatch',
-        args: [['s', `type='signal',sender='${SM}',interface='${CLIENT}',path='${clientPath}'`]],
+        args: [['s', `type='signal',sender='${sm.name}',interface='${sm.client}',path='${clientPath}'`]],
       })
       clearTimeout(timer)
       console.log(`[session] registered with the desktop session manager as ${clientPath}`)
+      settle(true)
     } catch (e) {
       fail(`not registered with a desktop session manager: ${(e as Error).message}`)
     }
@@ -306,4 +369,5 @@ export function registerWithDesktopSession(opts: DesktopSessionOptions): void {
   })
   socket.on('error', (e) => fail(`session bus: ${e.message}`))
   socket.on('close', () => fail('the session bus closed'))
+  return registered
 }

@@ -15,6 +15,7 @@ import { sweepStaleSessionFiles } from './chain/chain-service'
 import { migrateLegacyUserData, dedupeWalletEntries, migrateProviderModeToWallet, migrateRpcMode } from './settings'
 import { listProviders } from './provider/provider-service'
 import { registerWithDesktopSession } from './desktop-session'
+import { registerWithXsmp } from './xsmp-session'
 import { IPC } from '../shared/ipc-channels'
 import { setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net'
 
@@ -356,13 +357,22 @@ app.whenReady().then(() => {
   createTrayIcon()
   // A logout or a shutdown from the desktop must run the normal quit, teardown included,
   // before the session goes: GNOME's logout kills the GPU process out from under the
-  // app, and Chromium then crashes itself instead of quitting ([REL-36]). GNOME waits
-  // until the app has exited.
-  registerWithDesktopSession({
+  // app, and Chromium then crashes itself instead of quitting; KDE's takes X away, and
+  // Electron crashes on that ([REL-36]). GNOME and Xfce over D-Bus, KDE over XSMP: each
+  // waits until the app has exited. XSMP only when no D-Bus session manager took the app
+  // on, since GNOME and Xfce answer XSMP as well.
+  void registerWithDesktopSession({
     address: process.env['DBUS_SESSION_BUS_ADDRESS'],
     uid: process.getuid?.() ?? 0,
     startupId: process.env['DESKTOP_AUTOSTART_ID'] ?? '',
     onEndSession: () => { forceQuit = true; app.quit() },
+  }).then((registered) => {
+    if (registered) return
+    registerWithXsmp({
+      sessionManager: process.env['SESSION_MANAGER'],
+      iceAuthority: process.env['ICEAUTHORITY'],
+      onEndSession: () => { forceQuit = true; app.quit() },
+    })
   })
   // Keep the tray icon, tooltip + menu in sync with connect/disconnect (incl. from
   // the renderer, auto-reconnect, or the tray itself). Forced: these are the few
@@ -395,6 +405,15 @@ app.whenReady().then(() => {
   powerMonitor.on('resume', () => {
     setTimeout(() => { void runAutoRpcSelection() }, 8_000)
   })
+  // A shutdown that skips the session manager (`sudo reboot`, or GNOME's restart while
+  // another user is logged in) takes X down within ~70 ms, and Electron crashes when X
+  // goes. With a listener here Electron holds a logind delay lock, and preventDefault()
+  // keeps it until the app has exited, so the quit and its teardown run first ([REL-36]).
+  // It must not be powerMonitor's first listener: Electron 41 takes the lock only for a
+  // 'shutdown' listener added after the first one. Its typings give this listener no
+  // arguments; it is passed the event all the same.
+  const power: NodeJS.EventEmitter = powerMonitor
+  power.on('shutdown', (e: Electron.Event) => { e.preventDefault(); forceQuit = true; app.quit() })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -425,6 +444,11 @@ app.on('before-quit', (e) => {
   // exit. The kernel-resident kill switch/routes survive regardless.
   e.preventDefault()
   quitHandled = true
+  // A GPU process lost from here on must not crash the app mid-teardown ([REL-37]): a
+  // SIGTERM to every app process at once (pkill, a kill of every PID) kills the zygote
+  // with it, every relaunch fails, and after six Chromium crashes itself on purpose.
+  // Chromium reads the switch at each crash, so setting it now takes effect at once.
+  app.commandLine.appendSwitch('disable-gpu-process-crash-limit')
   stopNodeRefreshTimer()
   stopRpcMonitor()
   void (async () => {
