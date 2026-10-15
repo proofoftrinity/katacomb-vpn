@@ -36,6 +36,9 @@ Thumbs.db
 # Codex local state (the verify-before-commit hook, see CLAUDE.md)
 .codex/
 
+# The memory Claude Code and Codex share (personal, never committed; see CLAUDE.md)
+.agent-memory/
+
 # Rendered architecture diagrams (generated; see docs/architecture/README.md)
 docs/architecture/*.html
 docs/architecture/*.png
