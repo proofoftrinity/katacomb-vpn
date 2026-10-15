@@ -22,7 +22,9 @@ import (
 // exit status can be compared one for one.
 //
 // Filter, applied identically to both sides: query commands are dropped
-// (Go reads /sys/class/net instead of spawning `ip link show`, deviation 10);
+// (Go reads /sys/class/net instead of spawning `ip link show`, deviation 10; and
+// `nft list tables` / `iptables-save`, which `down` reads to find wg-quick's
+// firewall, find none here: the capture's shims had no firewall);
 // `pkill` is dropped (the pid-less fallback is a /proc scan, deviation 4, and is
 // asserted through Env.Kill instead); argv[0] is reduced to its basename (the
 // shims logged basenames; Go passes resolved paths); the temp Root is stripped;
@@ -54,12 +56,20 @@ type fakeEnv struct {
 	wgHandshakes string
 	// resolvconfStdin is the last payload handed to `resolvconf -a` (RunOpt.Stdin).
 	resolvconfStdin string
+	// nftTables are what `nft list tables` reports, as "<family> <name>". Empty in
+	// the replay; the firewall tests plant wg-quick's.
+	nftTables map[string]bool
+	// iptSave is the canned `iptables-save` / `ip6tables-save` output, by tool.
+	iptSave map[string]string
+	// restoreStdin is the batch piped into `iptables-restore` / `ip6tables-restore`, by tool.
+	restoreStdin map[string]string
 }
 
 func newFake(t *testing.T) *fakeEnv {
 	t.Helper()
 	root := t.TempDir()
-	f := &fakeEnv{t: t, root: root, rules: map[string]int{}, ovpnOK: true, nextPid: 31337}
+	f := &fakeEnv{t: t, root: root, rules: map[string]int{}, ovpnOK: true, nextPid: 31337,
+		nftTables: map[string]bool{}, iptSave: map[string]string{}, restoreStdin: map[string]string{}}
 	f.Env = &Env{
 		Run:        f.run,
 		Spawn:      f.spawn,
@@ -188,6 +198,27 @@ func (f *fakeEnv) run(_ context.Context, argv []string, opt RunOpt) ([]byte, []b
 			return fail("Unable to access interface: No such device", 1)
 		}
 		return []byte(f.wgHandshakes), nil, nil
+	case "nft":
+		switch {
+		case len(a) == 2 && a[0] == "list" && a[1] == "tables":
+			var out strings.Builder
+			for _, k := range sortedKeys(f.nftTables) {
+				out.WriteString("table " + k + "\n")
+			}
+			return []byte(out.String()), nil, nil
+		case len(a) == 4 && a[0] == "delete" && a[1] == "table":
+			k := a[2] + " " + a[3]
+			if !f.nftTables[k] {
+				return fail("Error: Could not process rule: No such file or directory", 1)
+			}
+			delete(f.nftTables, k)
+		}
+		return nil, nil, nil
+	case "iptables-save", "ip6tables-save":
+		return []byte(f.iptSave[filepath.Base(argv[0])]), nil, nil
+	case "iptables-restore", "ip6tables-restore":
+		f.restoreStdin[filepath.Base(argv[0])] = string(opt.Stdin)
+		return nil, nil, nil
 	case "openvpn":
 		var pidFile, logFile string
 		for i := 0; i+1 < len(a); i++ {
@@ -292,10 +323,23 @@ func normalise(argv []string, root string) []string {
 		if len(a) == 1 && a[0] == "-S" {
 			return nil
 		}
-	case "getent", "pkill":
+	case "nft":
+		if len(a) == 2 && a[0] == "list" && a[1] == "tables" {
+			return nil
+		}
+	case "getent", "pkill", "iptables-save", "ip6tables-save":
 		return nil
 	}
 	return out
+}
+
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (f *fakeEnv) takeCmds() []string {
