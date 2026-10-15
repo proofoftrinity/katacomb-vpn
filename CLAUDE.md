@@ -58,8 +58,10 @@ Two rules that outrank convenience, stated here so they are never missed:
 
 ## The suite is the invariant
 
-`npm run verify` green is the definition of done, for every change; a Claude Code hook
-runs it before any commit Claude makes. `docs/testing.md` is the map.
+`npm run verify` green is the definition of done, for every change; a local hook runs it
+before any commit Claude Code or Codex makes (`.claude/settings.local.json`,
+`.codex/hooks.json`, both untracked; `.codex/rules/` runs the suite outside Codex's
+sandbox, which blocks its sockets). `docs/testing.md` is the map.
 
 - Every rule in `docs/` carries an ID (`**[REL-n] …**`), and a test that pins a rule
   carries its ID in its title. `test/invariants/registry.test.ts` goes red when a rule
@@ -71,6 +73,32 @@ runs it before any commit Claude makes. `docs/testing.md` is the map.
   or `manual` entry in `test/invariants/status.json`) without the user's explicit
   approval. Moving a rule toward pinned needs no approval; the registry demands it.
 - When a refactor breaks a test, the refactor is wrong until shown otherwise.
+
+## Rules for every agent
+
+Claude Code and Codex both work in this repo, and Codex loads this file as its
+instructions (`project_doc_fallback_filenames` in `~/.codex/config.toml`), so a rule
+written here binds both.
+
+- Work on a branch. Merge it into `main` with `git merge --no-ff` and a "Merge the …"
+  message whose body says what changed and how it was verified, then delete it with
+  `git branch -d`.
+- Commits are SSH-signed. Never bypass signing (`--no-gpg-sign`, `-c commit.gpgsign=false`).
+  A commit that hangs is waiting on a passphrase dialog on the user's desktop: say so.
+- Never push, tag or run the real `./scripts/ship.sh`; the user runs it. The agent's part
+  of a release is the merge, the notes (`./scripts/draft-release-notes.sh <version>`), the
+  portability `fullcycle` when packaging changed, and `./scripts/ship.sh <version> --dry-run`.
+- Never spend real funds without the user's explicit go-ahead in the conversation: no
+  connect, subscription or other mainnet transaction, and no use of a funded wallet's phrase.
+- Never start a second app instance while the user is connected: its startup heal closes
+  the live tunnel ([REL-31]).
+- Build test packages into a scratch directory, never `dist/`: it holds the last signed
+  release.
+- Defects found while verifying are fixed in the same work, with a test. Ask first only
+  when the fix is hard to undo, spends money, or changes behaviour the user chose.
+- Changes in `git status` that you did not make may be the other agent's unfinished work:
+  do not commit, stash or revert them; mention them.
+- Promo copy introduces the app as "A decentralized VPN client".
 
 ## Architecture
 
