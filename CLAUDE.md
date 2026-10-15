@@ -98,6 +98,11 @@ written here binds both.
   when the fix is hard to undo, spends money, or changes behaviour the user chose.
 - Changes in `git status` that you did not make may be the other agent's unfinished work:
   do not commit, stash or revert them; mention them.
+- `.agent-memory/` (gitignored) is the memory both agents share: Claude Code's
+  `autoMemoryDirectory` points there, and a Codex session-start hook loads its `MEMORY.md`.
+  Save a settled decision or a user correction there, one fact per file; a rule that binds
+  both agents goes in this file instead. Never commit the folder, and never run
+  `git clean -x`, which deletes it.
 - Promo copy introduces the app as "A decentralized VPN client".
 
 ## Architecture
