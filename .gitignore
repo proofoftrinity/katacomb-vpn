@@ -33,6 +33,9 @@ Thumbs.db
 # Claude Code local state
 .claude/settings.local.json
 
+# Codex local state (the verify-before-commit hook, see CLAUDE.md)
+.codex/
+
 # Rendered architecture diagrams (generated; see docs/architecture/README.md)
 docs/architecture/*.html
 docs/architecture/*.png
