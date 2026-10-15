@@ -3,7 +3,7 @@ import { useWallet } from './hooks/useWallet'
 import { useConnection } from './hooks/useConnection'
 import { useSessions } from './hooks/useSessions'
 import { useReconnect } from './hooks/useReconnect'
-import type { ConnectionStatus, SessionInfo } from './types'
+import type { ConnectionStatus } from './types'
 import MnemonicInput from './components/wallet/MnemonicInput'
 import WalletPicker from './components/wallet/WalletPicker'
 import MapView from './components/map/MapView'
@@ -304,32 +304,17 @@ function AppInner() {
     return window.api.onShowAbout(() => setShowAbout(true))
   }, [])
 
-  // Tray "Reconnect last session" (main already showed the window). Run on the Sessions
-  // tab, through the same busy/error state its own Reconnect uses, so the card spins and
-  // a refusal (used up, a broken chain, a missing install) is shown rather than dropped.
-  // With no open session there is nothing to reconnect: the Nodes tab is where one is
-  // bought.
+  // Tray "Reconnect last session" (main already showed the window), for the session main
+  // chose: the newest one it would reconnect, and the tray offers nothing when there is
+  // none ([REL-38]). Run on the Sessions tab, through the same busy/error state its own
+  // Reconnect uses, so the card spins and a refusal (a missing install, a node that is
+  // gone) is shown rather than dropped.
   useEffect(() => {
-    return window.api.onTrayConnect(async () => {
-      let sessions: SessionInfo[]
-      try {
-        sessions = await window.api.walletSessions()
-      } catch (err) {
-        setMainTab('sessions')
-        setSessionError(err instanceof Error ? err.message : 'Could not read your sessions')
-        return
-      }
-      const target = sessions
-        .filter((s) => s.status === 'active')
-        .sort((a, b) => new Date(b.startAt || 0).getTime() - new Date(a.startAt || 0).getTime())[0]
-      if (!target) {
-        setMainTab('nodes')
-        return
-      }
+    return window.api.onTrayConnect(async (sessionId) => {
       setMainTab('sessions')
-      setSessionBusy(target.id)
+      setSessionBusy(sessionId)
       setSessionError(null)
-      const outcome = await reconnect(target)
+      const outcome = await reconnect({ id: sessionId })
       if (!outcome.ok) setSessionError(outcome.error || 'Reconnection failed')
       setSessionBusy(null)
     })

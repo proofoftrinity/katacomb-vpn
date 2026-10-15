@@ -289,7 +289,11 @@ function primeSessionsCache(sessions: SessionInfo[]) {
         : s.durationSeconds,
     }
   })
+  const offered = trayReconnectTarget()
   lastKnownSessions = enriched
+  // [REL-38] The tray's Reconnect is read off this cache. Only a change is pushed: every
+  // push rebuilds the tray menu, and this runs on the renderer's two-minute poll.
+  if (trayReconnectTarget() !== offered) notifyTray()
   return enriched
 }
 
@@ -1105,6 +1109,8 @@ export interface ConnectionInfo {
   proxyMode: boolean
   socksAddr?: string
   killSwitchFailed: boolean
+  /** Idle only: the session the tray's Reconnect reconnects; absent when none can be ([REL-38]). */
+  reconnectSessionId?: string
 }
 let connectionStateListener: ((info: ConnectionInfo) => void) | null = null
 
@@ -1143,7 +1149,78 @@ export function getConnectionInfo(): ConnectionInfo {
     proxyMode: live.proxyMode === true,
     socksAddr: live.socksAddr,
     killSwitchFailed,
+    reconnectSessionId: state === 'idle' ? trayReconnectTarget() : undefined,
   }
+}
+
+/**
+ * Why CONNECTION_RECONNECT refuses a session that has a saved config, or null when it
+ * goes ahead. The tray asks the same question ([REL-38]), so it never offers a Reconnect
+ * this then refuses.
+ */
+function reconnectRefusal(saved: NonNullable<ReturnType<typeof loadSessionConfig>>): string | null {
+  // A record with no config string is a TOMBSTONE left by retireSessionConfig: the
+  // session was ended and its credentials cleared, keeping only the chain pairing
+  // so the Sessions tab can still draw the two hops as one card while they settle.
+  // The UI hides the action on an ended session, so reaching here means something
+  // raced the chain — say what happened rather than bringing up an empty config.
+  if (!saved.configString) {
+    return 'This session has ended and its credentials were cleared, so it cannot be ' +
+      'reconnected. Buy a new session to connect again.'
+  }
+  // MULTIHOP: a chain that has lost a hop cannot carry traffic, and replaying it
+  // rebuilds a tunnel through a hop that no longer exists, which then fails telling
+  // the user both hops are still open. The Sessions card offers no Reconnect there,
+  // and neither does the tray.
+  // Positive evidence only: a tombstone, or a row that is listed and not active. A
+  // peer merely missing from the list may be a failed read of the second wallet.
+  if (saved.chainPeerSessionId) {
+    const peer = loadSessionConfig(saved.chainPeerSessionId)
+    const endedHop = [saved, peer].find((hop) => {
+      if (!hop) return false
+      if (!hop.configString) return true
+      const row = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === hop.sessionId)
+      return row !== undefined && row.status !== 'active'
+    })
+    if (endedHop) {
+      return `The ${endedHop.chainRole ?? 'other'} hop of this chain (#${endedHop.sessionId}) has ended, ` +
+        'so the chain cannot carry traffic. Build a new chain from the Multi-hop tab. If the ' +
+        'other hop is still open, you can end it from the Sessions tab.'
+    }
+  }
+  // [SL-5] 'active' on chain does not mean usable: the chain meters past the cap and
+  // leaves the row active (#53647217: 5673 s of a paid 3600 s, status 1). The Sessions
+  // card withholds Reconnect there, and so does the tray: a tunnel built on it cost a
+  // polkit prompt and lived until the quota watchdog's next tick. Scored like the
+  // watchdog scores it, off the cached rows (usage floors included); positive evidence
+  // only, so no row means no refusal.
+  for (const id of [saved.sessionId, saved.chainPeerSessionId]) {
+    const row = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === id)
+    const quota = row ? quotaFromSessionRow(row) : null
+    if (quota && evaluateQuota({ ...quota, connectedSeconds: 0, liveRxBytes: 0 }).level === 'expired') {
+      return `Session #${id} has used everything it was paid for, so it cannot be reconnected. ` +
+        'End it from the Sessions tab and start a new one.'
+    }
+  }
+  return null
+}
+
+/**
+ * [REL-38] The session the tray's "Reconnect last session" reconnects: the newest active
+ * row in the session cache that CONNECTION_RECONNECT would accept. None means the tray
+ * offers no Reconnect. The renderer keeps the cache fresh (it reads sessions at startup,
+ * on every connect and disconnect and every two minutes), and with no wallet loaded
+ * there is nothing to reconnect.
+ */
+function trayReconnectTarget(): string | undefined {
+  if (!getAddress()) return undefined
+  return (lastKnownSessions as SessionInfo[])
+    .filter((s) => s?.status === 'active')
+    .sort((a, b) => new Date(b.startAt || 0).getTime() - new Date(a.startAt || 0).getTime())
+    .find((s) => {
+      const saved = loadSessionConfig(s.id)
+      return saved !== null && reconnectRefusal(saved) === null
+    })?.id
 }
 
 /** Republish whatever is true now. Idempotent. */
@@ -2811,6 +2888,8 @@ export function registerIpcHandlers(): void {
     clearCachedProviderOverview()
     lastKnownBalance = null
     lastKnownSessions = []
+    // [REL-38] The tray must stop offering the previous wallet's session.
+    notifyTray()
     return { address }
   })
 
@@ -2833,6 +2912,7 @@ export function registerIpcHandlers(): void {
     for (const wallet of listWallets()) deleteWalletEntry(wallet.id)
     clearRetainedSeed()
     logout()
+    notifyTray() // [REL-38] no wallet, nothing to reconnect
   })
 
   // Removes ONE seed: every wallet whose file holds the same phrase as
@@ -2877,6 +2957,7 @@ export function registerIpcHandlers(): void {
       } else {
         logout()
       }
+      notifyTray() // [REL-38] another wallet's sessions, or none
     }
     return { activeWalletChanged: activeInGroup }
   })
@@ -3336,55 +3417,8 @@ export function registerIpcHandlers(): void {
         'this session cannot be reconnected. You will need to create a new subscription.'
       )
     }
-    // A record with no config string is a TOMBSTONE left by retireSessionConfig: the
-    // session was ended and its credentials cleared, keeping only the chain pairing
-    // so the Sessions tab can still draw the two hops as one card while they settle.
-    // The UI hides the action on an ended session, so reaching here means something
-    // raced the chain — say what happened rather than bringing up an empty config.
-    if (!saved.configString) {
-      throw new Error(
-        'This session has ended and its credentials were cleared, so it cannot be ' +
-        'reconnected. Buy a new session to connect again.'
-      )
-    }
-    // MULTIHOP: a chain that has lost a hop cannot carry traffic, and replaying it
-    // rebuilds a tunnel through a hop that no longer exists, which then fails telling
-    // the user both hops are still open. The Sessions card offers no Reconnect there,
-    // but the tray's Connect reaches this path with whichever session is newest.
-    // Positive evidence only: a tombstone, or a row that is listed and not active. A
-    // peer merely missing from the list may be a failed read of the second wallet.
-    if (saved.chainPeerSessionId) {
-      const peer = loadSessionConfig(saved.chainPeerSessionId)
-      const endedHop = [saved, peer].find((hop) => {
-        if (!hop) return false
-        if (!hop.configString) return true
-        const row = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === hop.sessionId)
-        return row !== undefined && row.status !== 'active'
-      })
-      if (endedHop) {
-        throw new Error(
-          `The ${endedHop.chainRole ?? 'other'} hop of this chain (#${endedHop.sessionId}) has ended, ` +
-          'so the chain cannot carry traffic. Build a new chain from the Multi-hop tab. If the ' +
-          'other hop is still open, you can end it from the Sessions tab.',
-        )
-      }
-    }
-    // [SL-5] 'active' on chain does not mean usable: the chain meters past the cap and
-    // leaves the row active (#53647217: 5673 s of a paid 3600 s, status 1). The Sessions
-    // card already withholds Reconnect there, but the tray's reaches here with the newest
-    // session, and the tunnel it built cost a polkit prompt and lived until the quota
-    // watchdog's next tick. Scored like the watchdog scores it, off the cached rows
-    // (usage floors included); positive evidence only, so no row means no refusal.
-    for (const id of [saved.sessionId, saved.chainPeerSessionId]) {
-      const row = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === id)
-      const quota = row ? quotaFromSessionRow(row) : null
-      if (quota && evaluateQuota({ ...quota, connectedSeconds: 0, liveRxBytes: 0 }).level === 'expired') {
-        throw new Error(
-          `Session #${id} has used everything it was paid for, so it cannot be reconnected. ` +
-          'End it from the Sessions tab and start a new one.',
-        )
-      }
-    }
+    const refusal = reconnectRefusal(saved)
+    if (refusal) throw new Error(refusal)
     // Before any state is mutated, and before the node is re-handshaked: a Sessions-tab
     // reconnect is always full-tunnel.
     await assertSystemReady(saved.protocol, true, false)

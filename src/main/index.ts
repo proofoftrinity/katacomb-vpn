@@ -96,11 +96,11 @@ function toggleWindow(): void {
   showWindow()
 }
 
-/** Tray "Reconnect last session": show the window and let the renderer reconnect to
- *  the most recent session, on the Sessions tab, where a refusal is shown. */
-function triggerTrayConnect(): void {
+/** Tray "Reconnect last session": show the window and let the renderer reconnect the
+ *  session main chose ([REL-38]), on the Sessions tab, where a refusal is shown. */
+function triggerTrayConnect(sessionId: string): void {
   showWindow()
-  mainWindow?.webContents.send(IPC.CONNECTION_TRAY_CONNECT)
+  mainWindow?.webContents.send(IPC.CONNECTION_TRAY_CONNECT, sessionId)
 }
 
 /** Tray "About": show the window and open the renderer's About modal, the same
@@ -178,6 +178,7 @@ function createTrayIcon(): void {
 function refreshTray(info: ConnectionInfo, force = false): void {
   if (!tray) return
   const view = trayView(info)
+  const action = view.action
 
   const iconKey = trayIconKeyFor(view.icon)
   if (force || iconKey !== trayIconKey) {
@@ -189,8 +190,8 @@ function refreshTray(info: ConnectionInfo, force = false): void {
   const contextMenu = Menu.buildFromTemplate([
     ...view.statusLines.map((label) => ({ label, enabled: false })),
     { type: 'separator' },
-    ...(view.action
-      ? [{ label: view.action.label, click: view.action.run === 'reconnect' ? triggerTrayConnect : trayDisconnect }]
+    ...(action
+      ? [{ label: action.label, click: action.run === 'reconnect' ? () => triggerTrayConnect(action.sessionId) : trayDisconnect }]
       : []),
     { label: 'Show Window', click: () => showWindow() },
     { label: 'About', click: () => showAbout() },

@@ -127,10 +127,10 @@ contextBridge.exposeInMainWorld('api', {
     }
   },
 
-  // Tray "Connect" → reconnect to the most recent session (renderer drives it
-  // so it reuses the same reconnect flow + error handling as the Session tab).
-  onTrayConnect: (callback: () => void) => {
-    const handler = () => callback()
+  // Tray "Reconnect last session" → reconnect the session main chose (renderer drives
+  // it so it reuses the same reconnect flow + error handling as the Session tab).
+  onTrayConnect: (callback: (sessionId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string) => callback(sessionId)
     ipcRenderer.on(IPC.CONNECTION_TRAY_CONNECT, handler)
     return () => {
       ipcRenderer.removeListener(IPC.CONNECTION_TRAY_CONNECT, handler)
