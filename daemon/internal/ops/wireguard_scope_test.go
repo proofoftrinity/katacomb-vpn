@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -81,6 +82,100 @@ func TestWireguardDownRepairsRulesWhenOnlyOursExisted(t *testing.T) {
 	}
 	if deleted == 0 {
 		t.Error("with no other tunnel left, the leaked rule pair must be repaired")
+	}
+}
+
+// --- wg-quick's firewall -------------------------------------------------------
+//
+// A full-tunnel `wg-quick up` also installs an anti-spoof firewall for sntl0: nft
+// tables named `wg-quick-sntl0`, or, where nft is absent, iptables rules commented
+// "wg-quick(8) rule for sntl0". Only `wg-quick down` removes it, which never runs for
+// our tunnel ([REL-10]), so every disconnect, logout and quit left it behind until
+// reboot, and every connect added another copy of its rules (seen in the VM,
+// 2026-10-15). No golden transcript covers it: the capture's shims had no firewall.
+
+// [REL-10]
+func TestWireguardDownRemovesWgQuickNftTables(t *testing.T) {
+	f := newFake(t)
+	if err := WireguardUp(context.Background(), f.Env, cfgWG); err != nil {
+		t.Fatal(err)
+	}
+	f.nftTables = map[string]bool{
+		"ip wg-quick-sntl0": true, "ip6 wg-quick-sntl0": true,
+		// Another tunnel's firewall and an unrelated table: never ours to delete.
+		"ip wg-quick-wg0": true, "inet filter": true,
+	}
+
+	if err := WireguardDown(context.Background(), f.Env); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"ip wg-quick-sntl0", "ip6 wg-quick-sntl0"} {
+		if f.nftTables[k] {
+			t.Errorf("table %s survived the teardown", k)
+		}
+	}
+	for _, k := range []string{"ip wg-quick-wg0", "inet filter"} {
+		if !f.nftTables[k] {
+			t.Errorf("table %s is not ours and must survive", k)
+		}
+	}
+}
+
+// [REL-10]
+func TestWireguardDownRemovesWgQuickIptablesRules(t *testing.T) {
+	f := newFake(t)
+	f.LookPath = func(name string) (string, error) {
+		if name == "nft" {
+			return "", errors.New("not found")
+		}
+		return name, nil
+	}
+	f.addLink("sntl0")
+	f.wgtype = true
+	ours := `-m comment --comment "wg-quick(8) rule for sntl0"`
+	f.iptSave["iptables-save"] = "*raw\n:PREROUTING ACCEPT [0:0]\n" +
+		"-A PREROUTING -d 10.8.0.3/32 ! -i sntl0 -m addrtype ! --src-type LOCAL " + ours + " -j DROP\n" +
+		`-A PREROUTING -d 10.9.0.2/32 ! -i wg0 -m addrtype ! --src-type LOCAL -m comment --comment "wg-quick(8) rule for wg0" -j DROP` + "\n" +
+		"COMMIT\n*mangle\n:PREROUTING ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n" +
+		"-A PREROUTING -p udp " + ours + " -j CONNMARK --restore-mark --nfmask 0xffffffff --ctmask 0xffffffff\n" +
+		"-A POSTROUTING -p udp -m mark --mark 0xca6c " + ours + " -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff\n" +
+		"COMMIT\n*filter\n:OUTPUT ACCEPT [0:0]\n-A OUTPUT -j KATACOMB_KS\nCOMMIT\n"
+
+	if err := WireguardDown(context.Background(), f.Env); err != nil {
+		t.Fatal(err)
+	}
+	want := "*raw\n" +
+		"-D PREROUTING -d 10.8.0.3/32 ! -i sntl0 -m addrtype ! --src-type LOCAL " + ours + " -j DROP\n" +
+		"COMMIT\n*mangle\n" +
+		"-D PREROUTING -p udp " + ours + " -j CONNMARK --restore-mark --nfmask 0xffffffff --ctmask 0xffffffff\n" +
+		"-D POSTROUTING -p udp -m mark --mark 0xca6c " + ours + " -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff\n" +
+		"COMMIT\n*filter\nCOMMIT\n"
+	if got := f.restoreStdin["iptables-restore"]; got != want {
+		t.Errorf("iptables-restore batch:\n got: %q\nwant: %q", got, want)
+	}
+	// Without -n, iptables-restore flushes every table it names: the kill switch with them.
+	if cmds := strings.Join(f.takeCmds(), "\n"); !strings.Contains(cmds, "iptables-restore -n") {
+		t.Errorf("the batch must be applied with -n (no flush), got:\n%s", cmds)
+	}
+	if _, ran := f.restoreStdin["ip6tables-restore"]; ran {
+		t.Error("ip6tables held nothing of ours: no restore may run")
+	}
+}
+
+// The firewall is a live sntl0's anti-spoof protection: it stays while any sntl0
+// does (here one `down` does not delete, as a userspace AmneziaWG link is not
+// wireguard-type).
+// [REL-10]
+func TestWireguardDownKeepsTheFirewallWhileSntl0Lives(t *testing.T) {
+	f := newFake(t)
+	f.addLink("sntl0")
+	f.nftTables = map[string]bool{"ip wg-quick-sntl0": true}
+
+	if err := WireguardDown(context.Background(), f.Env); err != nil {
+		t.Fatal(err)
+	}
+	if !f.nftTables["ip wg-quick-sntl0"] {
+		t.Error("deleted the firewall of an sntl0 that is still up")
 	}
 }
 

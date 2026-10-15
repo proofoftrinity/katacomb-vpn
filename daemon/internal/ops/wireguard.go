@@ -35,7 +35,7 @@ func WireguardUp(ctx context.Context, e *Env, config []byte) error {
 var reSpaceColon = regexp.MustCompile(`[ :]+`)
 
 // WireguardDown tears down OUR wireguard link, then repairs wg-quick's leaked
-// policy rules and removes the root-owned config (it holds the private key).
+// policy rules and firewall and removes the root-owned config (it holds the private key).
 //
 // It used to delete every wireguard-type link, carried over from the bash verb on
 // the assumption that the app never runs alongside another kernel WireGuard
@@ -73,9 +73,53 @@ func WireguardDown(ctx context.Context, e *Env) error {
 			}
 		}
 		cleanupWgRules(ctx, e, ip)
+		cleanupWgFirewall(ctx, e)
 		removeQuiet(e.runPath(wgConfName))
 		return nil
 	})
+}
+
+// cleanupWgFirewall removes the anti-spoof firewall a full-tunnel `wg-quick up`
+// installs for sntl0, which only `wg-quick down` would remove ([REL-10]): nft tables
+// named wg-quick-sntl0, and iptables rules carrying wg-quick's comment for sntl0.
+// It does what wg-quick's own remove_firewall does, scoped by that name so another
+// tunnel's firewall is never touched, and only once sntl0 is gone: while it lives,
+// the firewall is its protection.
+func cleanupWgFirewall(ctx context.Context, e *Env) {
+	if linkExists(e, wgIface) {
+		return
+	}
+	table := "wg-quick-" + wgIface
+	if nft, err := e.LookPath("nft"); err == nil {
+		for _, line := range strings.Split(output(ctx, e, nft, "list", "tables"), "\n") {
+			if f := strings.Fields(line); len(f) == 3 && f[0] == "table" && f[2] == table {
+				runQuiet(ctx, e, nft, "delete", "table", f[1], table)
+			}
+		}
+	}
+	marker := `-m comment --comment "wg-quick(8) rule for ` + wgIface + `"`
+	for _, ipt := range []string{"iptables", "ip6tables"} {
+		save, errSave := e.LookPath(ipt + "-save")
+		restore, errRestore := e.LookPath(ipt + "-restore")
+		if errSave != nil || errRestore != nil {
+			continue
+		}
+		var batch strings.Builder
+		found := false
+		for _, line := range strings.Split(output(ctx, e, save), "\n") {
+			switch {
+			case strings.HasPrefix(line, "*"), line == "COMMIT":
+				batch.WriteString(line + "\n")
+			case strings.HasPrefix(line, "-A ") && strings.Contains(line, marker):
+				batch.WriteString("-D " + line[len("-A "):] + "\n")
+				found = true
+			}
+		}
+		// -n: without it iptables-restore flushes every table the batch names.
+		if found {
+			_ = run(ctx, e, RunOpt{Stdin: []byte(batch.String())}, restore, "-n")
+		}
+	}
 }
 
 // wg-quick allocates fwmark tables from 51820 upwards; a table outside this range

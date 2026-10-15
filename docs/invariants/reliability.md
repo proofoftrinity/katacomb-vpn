@@ -129,7 +129,18 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   and its scoping is the load-bearing part — it runs only once NO tunnel that could own
   the rules is left, deletes a fwmark table only inside wg-quick's own allocation range
   (so another VPN's table is untouched), and bounds every loop. Anything else that tears
-  a tunnel down by deleting the link inherits this obligation.
+  a tunnel down by deleting the link inherits this obligation. The same fall-through left
+  wg-quick's anti-spoof firewall behind until 2026-10-15: nft tables `wg-quick-sntl0`
+  (iptables rules commented `wg-quick(8) rule for sntl0` where nft is absent) outlived
+  every disconnect, logout and quit until reboot, and every connect added another copy of
+  their rules. Found in the VM by the paid connected-logout test, after the app's own
+  teardown had passed. `cleanupWgFirewall` now removes it the way wg-quick's own
+  `remove_firewall` does: scoped by that name, so another tunnel's firewall is never
+  touched; only once `sntl0` is gone, because it is a live tunnel's protection; and the
+  iptables batch is applied with `-n`, since a flush would take the kill switch with it.
+  Handing `wg-quick down` the config's path instead would remove all of this, but it
+  also deletes every `suppress_prefixlength 0` rule, another VPN's included: the
+  scoping this rule exists for.
 - **[REL-11] Preflight before paying.** The session-creating handlers call
   `preflightConnect(nodeType, apiField, tunnel)` BEFORE the tx: first
   `assertSystemReady` (`ipc/setup.ts`), then `protocolRuntimeError()` (binaries present
