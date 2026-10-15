@@ -70,6 +70,53 @@ test('[REL-36] the app registers with the desktop session at startup, and a sess
     'onEndSession must start the normal quit, app.quit(), so before-quit runs the teardown')
 })
 
+test('[REL-36] with no D-Bus session manager the app registers over XSMP (KDE), and Die runs the normal quit', () => {
+  const dbus = whenReadySteps().find((s) => calleeName(s) === 'registerWithDesktopSession')
+  assert.ok(dbus, 'registerWithDesktopSession() is no longer called at startup')
+  // Chained on the D-Bus registration's result: GNOME and Xfce answer XSMP too, and a client
+  // registered twice would be waited for twice.
+  const then = calls(index).find((c) => calleeName(c) === 'then' && calls(c.expression).includes(dbus))
+  const xsmp = then && calls(then.arguments[0]).find((c) => calleeName(c) === 'registerWithXsmp')
+  assert.ok(xsmp, 'registerWithXsmp() must run in a .then() on registerWithDesktopSession()')
+  const opts = xsmp.arguments[0]
+  const onEnd = opts && ts.isObjectLiteralExpression(opts)
+    ? opts.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText() === 'onEndSession')
+    : undefined
+  assert.ok(onEnd && calls(onEnd.initializer).some((c) => c.expression.getText() === 'app.quit'),
+    'onEndSession must start the normal quit, app.quit(), so before-quit runs the teardown')
+})
+
+test('[REL-36] a system shutdown waits for the normal quit: the shutdown listener holds the delay and quits', () => {
+  const ready = whenReadySteps()
+  const listener = ready.find((s) => calleeName(s) === 'on' && s.arguments[0]?.getText() === "'shutdown'")
+  assert.ok(listener && listener.arguments[1], "powerMonitor's 'shutdown' listener is no longer registered at startup")
+  // Electron 41 creates its power monitor for the first listener and only then starts
+  // watching for 'shutdown' ones: a 'shutdown' listener that comes first takes no lock
+  // (seen in the release VM: no inhibitor, and two reboots crashed).
+  const first = ready.find((s) => s.expression.getText() === 'powerMonitor.on')
+  assert.ok(first && first.pos < listener.pos, "the 'shutdown' listener must not be powerMonitor's first listener")
+  const steps = calls(listener.arguments[1]).map((c) => c.expression.getText())
+  // Without preventDefault() Electron releases its logind delay lock at once, logind goes on,
+  // and X is gone ~70 ms later, which Electron answers by crashing ("Failed to shutdown.").
+  assert.ok(steps.some((s) => s.endsWith('.preventDefault')), 'the shutdown listener must call preventDefault()')
+  assert.ok(steps.includes('app.quit'), 'the shutdown listener must start the normal quit, app.quit()')
+})
+
+test("[REL-37] the quit turns off Chromium's GPU crash limit before the teardown starts", () => {
+  const quit = calls(index).find((c) => calleeName(c) === 'on' && c.arguments[0]?.getText() === "'before-quit'")
+  assert.ok(quit && quit.arguments[1], "app.on('before-quit', ...) not found")
+  const steps = calls(quit.arguments[1])
+  const limitOff = steps.find((c) => c.expression.getText() === 'app.commandLine.appendSwitch' &&
+    c.arguments[0]?.getText() === "'disable-gpu-process-crash-limit'")
+  // Without it, a SIGTERM to every app process at once (pkill, a kill of every PID) kills
+  // the zygote with the GPU process, and Chromium crashes itself mid-teardown after six
+  // failed relaunches: 6 of 12 in the release VM, 0 of 12 with it.
+  assert.ok(limitOff, "before-quit must append 'disable-gpu-process-crash-limit'")
+  const teardown = steps.find((c) => calleeName(c) === 'cleanupOnQuit')
+  assert.ok(teardown, 'cleanupOnQuit() is no longer called from before-quit')
+  assert.ok(limitOff.pos < teardown.pos, 'the crash limit must be off before the teardown starts')
+})
+
 test('[ARCH-1] every window keeps the renderer isolated, sandboxed and Node-free', () => {
   const windows = sources('src/main').flatMap((f) => nodes(parse(f)).filter((n): n is ts.NewExpression =>
     ts.isNewExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'BrowserWindow'))
