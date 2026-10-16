@@ -450,10 +450,11 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   on INTERFACE PRESENCE — deliberately. Do not add an intermediate "verifying" state.**
   For WG/AWG/OpenVPN the status is true from the moment the interface exists, which is
   BEFORE `applyPostConnectSettings` arms the kill switch and before
-  `assertTunnelCarriesTraffic` finishes (that probe alone can run 36s: 3 attempts x 2 URLs
-  x 6s). That reads like a bug and is not one, because the tunnel genuinely is carrying
-  the user's traffic throughout that window. The renderer gates on this string in 10+
-  places and two of them break immediately if it goes false while a tunnel is up:
+  `assertTunnelCarriesTraffic` finishes (that probe alone can run 18s: 3 attempts of 6s,
+  each racing its 2 URLs). That reads like a bug and is not one, because the tunnel
+  genuinely is carrying the user's traffic throughout that window. The renderer gates on
+  this string in 10+ places and two of them break immediately if it goes false while a
+  tunnel is up:
   `ActiveSessions`' `chainFrozen` re-enables the Sessions Refresh button, which is a
   silent no-op while our own tunnel freezes the chain (the bug d41d35b fixed), and
   `useTrafficStats(vpnConnected)` stops feeding the live meter, which drives the usage
