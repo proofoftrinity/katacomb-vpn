@@ -4,27 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Run Commands
 
-```bash
-npm test             # Node tests (src/**, test/**; built-in runner) + `go test ./...` in daemon/
-npm run test:daemon  # The Go tests alone (shuffled)
-npm run test:canaries # Mutation canaries: each guarded rule broken must turn the suite red
-npm run test:fuzz    # Go fuzz targets, FUZZTIME each (default 10s)
-npm run build:daemon # Build the privileged helper (daemon/ → resources/linux/privileged/katacomb-vpn-helper)
-npm run typecheck    # tsc --noEmit on both projects + the tests (must pass clean)
-npm run verify       # typecheck + test: the definition of done
-npm run check:chain  # Re-check the live-chain facts behind SL-2..SL-4 on mainnet (read-only; not in verify)
-```
+The scripts are in `package.json`. `npm run check:chain` re-checks the live-chain facts
+behind SL-2..SL-4 on mainnet (read-only; not in verify).
 
 Tests use Node's native `--test` runner against `src/**/*.test.ts` and `test/**/*.test.ts`
 (no Vitest/Jest — Node 22.18+ strips TS types and runs the tests directly; esbuild is
 the one test-only dependency, for bundling modules the runner cannot load). Test files
-are excluded from the build tsconfigs, typechecked by `tsconfig.test.json`, and import
-the module-under-test with a `.ts` extension (required by the native runner).
-`docs/testing.md` says how to write each kind. No linter is configured; `tsc` is
-`strict` with `noUnusedLocals`/`noUnusedParameters` on. The privileged helper is a
-Go module in `daemon/` (toolchain pinned by `daemon/go.mod`; `scripts/build-daemon.sh`
-refuses any other version and `go vet`s before it builds); `npm run dev`, `build` and
-`dist` all build it, and `npm test` runs its tests after the node suite.
+import the module-under-test with a `.ts` extension (required by the native runner).
+`docs/testing.md` says how to write each kind. No linter is configured. The privileged
+helper is a Go module in `daemon/` (toolchain pinned by `daemon/go.mod`;
+`scripts/build-daemon.sh` refuses any other version and `go vet`s before it builds).
 
 ## Where the rest of this lives
 
@@ -107,7 +96,7 @@ written here binds both.
 
 ## Architecture
 
-Katacomb VPN desktop client: Electron 41 + React 18 + TypeScript + Vite + Tailwind CSS 4. Connects to the Sentinel blockchain (Cosmos SDK) to subscribe to decentralized VPN nodes and establish WireGuard/V2Ray tunnels. Linux-only target.
+Katacomb VPN desktop client. Connects to the Sentinel blockchain (Cosmos SDK) to subscribe to decentralized VPN nodes and establish WireGuard/V2Ray tunnels. Linux-only target.
 
 ### Naming: the product vs. the chain (do not "finish the job")
 
