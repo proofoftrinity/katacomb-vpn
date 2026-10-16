@@ -1,8 +1,9 @@
 // flag-icons ships every flag twice: `.fi-xx` points at flags/4x3/ and
-// `.fi-xx.fis` at flags/1x1/. The square set is selected by the `fis` class,
-// which this app never uses (all six call sites render a bare `fi fi-${code}`),
-// but importing the stylesheet wholesale still made Vite emit both — 71 flags
-// twice over, ~1.8 MB of SVG, plus the small ones inlined twice into the CSS.
+// `.fi-xx.fis` at flags/1x1/. The square set is selected by the `fis` class;
+// the two round flags use it only for its square box and cover it with the 4:3
+// artwork ([RN-13] in docs/renderer.md). Importing the stylesheet wholesale made
+// Vite emit both sets — 71 flags twice over, ~1.8 MB of SVG, plus the small ones
+// inlined twice into the CSS.
 //
 // Matched on the SELECTOR, not the url(): Vite rewrites `../flags/1x1/ad.svg`
 // to a hashed asset path in a postcss plugin of its own that runs before this

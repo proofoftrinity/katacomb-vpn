@@ -30,7 +30,7 @@ test('[RN-5] a utils/ helper imports no other module at runtime, only types', ()
   assert.deepEqual(bad, [], 'the native test runner cannot resolve it; pass the dependency in as a parameter')
 })
 
-test('[RN-7] no /NN opacity modifier on a theme colour (it generates no CSS)', () => {
+test('[RN-7] no /NN opacity modifier on a theme colour: tints come from the palette', () => {
   const re = /-(accent|success|danger|warning|info|bg-[a-z]+|text-[a-z]+|border)\/[0-9]/
   const files = walk('src/renderer', (p) => /\.(tsx?|css)$/.test(p) && !p.endsWith('.test.ts'))
   const hits = files.flatMap((f) => read(f).split('\n').flatMap((line, i) => (re.test(line) ? [`${f}:${i + 1}: ${line.trim()}`] : [])))
@@ -68,6 +68,16 @@ test('[RN-12] global.css keeps the lines that make Tailwind 4 render as Tailwind
   assert.match(css, /:disabled\s*\{\s*cursor: default;\s*\}/)
   assert.match(css, /input::placeholder,\s*textarea::placeholder\s*\{\s*color: #9ca3af;\s*\}/, 'placeholders keep their grey')
   assert.match(css, /option\s*\{\s*padding: revert;\s*\}/, "an option keeps the browser's padding")
+})
+
+// [RN-13] postcss.config.js drops flag-icons' square artwork, so `fis` only makes the box
+// square, and the 4:3 artwork has to cover it or the circle shows bands above and below.
+test('[RN-13] a round flag covers its circle: every fis also carries bg-cover', () => {
+  const hits = rendererFiles.flatMap((f) => read(f).split('\n').flatMap((line, i) => {
+    const code = line.replace(/\/\*.*?\*\/|\/\/.*$/g, '')
+    return /(^|[\s'"`])fis(?=[\s'"`]|$)/.test(code) && !/(^|[\s'"`])bg-cover(?=[\s'"`]|$)/.test(code) ? [`${f}:${i + 1}: ${line.trim()}`] : []
+  }))
+  assert.deepEqual(hits, [])
 })
 
 test('[ARCH-1] the renderer imports nothing from main, electron or Node', () => {

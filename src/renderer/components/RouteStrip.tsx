@@ -257,7 +257,7 @@ function Line({ state, label }: { state: LinkState; label?: string }) {
   )
 }
 
-/** A round flag (flag-icons' square variant), the initials without one, "?" without a country. */
+/** A round flag (the 4:3 artwork covering a square, [RN-13]), the initials without one, "?" without a country. */
 function Flag({ country, size }: { country: string; size: number }) {
   const code = countryCode(country)
   if (!code) {
@@ -265,7 +265,7 @@ function Flag({ country, size }: { country: string; size: number }) {
   }
   return (
     <span
-      className={`fi fis fi-${code} rounded-full shrink-0`}
+      className={`fi fis fi-${code} rounded-full shrink-0 bg-cover`}
       style={{ fontSize: `${size}px`, lineHeight: 1 }}
       title={country}
     />
