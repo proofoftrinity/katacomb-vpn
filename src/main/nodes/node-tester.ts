@@ -3,6 +3,7 @@ import http from 'node:http'
 import { net, BrowserWindow } from 'electron'
 import { IPC } from '../../shared/ipc-channels'
 import { REPLY_SIGNING_HEADER, REPLY_SIGNING_SCHEME } from '../protocols/reply-signature'
+import { isSafeNodeApiUrl } from '../config-guard'
 
 // dVPN nodes use self-signed TLS certificates, so we need a custom agent
 const insecureAgent = new https.Agent({ rejectUnauthorized: false })
@@ -95,6 +96,19 @@ export async function probeNode(remoteUrl: string, nodeAddress: string): Promise
       reachable: false,
       latencyMs: null,
       error: 'No API endpoint',
+    }
+    probeCache.set(nodeAddress, result)
+    return result
+  }
+  // The api field is directory data: the same http(s)-only guard as the IPC entry
+  // (finding M3), applied per row so one bad URL can't fail a whole batch.
+  if (!isSafeNodeApiUrl(remoteUrl)) {
+    const result: NodeProbeResult = {
+      nodeAddress,
+      timestamp: Date.now(),
+      reachable: false,
+      latencyMs: null,
+      error: 'Invalid node probe URL',
     }
     probeCache.set(nodeAddress, result)
     return result

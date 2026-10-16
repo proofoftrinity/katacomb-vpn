@@ -38,6 +38,22 @@ test('[REL-5] a node that drips its reply forever is given up on at the deadline
   assert.deepEqual([res.reachable, res.error], [false, 'Timeout'])
 })
 
+test('a probe refuses a URL that fails the http(s) guard without sending anything', async (t) => {
+  let requests = 0
+  const { url, server } = await serve((_req, res) => { requests++; res.end('{"success":true}') })
+  t.after(() => server.close())
+  const h = nt.fresh({})
+  t.after(() => h.dispose())
+  // Credentials in the URL: a scheme-less api field would otherwise be fetched as-is.
+  const withCredentials = url.replace('http://', 'http://user:pass@')
+  const res = await (h.mod.probeNode as Probe)(withCredentials, 'sentnode1creds')
+  assert.deepEqual([res.reachable, res.error], [false, 'Invalid node probe URL'])
+  assert.equal(requests, 0)
+  // Positive control: the same server without the credentials is probed.
+  assert.equal((await (h.mod.probeNode as Probe)(url, 'sentnode1plain')).reachable, true)
+  assert.equal(requests, 1)
+})
+
 test('[REL-5] control: a node that answers is reachable', async (t) => {
   const { url, server } = await serve((_req, res) => { res.end('{"success":true}') })
   t.after(() => server.close())

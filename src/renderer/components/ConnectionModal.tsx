@@ -16,7 +16,7 @@ import { connectionRelation, previousConnection, switchFooterText } from '../uti
 import { useNavigation } from '../contexts/NavigationContext'
 import { useConnection } from '../hooks/useConnection'
 import { protocolMeta, isProtocolSupported, isProxyCapable } from '../utils/protocols'
-import { nodeStatusMeta, isNodeConnectable } from '../utils/node-status'
+import { nodeStatusMeta, isNodeConnectable, hasDirectoryDetails } from '../utils/node-status'
 import { versionSignsReplies } from '../../shared/node-signing'
 import { useBalance } from '../hooks/useBalance'
 import { checkFunds, formatP2p, formatP2pCeil, insufficientFundsMessage } from '../../shared/funds'
@@ -247,7 +247,12 @@ export default function ConnectionModal({ node, onClose }: Props) {
   const probeTip = `This is this app's own probe of the node's API port${
     live ? ', sent through your current connection, so its time includes that route' : ''
   }. A node can answer it and still fail to build a tunnel; a failed handshake is cancelled and refunded automatically.`
-  const healthCheck: CheckSpec = !isProtocolSupported(node.type) ? {
+  const healthCheck: CheckSpec = !hasDirectoryDetails(node) ? {
+    id: 'health',
+    tone: 'danger',
+    text: 'The node directory has no details for this node',
+    tip: "Its protocol, address and location are unknown, so there is nothing to connect with. The node may be working; the directory just hasn't read it.",
+  } : !isProtocolSupported(node.type) ? {
     id: 'health',
     tone: 'danger',
     text: `This app can't connect to ${protocol.label} nodes yet`,
@@ -322,17 +327,19 @@ export default function ConnectionModal({ node, onClose }: Props) {
 
   // ---- the footer's one reason ----
   const blocker: { text: string; tone: 'danger' | 'muted' } | null =
-    !isProtocolSupported(node.type)
-      ? { text: `${protocol.label} isn't supported by this client yet. This node is shown for filtering only.`, tone: 'danger' }
-      : nodeStatus.state === 'inactive'
-        ? { text: 'Connecting is disabled because this node is not active on chain.', tone: 'danger' }
-        : !connectable && !(canOverrideHealth && healthAcknowledged)
-          ? { text: 'Tick "Try it anyway" above to connect to a node that failed its health check.', tone: 'muted' }
-          : !matchingAllocation && !selectedPrice
-            ? { text: `This node has no P2P price for ${subType === 'gigabytes' ? 'data' : 'time'}. Switch the billing.`, tone: 'danger' }
-            : cantAfford && funds
-              ? { text: `Not enough P2P: short by ${formatP2pCeil(funds.shortfall)}, fees included.`, tone: 'danger' }
-              : null
+    !hasDirectoryDetails(node)
+      ? { text: 'Connecting is disabled because the node directory has no details for this node.', tone: 'danger' }
+      : !isProtocolSupported(node.type)
+        ? { text: `${protocol.label} isn't supported by this client yet. This node is shown for filtering only.`, tone: 'danger' }
+        : nodeStatus.state === 'inactive'
+          ? { text: 'Connecting is disabled because this node is not active on chain.', tone: 'danger' }
+          : !connectable && !(canOverrideHealth && healthAcknowledged)
+            ? { text: 'Tick "Try it anyway" above to connect to a node that failed its health check.', tone: 'muted' }
+            : !matchingAllocation && !selectedPrice
+              ? { text: `This node has no P2P price for ${subType === 'gigabytes' ? 'data' : 'time'}. Switch the billing.`, tone: 'danger' }
+              : cantAfford && funds
+                ? { text: `Not enough P2P: short by ${formatP2pCeil(funds.shortfall)}, fees included.`, tone: 'danger' }
+                : null
 
   const footer = reviewing ? (
     vpnWarning ? (

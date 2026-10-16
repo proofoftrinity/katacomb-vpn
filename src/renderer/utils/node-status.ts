@@ -14,10 +14,19 @@ import type { SentNode } from '../types'
  * reachable node as "Inactive" and hides which check actually failed. Both
  * signals are also distinct from the Nodes tab's own latency probe, which only
  * does an HTTP GET against the node's API port (see node-tester.ts).
+ *
+ * A fourth state, 'no-details' ([RN-14]): the directory never read the node, so
+ * it sends no address, protocol, moniker or location, yet can still flag it
+ * active and healthy. Nothing can connect to a node whose protocol is unknown.
  */
-export type NodeState = 'active' | 'unhealthy' | 'inactive'
+export type NodeState = 'active' | 'unhealthy' | 'no-details' | 'inactive'
 
-type NodeStatusFields = Pick<SentNode, 'isActive' | 'isHealthy' | 'errorMessage'>
+type NodeStatusFields = Pick<SentNode, 'isActive' | 'isHealthy' | 'errorMessage' | 'type'>
+
+/** Whether the directory has read the node: `type` 0 comes with an empty `api`, moniker and location. */
+export function hasDirectoryDetails(node: Pick<SentNode, 'type'>): boolean {
+  return !!node.type
+}
 
 export interface NodeStatusMeta {
   state: NodeState
@@ -40,6 +49,15 @@ export function nodeStatusMeta(node: NodeStatusFields): NodeStatusMeta {
       detail: 'Not registered as active on-chain.',
     }
   }
+  if (!hasDirectoryDetails(node)) {
+    return {
+      state: 'no-details',
+      label: 'No details',
+      dotClass: 'status-dot-inactive',
+      textClass: 'text-text-tertiary',
+      detail: "Active on-chain, but the node directory has no details for it (no address, protocol or location), so it can't be connected from here.",
+    }
+  }
   if (!node.isHealthy) {
     const reason = node.errorMessage?.trim()
     return {
@@ -59,17 +77,19 @@ export function nodeStatusMeta(node: NodeStatusFields): NodeStatusMeta {
   }
 }
 
-/** Sort rank for the Status column: healthy first, then unhealthy, then inactive. */
+/** Sort rank for the Status column: healthy, unhealthy, no details, then inactive. */
 export function nodeStatusRank(node: NodeStatusFields): number {
   if (!node.isActive) return 0
-  return node.isHealthy ? 2 : 1
+  if (!hasDirectoryDetails(node)) return 1
+  return node.isHealthy ? 3 : 2
 }
 
 /**
  * Whether a connect may be attempted. Both aggregator checks must pass: a
  * session against an unhealthy node would most likely fail after the on-chain
- * payment (it is refunded, but it still costs a wait).
+ * payment (it is refunded, but it still costs a wait). A node the directory has
+ * no details for has no known protocol to connect with.
  */
 export function isNodeConnectable(node: NodeStatusFields): boolean {
-  return node.isActive && node.isHealthy
+  return node.isActive && node.isHealthy && hasDirectoryDetails(node)
 }
