@@ -117,6 +117,25 @@ test("[REL-37] the quit turns off Chromium's GPU crash limit before the teardown
   assert.ok(limitOff.pos < teardown.pos, 'the crash limit must be off before the teardown starts')
 })
 
+test('[REL-39] the tray image is set only through paintTray, so every repaint is sent again', () => {
+  const decl = nodes(index).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) &&
+    n.name.getText() === 'paintTray')
+  const init = decl?.initializer
+  assert.ok(init && ts.isCallExpression(init) && calleeName(init) === 'trayPainter' && init.arguments[0],
+    'const paintTray = trayPainter(...) not found')
+  const callback = init.arguments[0]
+  const setImages = calls(index).filter((c) => calleeName(c) === 'setImage')
+  assert.ok(setImages.length > 0, 'no tray.setImage call found')
+  for (const c of setImages) {
+    assert.ok(c.pos >= callback.pos && c.end <= callback.end,
+      `${where(c)} sets the tray image outside paintTray, so that repaint is sent only once`)
+  }
+  const refresh = nodes(index).find((n): n is ts.FunctionDeclaration => ts.isFunctionDeclaration(n) &&
+    n.name?.text === 'refreshTray')
+  assert.ok(refresh, 'refreshTray() not found')
+  assert.ok(calls(refresh).some((c) => calleeName(c) === 'paintTray'), 'refreshTray must repaint through paintTray')
+})
+
 test('[ARCH-1] every window keeps the renderer isolated, sandboxed and Node-free', () => {
   const windows = sources('src/main').flatMap((f) => nodes(parse(f)).filter((n): n is ts.NewExpression =>
     ts.isNewExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'BrowserWindow'))

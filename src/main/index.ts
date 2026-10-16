@@ -8,7 +8,7 @@ import {
   performDisconnect, onConnectionStateChanged, getConnectionInfo, healStrandedKillSwitch,
   healOrphanedTunnel, type ConnectionInfo,
 } from './ipc-handlers'
-import { trayView, type TrayView } from './tray-view'
+import { markedTrayBitmap, trayPainter, trayView, type TrayView } from './tray-view'
 import { killAllTunnels, detectExistingConnection } from './vpn/vpn-manager'
 import { onChainPathChanged, runAutoRpcSelection, startRpcMonitor, stopRpcMonitor } from './chain/rpc-monitor'
 import { sweepStaleSessionFiles } from './chain/chain-service'
@@ -147,10 +147,21 @@ function trayImage(key: string): Electron.NativeImage {
 // properties, so only the image was lost). The AppImage is where it shows because
 // AppRun puts $APPDIR/usr/lib ahead of the system and electron-builder stages the
 // dead GTK2-era libappindicator.so.1 there, so it binds that instead of the
-// host's libayatana-appindicator3; the deb, same panel, repaints correctly.
+// host's libayatana-appindicator3.
 // Hence `force` below: connection state changes a handful of times a session and
 // every one matters, while the theme burst is three events that must collapse.
+// The deb drops one too, and `force` cannot help when no push follows ([REL-39]):
+// Cinnamon's panel asks this main thread for the new image and gives up after 5 s,
+// so a thread busy that long right after the repaint leaves the old icon up for good.
+// Hence paintTray, which sends every repaint again a moment later.
 let trayIconKey = ''
+
+// [REL-39] The one place the tray's image is set after it is created.
+const paintTray = trayPainter((key, marked) => {
+  const image = trayImage(key)
+  const size = image.getSize()
+  tray?.setImage(marked ? nativeImage.createFromBitmap(markedTrayBitmap(image.toBitmap(), size), size) : image)
+})
 
 function createTrayIcon(): void {
   const info = getConnectionInfo()
@@ -182,7 +193,7 @@ function refreshTray(info: ConnectionInfo, force = false): void {
 
   const iconKey = trayIconKeyFor(view.icon)
   if (force || iconKey !== trayIconKey) {
-    tray.setImage(trayImage(iconKey))
+    paintTray(iconKey)
     trayIconKey = iconKey
   }
   tray.setToolTip(view.tooltip)
