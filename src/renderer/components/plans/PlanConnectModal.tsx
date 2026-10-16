@@ -456,7 +456,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
                       >
                         {node && <CountryFlag country={node.country} />}
                         <span className="text-text-primary flex-1 truncate">
-                          {node ? node.moniker : `${addr.slice(0, 16)}...`}
+                          {node?.moniker || `${addr.slice(0, 16)}...`}
                         </span>
                         {node && (
                           <span className={`text-xs ${protocolMeta(node.type).color}`}>
