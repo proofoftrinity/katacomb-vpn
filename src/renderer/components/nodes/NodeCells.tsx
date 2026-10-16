@@ -191,6 +191,7 @@ export function LatencyCell({
 const PILL_CLASS: Record<NodeState, string> = {
   active: 'bg-success-subtle text-success',
   unhealthy: 'bg-warning-subtle text-warning',
+  'no-details': 'bg-bg-tertiary text-text-tertiary',
   inactive: 'bg-bg-tertiary text-text-tertiary',
 }
 

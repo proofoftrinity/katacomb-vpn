@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import type { SentNode, NodeFilter } from '../types'
 import { useNodesContext } from '../contexts/NodesContext'
 import { v2rayConnectionCategory } from '../utils/v2ray-connection'
-import { nodeStatusRank } from '../utils/node-status'
+import { nodeStatusRank, hasDirectoryDetails } from '../utils/node-status'
 import { versionSignsReplies } from '../../shared/node-signing'
 
 const DEFAULT_FILTER: NodeFilter = {
@@ -153,7 +153,8 @@ export function useNodes(
     if (filter.country) nodes = nodes.filter((n) => n.country === filter.country)
     if (filter.type !== 'all') nodes = nodes.filter((n) => n.type === filter.type)
     if (filter.activeOnly) nodes = nodes.filter((n) => n.isActive)
-    if (filter.healthyOnly) nodes = nodes.filter((n) => n.isHealthy)
+    // [RN-14] A node the directory has no details for is flagged healthy but can't be picked.
+    if (filter.healthyOnly) nodes = nodes.filter((n) => n.isHealthy && hasDirectoryDetails(n))
     if (filter.residentialOnly) nodes = nodes.filter((n) => n.isResidential)
     if (filter.whitelistedOnly) nodes = nodes.filter((n) => n.isWhitelisted)
     if (filter.signedOnly) nodes = nodes.filter((n) => versionSignsReplies(n.version))

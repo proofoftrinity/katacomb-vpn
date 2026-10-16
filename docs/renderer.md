@@ -37,6 +37,21 @@ from `src/main/`; `src/shared/` is the only overlap.
   spinner until the app was restarted. Its `error` surfaces as a Retry pane, but
   only when there is no list at all; a failed refresh over a cached list just makes
   it stale, and blanking the table would be worse.
+- **[RN-14] A node the directory has no details for is "No details", never a green
+  Active, and the Healthy chip hides it.** The feed lists some nodes it never read:
+  `api` empty, `type` 0, no moniker, location or version, `fetchedAt` null. It still
+  flags many of them active, healthy and whitelisted, so on 2026-10-16 they were 139 of
+  the 2,127 rows the default chips showed, blank rows with a green pill that nothing
+  can connect to (no protocol). The nodes themselves were fine: each one sampled was
+  active on chain with an address, and its own info page answered with moniker,
+  location and protocol. So `node-status.ts` gives them a grey fourth state (after
+  inactive, before the health check), `isNodeConnectable` refuses them, the Healthy chip
+  keeps only nodes with details, and the connect window names the missing details
+  rather than calling protocol 0 unsupported. Turning Healthy off shows them again.
+  Reading the chain and each node ourselves to fill them in was considered and not
+  taken: it would contact them all from the user's IP on every refresh, and the
+  locations are the node's own claim (three of five sampled shared one IP while
+  claiming three countries).
 - **[RN-1] Everything an IPC handler throws reaches the renderer wrapped.** `ipcRenderer.invoke`
   rejects with ``Error invoking remote method '<channel>': Error: <our message>``, so a
   `startsWith(MARKER)` test against the raw `err.message` is always false — the
