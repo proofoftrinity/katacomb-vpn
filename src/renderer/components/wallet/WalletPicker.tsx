@@ -245,9 +245,16 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
                 Cannot be unlocked · {plural(locked.length)}
               </h2>
               <p className="text-text-secondary text-xs mb-2">
-                Saved under the app's previous name, so {locked.length === 1 ? 'its seed' : 'their seeds'} can
-                no longer be unlocked. Import the same recovery phrase again. Your funds are on-chain
-                and unaffected.
+                {status.keyringMissing ? <>
+                  Your keyring didn't answer, so {locked.length === 1 ? 'its seed' : 'their seeds'} can't be
+                  unlocked this time. Start or unlock your keyring, then restart the app. Keep
+                  {locked.length === 1 ? ' it' : ' them'}: removing deletes the stored seed.
+                </> : <>
+                  Your keyring can't unlock {locked.length === 1 ? 'its seed' : 'their seeds'}. If you saved
+                  {locked.length === 1 ? ' it' : ' them'} while logged in to another desktop, open the app there
+                  once: from then on it uses that keyring here too. Otherwise import the same recovery phrase
+                  again. Your funds are on-chain and unaffected.
+                </>}
               </p>
               <div className="bg-bg-secondary border border-border rounded-md divide-y divide-border overflow-hidden">
                 {locked.map(row)}

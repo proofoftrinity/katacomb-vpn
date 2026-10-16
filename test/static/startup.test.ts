@@ -208,6 +208,60 @@ test('[REL-40] a message for the page waits until the window is up, so a page cr
   }
 })
 
+test('[REL-40] a login start makes its tray icon once a tray host has answered, and an ordinary launch at once', () => {
+  const branch = nodes(index).find((n): n is ts.IfStatement => ts.isIfStatement(n) && n.expression.getText() === 'startedAtLogin')
+  assert.ok(branch && branch.elseStatement, 'the `if (startedAtLogin) … else …` startup branch not found')
+  // Made before the panel's tray is up (Xfce starts the app first), the icon is an old XEmbed one.
+  const wait = calls(branch.thenStatement).find((c) => calleeName(c) === 'then' && ts.isPropertyAccessExpression(c.expression) &&
+    ts.isCallExpression(c.expression.expression) && calleeName(c.expression.expression) === 'waitForTrayHost')
+  const callback = wait?.arguments[0]
+  assert.ok(isFn(callback), 'waitForTrayHost(...).then(callback) not found in the login branch')
+  const made = calls(branch.thenStatement).filter((c) => calleeName(c) === 'createTrayIcon')
+  assert.ok(made.length > 0, 'a login start must still make its tray icon')
+  for (const c of made) {
+    assert.ok(c.pos >= callback.pos && c.end <= callback.end, `${where(c)}: a login start makes its tray icon only once waitForTrayHost has answered`)
+  }
+  assert.ok(calls(branch.elseStatement).some((c) => calleeName(c) === 'createTrayIcon'), 'an ordinary launch must make its tray icon')
+  assert.deepEqual(whenReadySteps().filter((c) => calleeName(c) === 'createTrayIcon' && !(c.pos >= branch.pos && c.end <= branch.end)).map(where), [],
+    'the tray icon is made only in the startup branch')
+})
+
+test('[REL-41] the keyring is chosen before ready, from the stored seeds, unless the user passed one', () => {
+  const appends = calls(index).filter((c) => c.expression.getText() === 'app.commandLine.appendSwitch' &&
+    c.arguments[0]?.getText() === "'password-store'")
+  assert.equal(appends.length, 1, "exactly one app.commandLine.appendSwitch('password-store', …)")
+  const append = appends[0]
+  // Chromium reads the switch as `ready` comes: inside any function it would run too late, or never.
+  for (let n: ts.Node | undefined = append.parent; n; n = n.parent) {
+    assert.ok(!ts.isFunctionLike(n), `${where(append)} must run at the top level, before ready`)
+  }
+  const value = append.arguments[1]
+  const decl = value && ts.isIdentifier(value)
+    ? nodes(index).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && n.name.getText() === value.text)
+    : undefined
+  assert.equal(decl?.initializer?.getText(), 'keyringSwitch(process.env)', 'the value comes from keyringSwitch(process.env)')
+  const guard = nodes(index).find((n): n is ts.IfStatement => ts.isIfStatement(n) && n.pos <= append.pos && append.end <= n.end &&
+    n.expression.getText() === "!app.commandLine.hasSwitch('password-store')")
+  assert.ok(guard, "a --password-store the user passed wins: guard with `if (!app.commandLine.hasSwitch('password-store'))`")
+})
+
+test('[REL-42] the tray icon is drawn for the panel\'s shade as read from the desktop, read before the first image', () => {
+  // The apps' theme was the whole answer, and on GNOME and Xfce it put a dark K on a dark panel.
+  assert.ok(!fn('trayPanel').getText().includes('shouldUseDarkColors'), 'trayPanel() must return the panel\'s shade, not the apps\' theme')
+  const read = fn('readPanelShade')
+  assert.ok(calls(read).some((c) => calleeName(c) === 'panelShade'), 'readPanelShade() must ask panelShade (tray-view.ts)')
+  const create = fn('createTrayIcon')
+  const awaited = nodes(create).find((n): n is ts.AwaitExpression => ts.isAwaitExpression(n) &&
+    ts.isCallExpression(n.expression) && calleeName(n.expression) === 'readPanelShade')
+  const made = nodes(create).find((n): n is ts.NewExpression => ts.isNewExpression(n) && n.expression.getText() === 'Tray')
+  assert.ok(awaited && made && awaited.pos < made.pos, 'createTrayIcon() must await readPanelShade() before new Tray(...)')
+  // Re-read when the shade can change: the apps' theme, or the panel's own on Cinnamon and Xfce.
+  assert.ok(calls(create).some((c) => calleeName(c) === 'on' && c.arguments[0]?.getText() === "'updated'"), "nativeTheme 'updated' must re-read the shade")
+  assert.ok(calls(create).some((c) => calleeName(c) === 'panelWatchCommand'), 'a panel restyled on its own must be watched')
+  const quit = calls(index).find((c) => calleeName(c) === 'on' && c.arguments[0]?.getText() === "'before-quit'")
+  assert.ok(quit && calls(quit).some((c) => c.expression.getText() === 'panelWatch?.kill'), 'the quit must stop the panel watcher')
+})
+
 test('[ARCH-1] every window keeps the renderer isolated, sandboxed and Node-free', () => {
   const windows = sources('src/main').flatMap((f) => nodes(parse(f)).filter((n): n is ts.NewExpression =>
     ts.isNewExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'BrowserWindow'))

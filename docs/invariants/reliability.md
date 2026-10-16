@@ -679,4 +679,44 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   apart (`waitForTrayHost`, tray-view.ts): at login the panel can register its tray after
   the app has started, and a single early "no" would open the window for nothing and,
   since the window's X reads the same `trayHostAvailable`, leave that X quitting the app
-  for the whole session.
+  for the whole session. The tray icon waits for that answer too: Chromium registers it
+  over D-Bus only if a tray is up when it is made, and otherwise draws an old XEmbed
+  icon for the rest of the run. Xfce ignores the entry's `X-GNOME-Autostart-Delay` and
+  started the app 0.4 s after its panel, before the panel's tray (release VM,
+  2026-10-16). With no answer it is made anyway: a panel that draws only XEmbed icons
+  still shows one.
+- **[REL-41] The seeds stay in the keyring that saved them.** `safeStorage` keeps its key
+  in a keyring Chromium picks by desktop: KWallet on KDE, the Secret Service (GNOME
+  Keyring) on the desktops it knows, and a fixed built-in key anywhere else, under which
+  no seed is saved at all ([ARCH-5]). Each keyring holds its own key, so on an account
+  that logs in to both GNOME and Plasma a seed saved under one read as locked under the
+  other, and the picker blamed the app's old name (release VM, 2026-10-16). The keyring
+  that last saved or opened a seed is recorded (`keyringBackend` in settings.json), and
+  before `ready`, while a seed is stored, `keyringSwitch` asks for it again with
+  `--password-store`. A KWallet on KDE is left to Chromium, which picks the version the
+  session runs. With no seed stored it asks for the Secret Service everywhere but KDE,
+  so i3 or sway with GNOME Keyring can save a seed. A `--password-store` the user passed
+  wins. When no copy of a duplicate opens, the dedupe deletes none, since under the
+  keyring it was saved in any of them may be the only working copy. A seed that still
+  does not open says why, as far as the app can tell: no keyring answered, saved before
+  the record under another desktop, or the app's old name or a reset keyring. No keyring
+  answering is its own case: a prompt cancelled, or answered after KWallet's 25 s D-Bus
+  timeout (`org.kde.KWallet.open: NoReply`, seen in the same VM run), and Chromium turns
+  encryption off for the whole run, so every seed reads as locked until a restart. The
+  screens used to advise re-importing, and the delete window called such a seed unusable,
+  when removing it deleted a seed that would open after a restart. The store now says
+  so (`keyringMissing`, asked only once a seed failed, so an empty store prompts for
+  nothing), and both screens and the delete window say to restart instead.
+- **[REL-42] The tray icon is drawn for the panel's shade, not the apps' theme.**
+  `nativeTheme` reports the apps' theme, and several desktops theme their panel apart
+  from it: in the release VM (2026-10-16) the dark K sat on GNOME Shell's top bar, dark in
+  every stock theme, and on Xfce's panel, which Greybird (Xubuntu's theme) draws dark in
+  its light variant too; Mint's "Mixed" look pairs a dark Cinnamon panel with light apps.
+  `panelShade` (tray-view.ts) answers dark for stock GNOME and Ubuntu, and reads the
+  panel's rule in the theme's stylesheet: the Cinnamon theme's (its name does not tell:
+  Mint-L, a light theme, draws a dark panel), and on Xfce the GTK theme's, its dark
+  variant when the panel's `dark-mode` is on, else dark mode alone decides. Any other
+  desktop, and any read that fails, keeps the apps' shade, as every desktop had before. It is read before the first image, so the icon
+  never blinks from one ink to the other, again on every `nativeTheme` change, and on
+  Cinnamon and Xfce whenever their panel setting changes alone (`panelWatchCommand`):
+  Mint's Mixed to Light changes only the panel.

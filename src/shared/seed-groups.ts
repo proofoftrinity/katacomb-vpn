@@ -9,7 +9,7 @@
  */
 
 export interface SeedGrouped {
-  /** False when the seed cannot be decrypted (saved under the app's previous name). */
+  /** False when the seed cannot be decrypted (another keyring's key, or the app's previous name). */
   unlockable: boolean
   /**
    * Id of the FIRST stored wallet, in index order, holding the same phrase.

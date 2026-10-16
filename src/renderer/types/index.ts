@@ -320,8 +320,9 @@ export interface DerivationPreview {
 export interface WalletStoreStatus {
   wallets: (WalletEntry & {
     /**
-     * False when the seed can't be decrypted — e.g. saved under the app's
-     * previous name, since safeStorage keys its keyring entry by app name.
+     * False when the seed can't be decrypted — e.g. saved under another
+     * desktop's keyring, or under the app's previous name, since safeStorage
+     * keys its keyring entry by app name.
      * Such a wallet must be re-imported from its phrase, not just selected.
      */
     unlockable: boolean
@@ -339,6 +340,11 @@ export interface WalletStoreStatus {
    * while `wallets` is empty.
    */
   retainedSeedId: string | null
+  /**
+   * No keyring answered this run, so every seed reads as locked until a restart,
+   * and removing one deletes a seed that would open then ([REL-41]).
+   */
+  keyringMissing: boolean
 }
 
 export interface AppSettings {

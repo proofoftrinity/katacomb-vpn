@@ -177,3 +177,105 @@ test('[REL-40] the startup migrations never call the keyring, unless two wallets
   startup(h)
   assert.ok(h.world.safeStorage.calls > 0, 'the dedupe decrypts to pick the copy that unlocks')
 })
+
+describe('[REL-41] the seeds stay in the keyring that saved them', () => {
+  const GNOME = { XDG_CURRENT_DESKTOP: 'ubuntu:GNOME' }
+  const PLASMA = { XDG_CURRENT_DESKTOP: 'KDE', KDE_SESSION_VERSION: '5' }
+  const store = (h: ModuleHarness, env: Record<string, string>) => (h.mod.keyringSwitch as Fn)(env)
+  const recorded = (h: ModuleHarness) => ((h.mod.loadSettings as Fn)() as { keyringBackend: string | null }).keyringBackend
+
+  test('[REL-41] a seed saved under GNOME opens from the same keyring under Plasma, and asking reads no keyring', (t) => {
+    const h = settings.fresh()
+    t.after(() => h.dispose())
+    ;(h.mod.addWalletEntry as Fn)('Main', 'sent1aaa', 'abandon abandon about')
+    assert.equal(recorded(h), 'gnome_libsecret')
+    h.world.safeStorage.calls = 0
+    // Left to Chromium, Plasma meant KWallet, whose key does not open this seed.
+    assert.equal(store(h, PLASMA), 'gnome-libsecret')
+    assert.equal(store(h, GNOME), 'gnome-libsecret')
+    assert.equal(h.world.safeStorage.calls, 0, 'keyringSwitch runs before ready: a keyring call there would prompt')
+  })
+
+  test('[REL-41] a seed saved under KWallet opens from KWallet everywhere, its version left to Chromium under KDE', (t) => {
+    const h = settings.fresh()
+    t.after(() => h.dispose())
+    h.world.safeStorage.backend = 'kwallet5'
+    ;(h.mod.addWalletEntry as Fn)('Main', 'sent1aaa', 'abandon abandon about')
+    assert.equal(store(h, GNOME), 'kwallet5')
+    assert.equal(store(h, PLASMA), null)
+    assert.equal(store(h, { XDG_CURRENT_DESKTOP: 'KDE', KDE_SESSION_VERSION: '6' }), null)
+  })
+
+  test('[REL-41] with no seed stored: KWallet under KDE, the Secret Service anywhere else, never the built-in key', (t) => {
+    const h = settings.fresh()
+    t.after(() => h.dispose())
+    assert.equal(store(h, GNOME), 'gnome-libsecret')
+    assert.equal(store(h, PLASMA), null)
+    assert.equal(store(h, { DESKTOP_SESSION: 'kde-plasma' }), null)
+    // Chromium knows no i3 (or sway, LXDE...) and would pick its built-in key, under which no seed is saved.
+    assert.equal(store(h, { XDG_CURRENT_DESKTOP: 'i3' }), 'gnome-libsecret')
+    assert.equal(store(h, {}), 'gnome-libsecret')
+    // A record outlives the seeds it was for: with every seed removed it no longer binds.
+    writeFileSync(join(h.world.userData, 'settings.json'), JSON.stringify({ keyringBackend: 'gnome_libsecret' }))
+    assert.equal(store(h, PLASMA), null)
+  })
+
+  test('[REL-41] an upgrade records the keyring at the first seed it opens; a failed open and the built-in key record nothing', (t) => {
+    const opened = settings.fresh()
+    t.after(() => opened.dispose())
+    seed(opened, 'w1')
+    opened.world.safeStorage.backend = 'kwallet6'
+    assert.equal((opened.mod.getWalletMnemonic as Fn)('w1'), 'abandon abandon about')
+    assert.equal(recorded(opened), 'kwallet6')
+
+    const failed = settings.fresh()
+    t.after(() => failed.dispose())
+    seed(failed, 'w1', 'another-desktop')
+    assert.equal((failed.mod.canUnlockWallet as Fn)('w1'), false)
+    assert.equal(recorded(failed), null)
+
+    const basic = settings.fresh()
+    t.after(() => basic.dispose())
+    seed(basic, 'w1')
+    basic.world.safeStorage.backend = 'basic_text'
+    assert.equal((basic.mod.getWalletMnemonic as Fn)('w1'), 'abandon abandon about')
+    assert.equal(recorded(basic), null)
+  })
+
+  test('[REL-41] a seed that does not open says why, as far as the app can tell', (t) => {
+    const h = settings.fresh()
+    t.after(() => h.dispose())
+    seed(h, 'w1', 'another-desktop')
+    const message = () => { try { (h.mod.getWalletMnemonic as Fn)('w1') } catch (e) { return (e as Error).message } return '' }
+    // Nothing recorded yet: saved before this release, perhaps under the other desktop.
+    assert.match(message(), /another desktop, open the app there once/)
+    assert.match(message(), /import the same seed phrase again/)
+    // Recorded, so this run already asked for the keyring that saved it.
+    writeFileSync(join(h.world.userData, 'settings.json'), JSON.stringify({ keyringBackend: 'gnome_libsecret' }))
+    assert.match(message(), /previous name, or before the keyring was reset/)
+    assert.doesNotMatch(message(), /another desktop/)
+    // The keyring asked for never answered: the built-in key is all Chromium had, or none at all.
+    // Every seed reads as locked until a restart, so removing one would delete a working seed.
+    h.world.safeStorage.backend = 'basic_text'
+    assert.match(message(), /No keyring answered.*Start or unlock GNOME Keyring, then restart the app/)
+    assert.match(message(), /Keep the wallet meanwhile: removing it deletes its stored seed/)
+    assert.doesNotMatch(message(), /import the same seed phrase again/)
+    h.world.safeStorage.backend = 'kwallet5'
+    h.world.safeStorage.available = false
+    assert.match(message(), /No keyring answered.*Keep the wallet meanwhile/)
+  })
+})
+
+test('[ARCH-5] [REL-41] when no copy of a duplicate opens in this keyring, the dedupe deletes none', (t) => {
+  const h = settings.fresh()
+  t.after(() => h.dispose())
+  writeFileSync(join(h.world.userData, 'wallets-index.json'), JSON.stringify([
+    { id: 'a', name: 'Main', address: 'sent1aaa' },
+    { id: 'b', name: 'Main (re-imported)', address: 'sent1aaa' },
+  ]))
+  // Both saved under another desktop's keyring: either may be the copy that opens there.
+  seed(h, 'a', 'another-desktop'); seed(h, 'b', 'another-desktop')
+  ;(h.mod.dedupeWalletEntries as Fn)()
+  assert.deepEqual(((h.mod.listWallets as Fn)() as Array<{ id: string }>).map((w) => w.id), ['a', 'b'])
+  assert.ok(existsSync(join(h.world.userData, 'wallets', 'a.enc')) && existsSync(join(h.world.userData, 'wallets', 'b.enc')))
+})

@@ -36,6 +36,8 @@ type WalletWindow =
 
 interface Props {
   wallets: StoredWallet[]
+  /** No keyring answered this run: a locked seed would open after a restart ([REL-41]). */
+  keyringMissing: boolean
   settings: AppSettings
   /**
    * A session is live, in any mode: tunnel, local proxy, or the reconnect window.
@@ -66,7 +68,7 @@ interface Props {
  * dialog's own stopPropagation keeps a backdrop click from closing Settings too.
  */
 export default function WalletsTab({
-  wallets, settings, connected, reload, onWalletSwitch, onWalletsChanged, onAddWallet,
+  wallets, keyringMissing, settings, connected, reload, onWalletSwitch, onWalletsChanged, onAddWallet,
 }: Props) {
   const [open, setOpen] = useState<WalletWindow | null>(null)
   // Switch has no window of its own, so its refusal renders above the list.
@@ -100,6 +102,9 @@ export default function WalletsTab({
 
   // What deleting one row does to its seed, which depends on the rest of its group.
   const deleteNote = (w: StoredWallet): string => {
+    if (w.seedGroup === null && keyringMissing) {
+      return 'Your keyring didn\'t answer, so this wallet can\'t be unlocked right now, but its seed is still stored. Removing it deletes that seed: restart the app and unlock your keyring instead.'
+    }
     if (w.seedGroup === null) {
       return 'This wallet cannot be unlocked, so nothing usable is removed. Import the same recovery phrase again to get it back.'
     }
@@ -213,9 +218,16 @@ export default function WalletsTab({
             heading={`Cannot be unlocked · ${plural(locked.length)}`}
             note={
               <p className="text-text-secondary text-xs mb-2">
-                Saved under the app's previous name, so {locked.length === 1 ? 'its seed' : 'their seeds'} can
-                no longer be unlocked. Import the same recovery phrase again. Your funds are on-chain
-                and unaffected.
+                {keyringMissing ? <>
+                  Your keyring didn't answer, so {locked.length === 1 ? 'its seed' : 'their seeds'} can't be
+                  unlocked this time. Start or unlock your keyring, then restart the app. Keep
+                  {locked.length === 1 ? ' it' : ' them'}: removing deletes the stored seed.
+                </> : <>
+                  Your keyring can't unlock {locked.length === 1 ? 'its seed' : 'their seeds'}. If you saved
+                  {locked.length === 1 ? ' it' : ' them'} while logged in to another desktop, open the app there
+                  once: from then on it uses that keyring here too. Otherwise import the same recovery phrase
+                  again. Your funds are on-chain and unaffected.
+                </>}
               </p>
             }
           >

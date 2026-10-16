@@ -43,7 +43,10 @@ import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideRec
 import { discoverPlans, listCachedPlans, listNodesForPlan, listPlansForNode, subscribeToPlan, startSessionWithExistingSubscription, cancelSubscription, renewSubscription, updateSubscriptionPolicy, getPlanOverview, getCachedPlanNodes, TX_TIMEOUT_MESSAGE as PLAN_TX_TIMEOUT_MESSAGE, type PlanOverview } from './plans/plan-service'
 import { rankPlanCandidates, shouldTryNextCandidate, isFreeFailure, MAX_FREE_FAILURES, ladderNextTx, smartConnectFailureSummary, type PlanNodeCandidate, type SmartConnectFailure } from './plans/plan-connect'
 import { getCachedPlans } from './plans/plan-cache'
-import { loadSettings, saveSettings, listWallets, deleteWalletEntry, renameWallet, getWalletMnemonic, clearRetainedSeed, type AppSettings } from './settings'
+import {
+  loadSettings, saveSettings, listWallets, deleteWalletEntry, renameWallet, getWalletMnemonic, clearRetainedSeed, isSecureStorageAvailable,
+  type AppSettings,
+} from './settings'
 import { autostartState, setAutostart } from './autostart'
 import { assignSeedGroups } from '../shared/seed-groups'
 import { loadNodesCache, saveNodesCache, type NodesCacheFile } from './nodes/nodes-cache'
@@ -2964,16 +2967,20 @@ export function registerIpcHandlers(): void {
   })
 
   // What's on disk, regardless of whether a wallet is currently active — the
-  // wallet picker's source of truth. `unlockable` is false for a seed encrypted
-  // under the app's previous name (safeStorage keys its entry by app name), so
-  // the picker can say so instead of offering a switch that will fail.
+  // wallet picker's source of truth. `unlockable` is false for a seed this keyring
+  // cannot open (saved under another desktop's keyring, or under the app's previous
+  // name), so the picker can say so instead of offering a switch that will fail.
   // `seedGroup` is computed by decrypt-and-compare on every call and never
   // persisted: there is no seed id on disk, each entry holds its own copy.
+  // `keyringMissing` ([REL-41]) is asked only once a seed failed to open, so it adds no
+  // keyring call to a store whose seeds all open, or to an empty one.
   handle(IPC.WALLET_STORE_STATUS, async () => {
+    const wallets = assignSeedGroups(listWallets(), getWalletMnemonic)
     return {
-      wallets: assignSeedGroups(listWallets(), getWalletMnemonic),
+      wallets,
       activeWalletId: loadSettings().activeWalletId,
       retainedSeedId: loadSettings().retainedSeedId,
+      keyringMissing: wallets.some((w) => !w.unlockable) && !isSecureStorageAvailable(),
     }
   })
 

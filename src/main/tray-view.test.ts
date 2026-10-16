@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { markedTrayBitmap, TRAY_HOST_ATTEMPTS, TRAY_HOST_INTERVAL_MS, TRAY_REPAINT_AGAIN_MS, trayPainter, trayView, waitForTrayHost } from './tray-view.ts'
+import {
+  CINNAMON_PANEL, cssPanelShade, markedTrayBitmap, panelShade, panelWatchCommand, TRAY_HOST_ATTEMPTS, TRAY_HOST_INTERVAL_MS, TRAY_REPAINT_AGAIN_MS,
+  trayPainter, trayView, waitForTrayHost, XFCE_PANEL, type PanelReader,
+} from './tray-view.ts'
 import type { ConnectionInfo } from './ipc-handlers.ts'
 
 // What the tray draws for each connection state: icon, the disabled status rows at the
@@ -175,4 +178,137 @@ test('[REL-40] a tray that is already up answers at once, with no wait', async (
   const probe = scriptedProbe([true])
   assert.equal(await waitForTrayHost(probe.ask), true)
   assert.equal(probe.asked, 1)
+})
+
+// [REL-42] Panel rules as the stock themes write them (Linux Mint 22.3's, trimmed).
+const MINT_Y_AQUA = `#panel {
+  /* Set the symbolic foreground color for icons, and importantly, the system tray applet icons */
+  color: #303030; }
+.panel-top, .panel-bottom, .panel-left, .panel-right {
+  color: #ffffff;
+  background-color: rgba(243, 243, 244, 0.99); }
+.panel-bottom .window-list-item-box { background-color: #000; }`
+const MINT_Y_DARK_AQUA = MINT_Y_AQUA.replace('rgba(243, 243, 244, 0.99)', 'rgba(29, 29, 33, 0.99)')
+const MINT_L = `.panel-top, .panel-bottom, .panel-left, .panel-right {
+  border: none;
+  background-color: rgba(47, 47, 47, 0.99); }`
+const MINT_X = `.panel-top,
+.panel-bottom {
+    background-gradient-direction: vertical;
+    background-gradient-start: rgb(246, 246, 246);
+    background-gradient-end: rgb(206, 206, 206); }`
+const GREYBIRD = `.xfce4-panel.background menu .linked button { border-radius: 0; }
+.xfce4-panel.background { background-color: rgba(36, 36, 36, 0.8); color: #fcfcfc; font-weight: normal; }`
+const CINNAMON_DEFAULT = `.panel-top .workspace-switcher { padding: 0 4px; }
+.panel-top, .panel-bottom, .panel-left, .panel-right {
+  font-weight: bold;
+  background-color: #1a1a1a; }`
+
+/** A desktop whose commands and files answer from these tables; anything else fails. */
+function reader(env: Record<string, string>, appsDark: boolean, out: Record<string, string>, files: Record<string, string> = {}): PanelReader {
+  return {
+    env, appsDark, home: '/home/u',
+    run: async (cmd, args) => {
+      const key = [cmd, ...args].join(' ')
+      if (key in out) return out[key]
+      throw new Error(`no ${key}`)
+    },
+    readFile: async (path) => {
+      if (path in files) return files[path]
+      throw new Error(`ENOENT ${path}`)
+    },
+  }
+}
+const CINNAMON_THEME = 'gsettings get org.cinnamon.theme name'
+const XFCE_DARK = 'xfconf-query -c xfce4-panel -p /panels/dark-mode'
+const XFCE_THEME = 'xfconf-query -c xsettings -p /Net/ThemeName'
+
+test('[REL-42] GNOME Shell\'s top bar is dark whatever the apps use; its restyled sessions keep the apps\' shade', async () => {
+  assert.equal(await panelShade(reader({ XDG_CURRENT_DESKTOP: 'ubuntu:GNOME' }, false, {})), 'dark')
+  assert.equal(await panelShade(reader({ XDG_CURRENT_DESKTOP: 'GNOME' }, false, {})), 'dark')
+  for (const desktop of ['GNOME-Classic:GNOME', 'pop:GNOME', 'Budgie:GNOME', 'zorin:GNOME']) {
+    assert.equal(await panelShade(reader({ XDG_CURRENT_DESKTOP: desktop }, false, {})), 'light', desktop)
+    assert.equal(await panelShade(reader({ XDG_CURRENT_DESKTOP: desktop }, true, {})), 'dark', desktop)
+  }
+})
+
+test('[REL-42] Cinnamon: the panel\'s shade comes from the Cinnamon theme\'s stylesheet, not the apps\' theme', async () => {
+  const mint = (theme: string, appsDark: boolean, files: Record<string, string>) =>
+    panelShade(reader({ XDG_CURRENT_DESKTOP: 'X-Cinnamon' }, appsDark, { [CINNAMON_THEME]: `'${theme}'\n` }, files))
+  // Mint's "Mixed": light apps, dark panel.
+  assert.equal(await mint('Mint-Y-Dark-Aqua', false, { '/usr/share/themes/Mint-Y-Dark-Aqua/cinnamon/cinnamon.css': MINT_Y_DARK_AQUA }), 'dark')
+  // "Light" changes only the panel.
+  assert.equal(await mint('Mint-Y-Aqua', false, { '/usr/share/themes/Mint-Y-Aqua/cinnamon/cinnamon.css': MINT_Y_AQUA }), 'light')
+  assert.equal(await mint('Mint-Y-Aqua', true, { '/usr/share/themes/Mint-Y-Aqua/cinnamon/cinnamon.css': MINT_Y_AQUA }), 'light')
+  // The user's own copy of a theme wins over the system's, as in Cinnamon.
+  assert.equal(await mint('Mint-Y-Aqua', false, {
+    '/home/u/.themes/Mint-Y-Aqua/cinnamon/cinnamon.css': MINT_Y_DARK_AQUA,
+    '/usr/share/themes/Mint-Y-Aqua/cinnamon/cinnamon.css': MINT_Y_AQUA,
+  }), 'dark')
+  assert.equal(await mint('Mine', false, { '/home/u/.local/share/themes/Mine/cinnamon/cinnamon.css': MINT_L }), 'dark')
+  // The built-in theme lives with Cinnamon itself.
+  assert.equal(await mint('cinnamon', false, { '/usr/share/cinnamon/theme/cinnamon.css': CINNAMON_DEFAULT }), 'dark')
+  // Nothing to read: the apps' shade.
+  assert.equal(await mint('Gone', true, {}), 'dark')
+  assert.equal(await mint('Gone', false, {}), 'light')
+  assert.equal(await panelShade(reader({ XDG_CURRENT_DESKTOP: 'X-Cinnamon' }, true, {})), 'dark', 'gsettings failed')
+})
+
+test('[REL-42] a stylesheet\'s panel shade is read from the panel rule itself, by luminance, not by name', () => {
+  assert.equal(cssPanelShade(MINT_Y_AQUA, CINNAMON_PANEL), 'light')
+  assert.equal(cssPanelShade(MINT_Y_DARK_AQUA, CINNAMON_PANEL), 'dark')
+  assert.equal(cssPanelShade(MINT_L, CINNAMON_PANEL), 'dark', 'Mint-L is a light theme with a dark panel')
+  assert.equal(cssPanelShade(MINT_X, CINNAMON_PANEL), 'light', 'Mint-X draws a light gradient')
+  assert.equal(cssPanelShade(CINNAMON_DEFAULT, CINNAMON_PANEL), 'dark')
+  assert.equal(cssPanelShade('.panel-bottom { background-color: #fff; }', CINNAMON_PANEL), 'light')
+  assert.equal(cssPanelShade('.panel-bottom { background-color: white; }', CINNAMON_PANEL), 'light')
+  assert.equal(cssPanelShade('.panel-bottom { background-color: #00000080; }', CINNAMON_PANEL), 'dark')
+  // Only the panel's own rule counts, and a rule without a background is skipped.
+  assert.equal(cssPanelShade('.panel-bottom .applet { background-color: #000; } .panel-top { color: #000; } .panel-top { background-color: #eee; }', CINNAMON_PANEL), 'light')
+  assert.equal(cssPanelShade('.panel-top { background-color: transparent; }', CINNAMON_PANEL), null)
+  assert.equal(cssPanelShade('#panel { color: #303030; }', CINNAMON_PANEL), null)
+  // The first background that is a plain colour counts.
+  assert.equal(cssPanelShade('.panel-top { background: none; background-color: #222; }', CINNAMON_PANEL), 'dark')
+  // Xfce's panel, as Greybird (Xubuntu's theme) styles it in its light variant too.
+  assert.equal(cssPanelShade(GREYBIRD, XFCE_PANEL), 'dark')
+  assert.equal(cssPanelShade(GREYBIRD, CINNAMON_PANEL), null)
+})
+
+test('[REL-42] Xfce: the panel rule of the GTK theme decides, its dark variant in dark mode; then dark mode; then the apps', async () => {
+  const xfce = (darkMode: string | null, theme: string, appsDark: boolean, files: Record<string, string> = {}) =>
+    panelShade(reader({ XDG_CURRENT_DESKTOP: 'XFCE' }, appsDark, {
+      ...(darkMode === null ? {} : { [XFCE_DARK]: darkMode }),
+      [XFCE_THEME]: `${theme}\n`,
+    }, files))
+  // Greybird draws a dark panel in its light variant: dark whatever the mode or the apps.
+  const greybird = { '/usr/share/themes/Greybird/gtk-3.0/gtk.css': GREYBIRD }
+  assert.equal(await xfce('false\n', 'Greybird', false, greybird), 'dark')
+  assert.equal(await xfce('true\n', 'Greybird', false, greybird), 'dark')
+  // A theme with a light panel and a dark variant: the mode picks the stylesheet.
+  const split = {
+    '/usr/share/themes/Split/gtk-3.0/gtk.css': '.xfce4-panel.background { background-color: #f0f0f0; }',
+    '/usr/share/themes/Split/gtk-3.0/gtk-dark.css': '.xfce4-panel.background { background-color: #202020; }',
+  }
+  assert.equal(await xfce('true\n', 'Split', false, split), 'dark')
+  assert.equal(await xfce('false\n', 'Split', true, split), 'light')
+  // No panel rule (Adwaita, Yaru): dark mode makes it dark, else the apps' shade.
+  assert.equal(await xfce('true\n', 'Adwaita', false, { '/usr/share/themes/Adwaita/gtk-3.0/gtk.css': 'window { color: #000; }' }), 'dark')
+  assert.equal(await xfce('false\n', 'Adwaita', false), 'light')
+  assert.equal(await xfce('false\n', 'Adwaita', true), 'dark')
+  assert.equal(await xfce(null, '', false), 'light', 'nothing readable (before Xfce 4.18, no xfconf)')
+})
+
+test('[REL-42] every other desktop keeps the apps\' shade', async () => {
+  for (const env of [{ XDG_CURRENT_DESKTOP: 'KDE' }, { XDG_CURRENT_DESKTOP: 'MATE' }, {}] as Record<string, string>[]) {
+    assert.equal(await panelShade(reader(env, true, {})), 'dark')
+    assert.equal(await panelShade(reader(env, false, {})), 'light')
+  }
+})
+
+test('[REL-42] a panel restyled on its own is watched where the desktop can say so', () => {
+  assert.deepEqual(panelWatchCommand({ XDG_CURRENT_DESKTOP: 'X-Cinnamon' }), ['gsettings', ['monitor', 'org.cinnamon.theme', 'name']])
+  assert.deepEqual(panelWatchCommand({ XDG_CURRENT_DESKTOP: 'XFCE' }), ['xfconf-query', ['-c', 'xfce4-panel', '-p', '/panels/dark-mode', '-m']])
+  // GNOME's top bar never changes shade; elsewhere the apps' theme, which nativeTheme reports, decides.
+  assert.equal(panelWatchCommand({ XDG_CURRENT_DESKTOP: 'ubuntu:GNOME' }), null)
+  assert.equal(panelWatchCommand({ XDG_CURRENT_DESKTOP: 'KDE' }), null)
 })

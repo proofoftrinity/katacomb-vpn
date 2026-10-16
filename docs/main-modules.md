@@ -4,7 +4,7 @@ What each module in `src/main/` is for. The folder each lives in is listed in
 CLAUDE.md; this is the per-module detail.
 
 - `wallet.ts`: BIP-39 mnemonic import, `DirectSecp256k1HdWallet` derivation with `sent` prefix, `safeStorage` encryption (OS keyring via libsecret on Linux), balance/session queries via `SentinelClient`.
-- `settings.ts`: Multi-wallet store (`wallets/` dir with encrypted `.enc` files + `wallets-index.json`), app settings (`settings.json`), old single-wallet migration. Wallet entries have `id` (UUID), `name`, `address`.
+- `settings.ts`: Multi-wallet store (`wallets/` dir with encrypted `.enc` files + `wallets-index.json`), app settings (`settings.json`), old single-wallet migration, and which keyring the seeds' key is kept in ([REL-41]). Wallet entries have `id` (UUID), `name`, `address`.
   **There is no seed id on disk**: every entry holds its own encrypted copy of the phrase
   (a derived subaccount re-encrypts the same words), so which wallets share a seed is
   computed by decrypt-and-compare on every `WALLET_STORE_STATUS` read (`assignSeedGroups`
@@ -15,7 +15,7 @@ CLAUDE.md; this is the per-module detail.
 - `chain-service.ts`: `SigningSentinelClient` for on-chain tx (node subscription via `nodeStartSession`), session ID extraction from tx events, cryptographic handshake with nodes (WireGuard/V2Ray branching). Session configs saved to disk for reconnect.
 - `vpn-manager.ts`: V2Ray child process lifecycle, WireGuard via polkit helper, tun2socks TUN routing for V2Ray, connection status monitoring. Bundled child-proxy binaries (v2ray, xray, hysteria) verified via SHA-256 before use, with system PATH fallback. tun2socks is no longer a binary: the engine is compiled into the privileged helper (`daemon/internal/tun2socks`), and `tun-up` self-execs it. Likewise the AmneziaWG userspace device (`daemon/internal/amneziawg`), which `awg-up` self-execs: root runs no vendored binary any more.
 - `ipc-handlers.ts`: all IPC channels (registered via a `handle()` wrapper that rejects calls from any frame that isn't our own renderer), pre-connect balance validation, node list fetch from `api.sentnodes.com/v2/nodes` via `net.fetch`, auto-reconnect + a WireGuard liveness monitor. Caches balance/sessions/nodes when VPN is active (RPC unreachable through tunnel).
-- `tray-view.ts`: what the tray shows for a connection state (icon, status rows, its one action, the Quit label), Electron-free and tested row by row; `index.ts` hands it to `Tray`/`Menu`. The state itself is `getConnectionInfo()` in `ipc-handlers.ts` ([REL-35]).
+- `tray-view.ts`: what the tray shows for a connection state (icon, status rows, its one action, the Quit label), Electron-free and tested row by row; `index.ts` hands it to `Tray`/`Menu`. Also the shade of the panel the icon sits on ([REL-42]). The state itself is `getConnectionInfo()` in `ipc-handlers.ts` ([REL-35]).
 - `autostart.ts`: Start at login, as the XDG Autostart entry `~/.config/autostart/katacomb-vpn.desktop`
   ([PKG-2]); the Settings toggle reads and writes that file through `AUTOSTART_GET`/`AUTOSTART_SET`.
   The entry passes `--autostart`, and `index.ts` then keeps the window in the tray ([REL-40]).

@@ -190,3 +190,18 @@ test('[RN-9] no unmount cleanup cancels a pending clipboard wipe', () => {
   }
   assert.deepEqual(bad, [], 'let the wipe fire after unmount; it touches only the clipboard')
 })
+
+test('[REL-41] a seed locked only because no keyring answered is never offered for removal as unusable', () => {
+  // Both screens that list locked wallets tell the two cases apart.
+  for (const f of ['src/renderer/components/wallet/WalletPicker.tsx', 'src/renderer/components/settings/WalletsTab.tsx']) {
+    assert.match(read(f), /keyringMissing \? <>[\s\S]*?restart the app/, `${f}: the locked note must say to restart when no keyring answered`)
+  }
+  // The delete window's note: "nothing usable is removed" is false when the keyring merely did not answer.
+  const tab = parse('src/renderer/components/settings/WalletsTab.tsx')
+  const note = nodes(tab).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && n.name.getText() === 'deleteNote')
+  assert.ok(note?.initializer, 'deleteNote not found in WalletsTab.tsx')
+  const text = note.initializer.getText()
+  const missing = text.indexOf('keyringMissing')
+  const unusable = text.indexOf('nothing usable is removed')
+  assert.ok(missing >= 0 && unusable >= 0 && missing < unusable, `${where(note)}: deleteNote must answer the no-keyring case before calling a locked seed unusable`)
+})
