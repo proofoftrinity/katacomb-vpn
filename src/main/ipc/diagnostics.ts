@@ -90,13 +90,9 @@ export function registerDiagnosticsHandlers(handle: Handle): void {
   // Node Testing: Batch probe
   handle(IPC.NODE_TEST_BATCH, async (_event, nodes: Array<{ nodeAddress: string; remoteUrl: string }>) => {
     if (!Array.isArray(nodes) || nodes.length === 0) throw new Error('Invalid nodes array')
-    for (const n of nodes) {
-      assertString(n.nodeAddress, 'nodeAddress')
-      // Same http(s)-only guard as the single probe (finding M3); empty is allowed.
-      if (typeof n.remoteUrl === 'string' && n.remoteUrl !== '' && !isSafeNodeApiUrl(n.remoteUrl)) {
-        throw new Error('Invalid node probe URL')
-      }
-    }
+    // probeNode applies the http(s)-only guard (finding M3) per row: one bad URL must not
+    // reject the batch, or every row the renderer marked as testing waits forever.
+    for (const n of nodes) assertString(n.nodeAddress, 'nodeAddress')
     startBatch(nodes)
   })
 
