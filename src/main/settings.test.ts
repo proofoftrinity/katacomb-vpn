@@ -153,3 +153,27 @@ describe('[ARCH-5] the wallet store', () => {
     assert.equal(existsSync(join(h.world.userData, 'wallet.enc')), false)
   })
 })
+
+test('[REL-40] the startup migrations never call the keyring, unless two wallets share an address', (t) => {
+  // A login start opens no window, so these are all that run before the user asks for one;
+  // on an auto-login account any keyring call brings up the unlock prompt at boot.
+  for (const gen of GENERATIONS) {
+    const h = settings.fresh()
+    t.after(() => h.dispose())
+    cpSync(join(FIXTURES, `${gen}.settings.json`), join(h.world.userData, 'settings.json'))
+    cpSync(join(FIXTURES, `${gen}.wallets-index.json`), join(h.world.userData, 'wallets-index.json'))
+    seed(h, 'w1'); seed(h, 'w2')
+    startup(h)
+    assert.equal(h.world.safeStorage.calls, 0, `${gen}: a startup migration called the keyring`)
+  }
+  // Control: the one case that must decrypt is seen.
+  const h = settings.fresh()
+  t.after(() => h.dispose())
+  writeFileSync(join(h.world.userData, 'wallets-index.json'), JSON.stringify([
+    { id: 'w1', name: 'Main', address: 'sent1aaa' },
+    { id: 'w2', name: 'Main (re-imported)', address: 'sent1aaa' },
+  ]))
+  seed(h, 'w1'); seed(h, 'w2')
+  startup(h)
+  assert.ok(h.world.safeStorage.calls > 0, 'the dedupe decrypts to pick the copy that unlocks')
+})

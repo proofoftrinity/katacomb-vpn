@@ -136,30 +136,76 @@ test('[REL-39] the tray image is set only through paintTray, so every repaint is
   assert.ok(calls(refresh).some((c) => calleeName(c) === 'paintTray'), 'refreshTray must repaint through paintTray')
 })
 
-test('[REL-40] a login start keeps the window hidden only behind waitForTrayHost, and opens it on a no', () => {
+const fn = (name: string) => {
+  const f = nodes(index).find((n): n is ts.FunctionDeclaration => ts.isFunctionDeclaration(n) && n.name?.text === name)
+  assert.ok(f?.body, `function ${name}() not found in src/main/index.ts`)
+  return f
+}
+const isFn = (n: ts.Node | undefined): n is ts.ArrowFunction | ts.FunctionExpression =>
+  !!n && (ts.isArrowFunction(n) || ts.isFunctionExpression(n))
+
+test('[REL-40] a login start creates no window: it waits on waitForTrayHost and opens one only on a no', () => {
   const flag = nodes(index).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && n.name.getText() === 'startedAtLogin')
   // The flag the autostart entry's Exec passes (autostart.ts).
   assert.equal(flag?.initializer?.getText(), "process.argv.includes('--autostart')", 'startedAtLogin must come from --autostart')
-  // A window either shows at once or is handed the login start's wait, nothing else.
-  const creates = calls(index).filter((c) => calleeName(c) === 'createWindow')
-  for (const c of creates) {
-    const arg = c.arguments[0]
-    assert.ok(!arg || (ts.isCallExpression(arg) && calleeName(arg) === 'waitForTrayHost' && arg.arguments[0]?.getText() === 'probeTrayHost'),
-      `${where(c)}: a window kept hidden must wait on waitForTrayHost(probeTrayHost), which asks again while the panel starts`)
-  }
-  assert.ok(creates.some((c) => c.arguments[0]), 'no createWindow(waitForTrayHost(probeTrayHost)) for a login start')
-  const ready = calls(index).find((c) => calleeName(c) === 'on' && c.arguments[0]?.getText() === "'ready-to-show'")
-  assert.ok(ready && ready.arguments[1], "mainWindow.on('ready-to-show', ...) not found")
-  assert.ok(calls(ready.arguments[1]).some((c) => c.expression.getText() === 'mainWindow?.show'), 'an ordinary launch must still show the window at once')
+  // One place decides what a login start does, so nothing else can create its window early.
+  const uses = nodes(index).filter((n) => ts.isIdentifier(n) && n.text === 'startedAtLogin' && n.parent !== flag)
+  assert.equal(uses.length, 1, 'startedAtLogin must be read in exactly one place, the startup branch')
+  const branch = uses[0].parent
+  assert.ok(ts.isIfStatement(branch) && branch.expression === uses[0], 'startedAtLogin must be read as `if (startedAtLogin)`')
+  // The page reads the wallet, which on an auto-login account blocks main behind the keyring prompt.
+  assert.deepEqual(calls(branch.thenStatement).filter((c) => calleeName(c) === 'createWindow').map(where), [],
+    'a login start must not create the window: showWindow() creates it when one is asked for')
+  assert.ok(branch.elseStatement && calls(branch.elseStatement).some((c) => calleeName(c) === 'createWindow'),
+    'an ordinary launch must still create the window at once')
   // On a no, the window opens: with no tray it is the only way into the app.
-  const wait = calls(ready.arguments[1]).find((c) => calleeName(c) === 'then')
-  const callback = wait?.arguments[0]
-  const opens = callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && callback.parameters[0]
+  const wait = calls(branch.thenStatement).find((c) => calleeName(c) === 'then' && ts.isPropertyAccessExpression(c.expression) &&
+    ts.isCallExpression(c.expression.expression) && calleeName(c.expression.expression) === 'waitForTrayHost' &&
+    c.expression.expression.arguments[0]?.getText() === 'probeTrayHost')
+  assert.ok(wait, 'a login start must wait on waitForTrayHost(probeTrayHost), which asks again while the panel starts')
+  const callback = wait.arguments[0]
+  const opens = isFn(callback) && callback.parameters[0]
     ? nodes(callback).some((n) => ts.isIfStatement(n) && ts.isPrefixUnaryExpression(n.expression) &&
       n.expression.operator === ts.SyntaxKind.ExclamationToken && n.expression.operand.getText() === callback.parameters[0].name.getText() &&
       calls(n.thenStatement).some((c) => calleeName(c) === 'showWindow'))
     : false
-  assert.ok(opens, 'when waitForTrayHost answers no, ready-to-show must call showWindow()')
+  assert.ok(opens, 'when waitForTrayHost answers no, the login start must call showWindow()')
+  // showWindow creates the window when there is none.
+  const show = fn('showWindow')
+  assert.ok(calls(show).some((c) => calleeName(c) === 'createWindow'), 'showWindow() must create the window when there is none')
+  const ready = calls(index).find((c) => calleeName(c) === 'on' && c.arguments[0]?.getText() === "'ready-to-show'")
+  assert.ok(ready && ready.arguments[1], "mainWindow.on('ready-to-show', ...) not found")
+  assert.ok(calls(ready.arguments[1]).some((c) => c.expression.getText() === 'mainWindow?.show'), 'a created window must show at once')
+})
+
+test('[REL-40] a message for the page waits until the window is up, so a page created for it is listening', () => {
+  // showWindow passes its callback to a window it creates, and runs it at once on one that exists.
+  const show = fn('showWindow')
+  const then = show.parameters[0]?.name.getText()
+  assert.ok(then, 'showWindow() must take the callback to run once the window is up')
+  const creates = calls(show).filter((c) => calleeName(c) === 'createWindow')
+  assert.ok(creates.length > 0 && creates.every((c) => c.arguments[0]?.getText() === then),
+    `showWindow() must hand ${then} to the window it creates`)
+  assert.ok(calls(show).some((c) => calleeName(c) === then && !creates.includes(c)), `showWindow() must run ${then} on a window that exists`)
+  // A created window runs it after its first paint, once shown.
+  const create = fn('createWindow')
+  const onShown = create.parameters[0]?.name.getText()
+  assert.ok(onShown, 'createWindow() must take the callback showWindow hands it')
+  const ready = calls(create).find((c) => calleeName(c) === 'on' && c.arguments[0]?.getText() === "'ready-to-show'")
+  assert.ok(ready && isFn(ready.arguments[1]), "createWindow() must handle 'ready-to-show'")
+  const shown = calls(ready.arguments[1]).find((c) => c.expression.getText() === 'mainWindow?.show')
+  const ran = calls(ready.arguments[1]).find((c) => calleeName(c) === onShown)
+  assert.ok(shown && ran && shown.pos < ran.pos, `'ready-to-show' must show the window, then run ${onShown}`)
+  // The tray's messages to the page go inside that callback.
+  for (const name of ['showAbout', 'triggerTrayConnect']) {
+    const sends = calls(fn(name)).filter((c) => calleeName(c) === 'send' && c.expression.getText().endsWith('webContents.send'))
+    assert.ok(sends.length > 0, `${name}() no longer sends to the page`)
+    for (const s of sends) {
+      const inCallback = calls(fn(name)).some((c) => calleeName(c) === 'showWindow' && isFn(c.arguments[0]) &&
+        c.arguments[0].pos <= s.pos && s.end <= c.arguments[0].end)
+      assert.ok(inCallback, `${where(s)}: ${name}() must send inside showWindow's callback; sent at once it reaches a page not yet listening`)
+    }
+  }
 })
 
 test('[ARCH-1] every window keeps the renderer isolated, sandboxed and Node-free', () => {

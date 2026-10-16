@@ -54,12 +54,14 @@ export const shell = {
 // Reversible "encryption" tagged with the install it came from, so a test can
 // model the post-rename case: ciphertext from another key that will not decrypt.
 export const safeStorage = {
-  isEncryptionAvailable: (): boolean => world().safeStorage.available,
-  getSelectedStorageBackend: (): string => world().safeStorage.backend,
+  isEncryptionAvailable: (): boolean => { world().safeStorage.calls++; return world().safeStorage.available },
+  getSelectedStorageBackend: (): string => { world().safeStorage.calls++; return world().safeStorage.backend },
   encryptString(text: string): Buffer {
+    world().safeStorage.calls++
     return Buffer.from(`enc:${world().safeStorage.keyId}:${text}`)
   },
   decryptString(data: Buffer): string {
+    world().safeStorage.calls++
     const prefix = `enc:${world().safeStorage.keyId}:`
     const s = data.toString()
     if (!s.startsWith(prefix)) throw new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.')

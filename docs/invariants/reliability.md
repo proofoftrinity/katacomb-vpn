@@ -661,16 +661,22 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   checksum over a buffer it has already freed (xapp's `get_icon_surface`), and the
   allocator writes over both ends of it: a mark in the top-left pixel never reached the
   panel. `index.ts` sets the tray image nowhere else.
-- **[REL-40] A login start hides the window only when a tray host answers.** The
-  start-at-login entry (`autostart.ts`) runs the app with `--autostart`, and that launch
-  keeps its first window hidden, in the tray. On a desktop that draws no tray (stock GNOME)
-  a hidden window would leave the app running with no way in, so the window opens when no
-  host answers. The question is asked up to five times, 2 s apart (`waitForTrayHost`,
-  tray-view.ts): at login the panel can register its tray after the app has started, and
-  a single early "no" would open the window for nothing and, since the window's X reads
-  the same `trayHostAvailable`, leave that X quitting the app for the whole session.
-  Launching the app again from the menu still reaches `second-instance`, which shows it.
-  On an auto-login account the keyring is still locked at login, and the startup wallet
-  read blocks the main process behind its unlock prompt, so nothing runs until it is
-  answered: with no tray the window opened 6.6 s after the unlock (release VM, 2026-10-16).
-  The prompt is on screen in the meantime, so the app is not unreachable.
+- **[REL-40] A login start creates no window until one is asked for, or no tray host
+  answers.** The start-at-login entry (`autostart.ts`) runs the app with `--autostart`,
+  and that launch sits in the tray with no window and no page. The page reads the wallet,
+  and on an auto-login account the keyring is still locked at login: `safeStorage` is
+  synchronous (Electron 41 has no async form), so the read blocked the main process
+  behind the unlock prompt, the tray menu went dead, and a prompt left open until
+  shutdown made the app miss logind's delay and crash (release VM, 2026-10-16). The
+  window, and with it the prompt, comes when the user asks: the tray's Show Window or
+  About, a click on the icon, or a second launch, all through `showWindow()`, which
+  creates the window when there is none. A message for the page goes in `showWindow`'s
+  callback, which a new window runs after its first paint; sent at once, it reached a page
+  not yet listening. Main's own startup must not read the keyring either: a migration
+  that needs a seed runs when the wallet loads, as `migrateOldWallet` does in
+  `restoreWallet`. On a desktop that draws no tray (stock GNOME) the window is the only
+  way in, so it opens when no host answers. The question is asked up to five times, 2 s
+  apart (`waitForTrayHost`, tray-view.ts): at login the panel can register its tray after
+  the app has started, and a single early "no" would open the window for nothing and,
+  since the window's X reads the same `trayHostAvailable`, leave that X quitting the app
+  for the whole session.

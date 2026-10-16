@@ -85,14 +85,17 @@ function getTrayIconPath(filename: string): string {
     : join(process.resourcesPath, 'tray', filename)
 }
 
-function showWindow(): void {
+/** `then` runs once the window is up: at once if it exists, after its page's first paint
+ *  if it had to be created, so a message it sends reaches a page that is listening. */
+function showWindow(then?: () => void): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    createWindow()
+    createWindow(then)
     return
   }
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
   mainWindow.focus()
+  then?.()
 }
 
 /** Tray left-click: toggle the window — hide it if it's showing, otherwise show it. */
@@ -107,16 +110,14 @@ function toggleWindow(): void {
 /** Tray "Reconnect last session": show the window and let the renderer reconnect the
  *  session main chose ([REL-38]), on the Sessions tab, where a refusal is shown. */
 function triggerTrayConnect(sessionId: string): void {
-  showWindow()
-  mainWindow?.webContents.send(IPC.CONNECTION_TRAY_CONNECT, sessionId)
+  showWindow(() => mainWindow?.webContents.send(IPC.CONNECTION_TRAY_CONNECT, sessionId))
 }
 
 /** Tray "About": show the window and open the renderer's About modal, the same
  *  one the status bar's version chip opens, so there is exactly one About
  *  surface (with the clickable GitHub link a native message box can't render). */
 function showAbout(): void {
-  showWindow()
-  mainWindow?.webContents.send(IPC.ABOUT_SHOW)
+  showWindow(() => mainWindow?.webContents.send(IPC.ABOUT_SHOW))
 }
 
 /** The tray is a flat single-colour silhouette (no background tile), like its
@@ -230,8 +231,8 @@ function trayDisconnect(): void {
   })
 }
 
-/** `trayHost`, for a login start's window only: it shows only if no tray host answers ([REL-40]). */
-function createWindow(trayHost?: Promise<boolean>): void {
+/** `onShown` runs right after the window first shows (showWindow's `then`). */
+function createWindow(onShown?: () => void): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -252,10 +253,8 @@ function createWindow(trayHost?: Promise<boolean>): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    // [REL-40] A login start stays in the tray, unless no tray host ever answered: on a
-    // desktop with no tray (stock GNOME) the window is the only way in, so it opens.
-    if (trayHost) void trayHost.then((drawn) => { if (!drawn) showWindow() })
-    else mainWindow?.show()
+    mainWindow?.show()
+    onShown?.()
   })
 
   mainWindow.on('close', (e) => {
@@ -378,8 +377,11 @@ app.whenReady().then(() => {
   startRpcMonitor()
   // Answer "does this desktop draw tray icons at all?" before the user can close
   // the window; the close handler falls back to quitting when it doesn't. A login
-  // start asks for longer, since the panel may still be starting ([REL-40]).
-  if (startedAtLogin) createWindow(waitForTrayHost(probeTrayHost))
+  // start asks for longer, since the panel may still be starting, and creates no
+  // window until one is asked for: the page reads the wallet, which on an auto-login
+  // account blocks main behind the keyring's unlock prompt. With no tray the window
+  // is the only way in, so it opens ([REL-40]).
+  if (startedAtLogin) void waitForTrayHost(probeTrayHost).then((drawn) => { if (!drawn) showWindow() })
   else {
     void probeTrayHost()
     createWindow()
