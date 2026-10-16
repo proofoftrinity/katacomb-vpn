@@ -53,6 +53,24 @@ export function trayView(info: ConnectionInfo): TrayView {
   }
 }
 
+/** [REL-40] How many times a login start asks whether a tray is drawn, and how far apart. */
+export const TRAY_HOST_ATTEMPTS = 5
+export const TRAY_HOST_INTERVAL_MS = 2000
+
+/**
+ * [REL-40] Whether a panel draws tray icons, asked again for a while before taking no for an
+ * answer: at login the panel can register its tray after this app has started, and a single
+ * early "no" would open the window for nothing, and leave its X quitting the app all session.
+ * Resolves true at the first yes.
+ */
+export async function waitForTrayHost(probe: () => Promise<boolean>): Promise<boolean> {
+  for (let attempt = 1; ; attempt++) {
+    if (await probe()) return true
+    if (attempt >= TRAY_HOST_ATTEMPTS) return false
+    await new Promise((resolve) => setTimeout(resolve, TRAY_HOST_INTERVAL_MS))
+  }
+}
+
 /** [REL-39] How long after a repaint the tray sends the same icon again. */
 export const TRAY_REPAINT_AGAIN_MS = 2000
 

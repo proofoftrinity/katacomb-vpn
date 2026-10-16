@@ -7,7 +7,7 @@ import { world, type IpcListener } from './world.ts'
 // build error rather than a silent no-op.
 
 export const app = {
-  isPackaged: false,
+  get isPackaged(): boolean { return world().isPackaged },
   getPath(name: string): string {
     const w = world()
     const path = name === 'userData' ? w.userData : join(w.userData, `.${name}`)

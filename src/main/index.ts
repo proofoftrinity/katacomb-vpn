@@ -8,11 +8,12 @@ import {
   performDisconnect, onConnectionStateChanged, getConnectionInfo, healStrandedKillSwitch,
   healOrphanedTunnel, type ConnectionInfo,
 } from './ipc-handlers'
-import { markedTrayBitmap, trayPainter, trayView, type TrayView } from './tray-view'
+import { markedTrayBitmap, trayPainter, trayView, waitForTrayHost, type TrayView } from './tray-view'
 import { killAllTunnels, detectExistingConnection } from './vpn/vpn-manager'
 import { onChainPathChanged, runAutoRpcSelection, startRpcMonitor, stopRpcMonitor } from './chain/rpc-monitor'
 import { sweepStaleSessionFiles } from './chain/chain-service'
 import { migrateLegacyUserData, dedupeWalletEntries, migrateProviderModeToWallet, migrateRpcMode } from './settings'
+import { followRunningCopy } from './autostart'
 import { listProviders } from './provider/provider-service'
 import { registerWithDesktopSession } from './desktop-session'
 import { registerWithXsmp } from './xsmp-session'
@@ -46,19 +47,26 @@ let forceQuit = false
 // Defaults to true so a failed probe preserves the hide-to-tray behavior.
 let trayHostAvailable = true
 
+// Started by the desktop at login: the autostart entry passes --autostart (autostart.ts).
+const startedAtLogin = process.argv.includes('--autostart')
+
 /** Ask the session's StatusNotifierWatcher (over gdbus, which glib ships on every
  *  Debian-based distro) whether a host is registered. Any failure — no watcher on
  *  the bus, no gdbus, timeout — means no visible tray. Async and best-effort: the
- *  answer only matters by the time the user closes the window. */
-function probeTrayHost(): void {
-  execFile('gdbus', [
-    'call', '--session',
-    '--dest', 'org.kde.StatusNotifierWatcher',
-    '--object-path', '/StatusNotifierWatcher',
-    '--method', 'org.freedesktop.DBus.Properties.Get',
-    'org.kde.StatusNotifierWatcher', 'IsStatusNotifierHostRegistered',
-  ], { timeout: 3000 }, (err, stdout) => {
-    trayHostAvailable = !err && stdout.includes('true')
+ *  answer only matters by the time the user closes the window, or for a login
+ *  start, whether the window opens at all. */
+function probeTrayHost(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile('gdbus', [
+      'call', '--session',
+      '--dest', 'org.kde.StatusNotifierWatcher',
+      '--object-path', '/StatusNotifierWatcher',
+      '--method', 'org.freedesktop.DBus.Properties.Get',
+      'org.kde.StatusNotifierWatcher', 'IsStatusNotifierHostRegistered',
+    ], { timeout: 3000 }, (err, stdout) => {
+      trayHostAvailable = !err && stdout.includes('true')
+      resolve(trayHostAvailable)
+    })
   })
 }
 
@@ -222,7 +230,8 @@ function trayDisconnect(): void {
   })
 }
 
-function createWindow(): void {
+/** `trayHost`, for a login start's window only: it shows only if no tray host answers ([REL-40]). */
+function createWindow(trayHost?: Promise<boolean>): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -243,7 +252,10 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
+    // [REL-40] A login start stays in the tray, unless no tray host ever answered: on a
+    // desktop with no tray (stock GNOME) the window is the only way in, so it opens.
+    if (trayHost) void trayHost.then((drawn) => { if (!drawn) showWindow() })
+    else mainWindow?.show()
   })
 
   mainWindow.on('close', (e) => {
@@ -331,6 +343,8 @@ app.whenReady().then(() => {
   // Smart RPC: a pre-feature custom endpoint becomes an explicit 'manual' choice.
   // Must precede any saveSettings, which would bake the 'auto' default in.
   migrateRpcMode()
+  // An AppImage update is a new file name: point an enabled start-at-login entry at this copy.
+  followRunningCopy()
   // No setup prompts here, deliberately: the window comes first on every launch.
   // The helper and the distro packages are asked for when a connect needs them,
   // before any payment (assertSystemReady in ipc/setup.ts), and from Settings, System.
@@ -363,9 +377,13 @@ app.whenReady().then(() => {
   // visible in the status bar instead of showing up as silently stale data.
   startRpcMonitor()
   // Answer "does this desktop draw tray icons at all?" before the user can close
-  // the window; the close handler falls back to quitting when it doesn't.
-  probeTrayHost()
-  createWindow()
+  // the window; the close handler falls back to quitting when it doesn't. A login
+  // start asks for longer, since the panel may still be starting ([REL-40]).
+  if (startedAtLogin) createWindow(waitForTrayHost(probeTrayHost))
+  else {
+    void probeTrayHost()
+    createWindow()
+  }
   createTrayIcon()
   // A logout or a shutdown from the desktop must run the normal quit, teardown included,
   // before the session goes: GNOME's logout kills the GPU process out from under the

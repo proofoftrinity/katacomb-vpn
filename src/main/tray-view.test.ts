@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { markedTrayBitmap, TRAY_REPAINT_AGAIN_MS, trayPainter, trayView } from './tray-view.ts'
+import { markedTrayBitmap, TRAY_HOST_ATTEMPTS, TRAY_HOST_INTERVAL_MS, TRAY_REPAINT_AGAIN_MS, trayPainter, trayView, waitForTrayHost } from './tray-view.ts'
 import type { ConnectionInfo } from './ipc-handlers.ts'
 
 // What the tray draws for each connection state: icon, the disabled status rows at the
@@ -126,4 +126,53 @@ test('[REL-39] the marked bitmap differs by one alpha step mid-image, and nowher
   // Live on Cinnamon, a mark in the top-left pixel never reached the panel: it checksums
   // the buffer after freeing it, and the allocator writes over both ends.
   assert.ok(diffs[0] >= 64 && diffs[0] < plain.length - 64, 'the mark must sit clear of both ends of the buffer')
+})
+
+/** A probe that answers from a script, counting the questions; then a no for ever. */
+function scriptedProbe(answers: boolean[]) {
+  const probe = { asked: 0, ask: async () => answers[probe.asked++] ?? false }
+  return probe
+}
+/** Let the awaited probe and the loop behind it run (setImmediate is not mocked). */
+const flush = () => new Promise((resolve) => setImmediate(resolve))
+
+test('[REL-40] a login start asks again while the panel comes up, and stops at the first yes', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const probe = scriptedProbe([false, false, true])
+  const answer = waitForTrayHost(probe.ask)
+  await flush()
+  assert.equal(probe.asked, 1)
+  t.mock.timers.tick(TRAY_HOST_INTERVAL_MS - 1)
+  await flush()
+  assert.equal(probe.asked, 1, 'not asked again before the interval')
+  t.mock.timers.tick(1)
+  await flush()
+  assert.equal(probe.asked, 2)
+  t.mock.timers.tick(TRAY_HOST_INTERVAL_MS)
+  await flush()
+  assert.equal(await answer, true)
+  t.mock.timers.tick(TRAY_HOST_INTERVAL_MS * 10)
+  await flush()
+  assert.equal(probe.asked, 3, 'nothing is asked after the yes')
+})
+
+test('[REL-40] with no tray host it answers no after the last attempt, so the window opens', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const probe = scriptedProbe([])
+  let settled: boolean | undefined
+  void waitForTrayHost(probe.ask).then((v) => { settled = v })
+  for (let i = 1; i < TRAY_HOST_ATTEMPTS; i++) {
+    await flush()
+    assert.equal(settled, undefined, `still waiting after ${i} of ${TRAY_HOST_ATTEMPTS}`)
+    t.mock.timers.tick(TRAY_HOST_INTERVAL_MS)
+  }
+  await flush()
+  assert.equal(settled, false)
+  assert.equal(probe.asked, TRAY_HOST_ATTEMPTS)
+})
+
+test('[REL-40] a tray that is already up answers at once, with no wait', async () => {
+  const probe = scriptedProbe([true])
+  assert.equal(await waitForTrayHost(probe.ask), true)
+  assert.equal(probe.asked, 1)
 })

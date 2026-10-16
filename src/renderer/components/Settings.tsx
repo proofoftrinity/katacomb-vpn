@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import type { WalletStoreStatus, AppSettings, RpcCandidateInfo } from '../types'
+import type { WalletStoreStatus, AppSettings, AutostartState, RpcCandidateInfo } from '../types'
 import Toggle from './Toggle'
 import Spinner from './Spinner'
 import { useSettings } from '../contexts/SettingsContext'
@@ -72,10 +72,17 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
   const [reselectNote, setReselectNote] = useState<string | null>(null)
   // Provider mode is stored per wallet, so the toggle needs to know which one is active.
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null)
+  // Read from the autostart entry on disk each time, so a change made with the
+  // desktop's own startup tool shows here too.
+  const [autostart, setAutostart] = useState<AutostartState | null>(null)
+  const [autostartError, setAutostartError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const [s, store] = await Promise.all([window.api.settingsGet(), window.api.walletStoreStatus()])
+    const [s, store, start] = await Promise.all([
+      window.api.settingsGet(), window.api.walletStoreStatus(), window.api.autostartGet(),
+    ])
     setSettings(s)
+    setAutostart(start)
     setRpcInput(s.rpcEndpoint)
     setSplitTunnelInput((s.splitTunnelRoutes || []).join('\n'))
     setWallets(store.wallets)
@@ -325,6 +332,36 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                     onWalletsChanged?.()
                   }}
                 />
+              </div>
+
+              {/* Startup */}
+              <div className="space-y-3">
+                <label className="text-text-secondary text-xs font-medium uppercase tracking-wide block">
+                  Startup
+                </label>
+                <div className="flex items-center justify-between py-3 px-4 border border-border bg-bg-tertiary rounded-md">
+                  <div>
+                    <span className="text-text-primary text-sm">Start at Login</span>
+                    <p className="text-text-tertiary text-xs mt-0.5">
+                      {autostart?.available
+                        ? 'Opens Katacomb VPN in the tray when you log in. It does not connect.'
+                        : 'Available in the installed app (AppImage or .deb).'}
+                    </p>
+                    {autostartError && <p className="text-danger text-xs mt-1">{autostartError}</p>}
+                  </div>
+                  <Toggle
+                    checked={autostart?.enabled ?? false}
+                    disabled={!autostart?.available}
+                    onChange={async (checked) => {
+                      setAutostartError(null)
+                      try {
+                        setAutostart(await window.api.autostartSet(checked))
+                      } catch (e) {
+                        setAutostartError(e instanceof Error ? e.message : 'Could not save the setting')
+                      }
+                    }}
+                  />
+                </div>
               </div>
 
               {/* DNS Resolver */}

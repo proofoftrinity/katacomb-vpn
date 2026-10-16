@@ -661,3 +661,16 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   checksum over a buffer it has already freed (xapp's `get_icon_surface`), and the
   allocator writes over both ends of it: a mark in the top-left pixel never reached the
   panel. `index.ts` sets the tray image nowhere else.
+- **[REL-40] A login start hides the window only when a tray host answers.** The
+  start-at-login entry (`autostart.ts`) runs the app with `--autostart`, and that launch
+  keeps its first window hidden, in the tray. On a desktop that draws no tray (stock GNOME)
+  a hidden window would leave the app running with no way in, so the window opens when no
+  host answers. The question is asked up to five times, 2 s apart (`waitForTrayHost`,
+  tray-view.ts): at login the panel can register its tray after the app has started, and
+  a single early "no" would open the window for nothing and, since the window's X reads
+  the same `trayHostAvailable`, leave that X quitting the app for the whole session.
+  Launching the app again from the menu still reaches `second-instance`, which shows it.
+  On an auto-login account the keyring is still locked at login, and the startup wallet
+  read blocks the main process behind its unlock prompt, so nothing runs until it is
+  answered: with no tray the window opened 6.6 s after the unlock (release VM, 2026-10-16).
+  The prompt is on screen in the meantime, so the app is not unreachable.
