@@ -1,5 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { loadIpcHandlers } from '../../test/harness/ipc.ts'
 import { SPEND, PURCHASE_CALLS, BRING_UP_CALLS, ACTIVE_WALLET_CALLS } from '../../test/harness/entry-points.ts'
 import { REQUEST, worldFor } from '../../test/harness/requests.ts'
@@ -84,4 +86,23 @@ describe('malformed input is refused before anything dangerous runs', () => {
       })
     }
   }
+})
+
+test('AUTOSTART_SET refuses anything but a boolean, and writes the entry for one', async (t) => {
+  const h = ipc.fresh({})
+  h.world.isPackaged = true
+  process.env['APPIMAGE'] = '/home/u/Apps/katacomb-vpn.AppImage'
+  t.after(() => {
+    delete process.env['APPIMAGE']
+    h.dispose()
+  })
+  const entry = join(h.world.userData, '.appData', 'autostart', 'katacomb-vpn.desktop')
+  for (const bad of [undefined, 'true', 1, { enabled: true }]) {
+    const err = await h.settleError(h.invoke('AUTOSTART_SET', bad))
+    assert.match(err.message, /expected boolean/, String(bad))
+  }
+  assert.equal(existsSync(entry), false)
+  assert.deepEqual(await h.settle(h.invoke('AUTOSTART_SET', true)), { available: true, enabled: true })
+  assert.equal(existsSync(entry), true)
+  assert.deepEqual(await h.settle(h.invoke('AUTOSTART_GET')), { available: true, enabled: true })
 })

@@ -354,6 +354,11 @@ export interface AppSettings {
   splitTunnelRoutes: string[]
 }
 
+export interface AutostartState {
+  available: boolean
+  enabled: boolean
+}
+
 export interface PlanInfo {
   id: string
   provAddress: string
@@ -637,6 +642,9 @@ export interface ElectronAPI {
 
   settingsGet: () => Promise<AppSettings>
   settingsSet: (settings: Partial<AppSettings>) => Promise<AppSettings>
+  /** Start at login. `available` is false in a dev build, which never writes the entry. */
+  autostartGet: () => Promise<AutostartState>
+  autostartSet: (enabled: boolean) => Promise<AutostartState>
 
   nodesFetch: () => Promise<SentNode[]>
   nodesGetCached: () => Promise<{ nodes: SentNode[]; fetchedAt: number } | null>

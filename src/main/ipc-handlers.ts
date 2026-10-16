@@ -44,6 +44,7 @@ import { discoverPlans, listCachedPlans, listNodesForPlan, listPlansForNode, sub
 import { rankPlanCandidates, shouldTryNextCandidate, isFreeFailure, MAX_FREE_FAILURES, ladderNextTx, smartConnectFailureSummary, type PlanNodeCandidate, type SmartConnectFailure } from './plans/plan-connect'
 import { getCachedPlans } from './plans/plan-cache'
 import { loadSettings, saveSettings, listWallets, deleteWalletEntry, renameWallet, getWalletMnemonic, clearRetainedSeed, type AppSettings } from './settings'
+import { autostartState, setAutostart } from './autostart'
 import { assignSeedGroups } from '../shared/seed-groups'
 import { loadNodesCache, saveNodesCache, type NodesCacheFile } from './nodes/nodes-cache'
 import { normalizeNodes, parseNodesPage, type NodesPage } from './nodes/node-normalize'
@@ -3107,6 +3108,14 @@ export function registerIpcHandlers(): void {
       })
     }
     return saved
+  })
+
+  // Start at login lives in its own file, not settings.json (autostart.ts).
+  handle(IPC.AUTOSTART_GET, async () => autostartState())
+
+  handle(IPC.AUTOSTART_SET, async (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') throw new Error('Invalid enabled: expected boolean')
+    return setAutostart(enabled)
   })
 
   // Nodes

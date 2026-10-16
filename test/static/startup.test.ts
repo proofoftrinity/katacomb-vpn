@@ -136,6 +136,32 @@ test('[REL-39] the tray image is set only through paintTray, so every repaint is
   assert.ok(calls(refresh).some((c) => calleeName(c) === 'paintTray'), 'refreshTray must repaint through paintTray')
 })
 
+test('[REL-40] a login start keeps the window hidden only behind waitForTrayHost, and opens it on a no', () => {
+  const flag = nodes(index).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && n.name.getText() === 'startedAtLogin')
+  // The flag the autostart entry's Exec passes (autostart.ts).
+  assert.equal(flag?.initializer?.getText(), "process.argv.includes('--autostart')", 'startedAtLogin must come from --autostart')
+  // A window either shows at once or is handed the login start's wait, nothing else.
+  const creates = calls(index).filter((c) => calleeName(c) === 'createWindow')
+  for (const c of creates) {
+    const arg = c.arguments[0]
+    assert.ok(!arg || (ts.isCallExpression(arg) && calleeName(arg) === 'waitForTrayHost' && arg.arguments[0]?.getText() === 'probeTrayHost'),
+      `${where(c)}: a window kept hidden must wait on waitForTrayHost(probeTrayHost), which asks again while the panel starts`)
+  }
+  assert.ok(creates.some((c) => c.arguments[0]), 'no createWindow(waitForTrayHost(probeTrayHost)) for a login start')
+  const ready = calls(index).find((c) => calleeName(c) === 'on' && c.arguments[0]?.getText() === "'ready-to-show'")
+  assert.ok(ready && ready.arguments[1], "mainWindow.on('ready-to-show', ...) not found")
+  assert.ok(calls(ready.arguments[1]).some((c) => c.expression.getText() === 'mainWindow?.show'), 'an ordinary launch must still show the window at once')
+  // On a no, the window opens: with no tray it is the only way into the app.
+  const wait = calls(ready.arguments[1]).find((c) => calleeName(c) === 'then')
+  const callback = wait?.arguments[0]
+  const opens = callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && callback.parameters[0]
+    ? nodes(callback).some((n) => ts.isIfStatement(n) && ts.isPrefixUnaryExpression(n.expression) &&
+      n.expression.operator === ts.SyntaxKind.ExclamationToken && n.expression.operand.getText() === callback.parameters[0].name.getText() &&
+      calls(n.thenStatement).some((c) => calleeName(c) === 'showWindow'))
+    : false
+  assert.ok(opens, 'when waitForTrayHost answers no, ready-to-show must call showWindow()')
+})
+
 test('[ARCH-1] every window keeps the renderer isolated, sandboxed and Node-free', () => {
   const windows = sources('src/main').flatMap((f) => nodes(parse(f)).filter((n): n is ts.NewExpression =>
     ts.isNewExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'BrowserWindow'))

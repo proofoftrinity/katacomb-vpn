@@ -200,6 +200,28 @@ if a verb ever again depends on a path root must read, the refusal belongs in
 `protocolRuntimeError`, BEFORE the purchase, because `establishSessionOrRefund` only
 ever covers a failed handshake.
 
+**[PKG-2] The start-at-login entry starts the copy that wrote it.** Electron's
+`setLoginItemSettings` covers only macOS and Windows, so `autostart.ts` writes the XDG
+Autostart entry, `~/.config/autostart/katacomb-vpn.desktop`, itself. Its `Exec` names
+`$APPIMAGE` for the AppImage (the `.AppImage` file; `process.execPath` points into the
+mount, which is gone by the next login) and `process.execPath` for the deb
+(`/opt/Katacomb VPN/katacomb-vpn`), always double-quoted with the spec's two escape layers:
+GLib's own parser (`g_key_file` then `g_shell_parse_argv`) read back the exact path, spaces,
+`$`, quotes, backtick, `%` and backslash included, and `desktop-file-validate` passed
+(2026-10-16). A dev build writes none. Each packaged launch moves an enabled entry onto
+itself (`followRunningCopy`), because an AppImage's file name carries its version: the copy
+launched last owns the entry. The file is the setting, with nothing in `settings.json`, so a
+desktop's own startup tool switching it off (Xfce writes `Hidden=true`) reads as off.
+The entry carries `X-GNOME-Autostart-Delay=5`. Without it, GNOME's login launches the app
+while gsd-xsettings is still starting, so GTK loads the modules `~/.config/gtk-3.0/settings.ini`
+lists, then unloads them when the daemon publishes its own list. Plasma writes two there
+(`colorreload-gtk-module`, `window-decorations-gtk-module`, from `kde-config-gtk-style`),
+and one leaves a signal handler behind: the next GDK notify jumps into the unloaded code.
+Measured in the release VM on an account that had used Plasma: 3 of 6 GNOME logins
+SIGSEGV'd 1.3 s in, the released 1.16.1 4 of 6 (so not this feature's code),
+`LD_DEBUG=files` showed both modules loaded and then unloaded, and a plain GNOME account
+started clean. GNOME's own entries use the same key (update-notifier's waits 60 s).
+
 **Verify packaging by installing, not by reading config** —
 `scripts/verify-deb-portability.sh` (interactive, needs root, pauses for GUI steps)
 does the full install/launch/connect/upgrade/remove cycle, plus an `appimage` phase for

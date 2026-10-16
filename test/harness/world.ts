@@ -18,6 +18,7 @@ export type IpcListener = (event: unknown, ...args: unknown[]) => unknown
 export class World {
   readonly userData: string
   isDev = false
+  isPackaged = false
   fakes: Fakes = {}
   readonly log: Call[] = []
   readonly handlers = new Map<string, IpcListener>()

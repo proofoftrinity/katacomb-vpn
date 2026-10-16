@@ -21,6 +21,8 @@ export const IPC = {
   // Settings
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
+  AUTOSTART_GET: 'autostart:get',
+  AUTOSTART_SET: 'autostart:set',
 
   // Nodes
   NODES_FETCH: 'nodes:fetch',

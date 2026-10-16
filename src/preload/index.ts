@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('api', {
 
   settingsGet: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
   settingsSet: (settings: Record<string, unknown>) => ipcRenderer.invoke(IPC.SETTINGS_SET, settings),
+  autostartGet: () => ipcRenderer.invoke(IPC.AUTOSTART_GET),
+  autostartSet: (enabled: boolean) => ipcRenderer.invoke(IPC.AUTOSTART_SET, enabled),
 
   nodesFetch: () => ipcRenderer.invoke(IPC.NODES_FETCH),
   nodesGetCached: () => ipcRenderer.invoke(IPC.NODES_GET_CACHED),
