@@ -25,7 +25,8 @@ export class World {
   readonly sent: Array<{ channel: string; args: unknown[] }> = []
   readonly notifications: Array<{ title?: string; body?: string }> = []
   readonly opened: string[] = []
-  safeStorage = { available: true, backend: 'gnome_libsecret', keyId: 'this-install' }
+  /** `calls` counts every safeStorage call: any of them can bring up the keyring's unlock prompt. */
+  safeStorage = { available: true, backend: 'gnome_libsecret', keyId: 'this-install', calls: 0 }
   private seq = 0
 
   constructor(userData: string) {
