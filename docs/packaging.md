@@ -234,8 +234,10 @@ without their notices. `npmNotices` in `electron.vite.config.ts` now writes
 `out/THIRD-PARTY-NOTICES-npm.md` on every build from `getWatchFiles()` across main,
 preload and renderer: every module loaded plus every CSS `@import`, the only route
 `flag-icons` takes, so it errs toward listing a package that was tree-shaken away.
-`tailwindcss` is seeded by hand because its preflight CSS arrives through PostCSS
-without the bundler reading any of its files. `files` keeps the result out of the asar
+`tailwindcss` is seeded by hand because its preflight CSS lands in the renderer CSS:
+Tailwind 3's PostCSS plugin wrote it without the bundler reading any of its files, and
+Tailwind 4's Vite plugin reports them, but the notice should not rest on that.
+`files` keeps the result out of the asar
 and `extraResources` puts it at the app root. **A bundled package whose npm release has
 no licence file fails the build** with its `name@version`. To fix it, fetch the text
 from the upstream repository at the matching tag, with any `NOTICE` beside it (or the

@@ -643,8 +643,7 @@ export default function MultihopView() {
   )
 }
 
-// RouteStrip's link classes, spelled out in full: Tailwind keeps a component class
-// only if it finds the literal name in the source (docs/renderer.md).
+// RouteStrip's link classes, spelled out in full like RouteStrip's own (docs/renderer.md).
 const LINK = {
   dim: 'route-link route-link-dim',
   lit: 'route-link route-link-lit',
@@ -720,7 +719,7 @@ function HopPill({ role, node, active, latency, onActivate, onClear }: {
   )
 }
 
-// Full literal class strings, for the same Tailwind reason as LINK.
+// Full literal class strings: Tailwind generates a utility only when it finds its full name.
 const CHIP_CLASS: Record<Exclude<HopChipState['kind'], 'clash'>, string> = {
   usable: 'role-chip-usable text-success hover:bg-success-subtle',
   picked: 'border-accent bg-accent-subtle text-accent hover:border-danger hover:bg-danger-subtle hover:text-danger',

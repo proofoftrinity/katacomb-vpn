@@ -20,9 +20,5 @@ const dropSquareFlags = () => ({
 dropSquareFlags.postcss = true
 
 module.exports = {
-  plugins: [
-    require('tailwindcss'),
-    require('autoprefixer'),
-    dropSquareFlags,
-  ],
+  plugins: [dropSquareFlags],
 }

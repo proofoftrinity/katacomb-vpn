@@ -517,7 +517,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
                 <select
                   value={renewalPolicy}
                   onChange={(e) => setRenewalPolicy(parseInt(e.target.value, 10))}
-                  className="bg-bg-tertiary border border-border text-text-primary text-sm px-2 py-1 rounded-sm focus:outline-none focus:border-border-focus"
+                  className="bg-bg-tertiary border border-border text-text-primary text-sm px-2 py-1 rounded-sm focus:outline-hidden focus:border-border-focus"
                 >
                   {RENEWAL_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>

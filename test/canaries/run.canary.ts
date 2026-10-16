@@ -20,7 +20,7 @@ const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !==
 
 // What a copy needs. node_modules and the 90 MB of vendored binaries are linked, not copied.
 const COPY = ['src', 'test', 'daemon', 'docs', 'CLAUDE.md', 'package.json', 'tsconfig.json', 'tsconfig.node.json',
-  'tsconfig.web.json', 'tsconfig.test.json', 'electron.vite.config.ts', 'tailwind.config.js', 'postcss.config.js']
+  'tsconfig.web.json', 'tsconfig.test.json', 'electron.vite.config.ts', 'postcss.config.js']
 const LINK = ['node_modules', 'resources', 'build']
 
 let template = ''

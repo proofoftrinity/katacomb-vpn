@@ -122,7 +122,7 @@ export default function PlansView() {
                   onChange={(e) => update({ search: e.target.value })}
                   placeholder="Plans and providers"
                   aria-label="Search plans and providers"
-                  className="bg-bg-tertiary border border-border text-text-primary text-sm pl-8 pr-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus w-[220px] placeholder:text-text-tertiary"
+                  className="bg-bg-tertiary border border-border text-text-primary text-sm pl-8 pr-2.5 py-1.5 rounded-sm focus:outline-hidden focus:border-border-focus w-[220px] placeholder:text-text-tertiary"
                 />
               </div>
               <Chip on={filters.readyOnly} label="Ready to connect" Icon={PowerIcon} onToggle={() => update({ readyOnly: !filters.readyOnly })} />

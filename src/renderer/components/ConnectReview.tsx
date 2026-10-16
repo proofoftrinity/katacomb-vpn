@@ -206,7 +206,7 @@ export function AmountStepper({ label, amount, onChange, unit, presets, tip }: {
           value={amount}
           aria-label={label}
           onChange={(e) => set(parseInt(e.target.value) || 1)}
-          className="w-14 bg-bg-primary text-text-primary text-center text-sm font-mono font-semibold py-1 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          className="w-14 bg-bg-primary text-text-primary text-center text-sm font-mono font-semibold py-1 focus:outline-hidden [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
         <button type="button" aria-label="More" onClick={() => set(amount + 1)} className="w-7 bg-bg-tertiary text-text-primary hover:text-accent transition-colors">
           +

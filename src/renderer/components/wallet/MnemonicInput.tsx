@@ -285,7 +285,7 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
               onChange={(e) => setWalletName(e.target.value)}
               placeholder="e.g. Cold Storage"
               maxLength={100}
-              className="w-full bg-bg-tertiary border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-border-focus rounded-md"
+              className="w-full bg-bg-tertiary border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:border-border-focus rounded-md"
               autoComplete="off"
             />
           </div>
@@ -299,7 +299,7 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
               onChange={(e) => { setMnemonic(e.target.value); if (error) setError('') }}
               placeholder="Enter your 12 or 24 word mnemonic phrase..."
               rows={4}
-              className={`w-full bg-bg-tertiary border p-4 font-mono text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none rounded-md resize-none ${
+              className={`w-full bg-bg-tertiary border p-4 font-mono text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden rounded-md resize-none ${
                 check.status === 'invalid' ? 'border-danger' : 'border-border focus:border-border-focus'
               }`}
               autoFocus
@@ -369,7 +369,7 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
                 onChange={(e) => setWalletName(e.target.value)}
                 placeholder="e.g. Daily Driver"
                 maxLength={100}
-                className="w-full bg-bg-tertiary border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-border-focus rounded-md"
+                className="w-full bg-bg-tertiary border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:border-border-focus rounded-md"
                 autoComplete="off"
               />
             </div>

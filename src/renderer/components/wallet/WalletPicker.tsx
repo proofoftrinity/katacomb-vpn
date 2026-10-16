@@ -131,7 +131,7 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
               placeholder="e.g. Wallet 1"
               maxLength={100}
               autoFocus
-              className="w-full bg-bg-secondary border border-border text-text-primary text-sm px-2.5 py-2 rounded-sm focus:outline-none focus:border-border-focus"
+              className="w-full bg-bg-secondary border border-border text-text-primary text-sm px-2.5 py-2 rounded-sm focus:outline-hidden focus:border-border-focus"
             />
             <button
               onClick={deriveFromRetainedSeed}

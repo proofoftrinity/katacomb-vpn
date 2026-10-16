@@ -47,9 +47,27 @@ test('[RN-8] dark-only: no dark: variant and no .dark selector', () => {
     })
   }
   assert.deepEqual(hits, [])
-  // 'class' with no .dark anywhere keeps a stray dark: utility inert; Tailwind's
-  // default ('media') would let it follow the OS theme.
-  assert.match(read('tailwind.config.js'), /darkMode:\s*'class'/)
+  // The dark variant matches nothing, so a stray dark: utility stays inert; Tailwind's
+  // default (prefers-color-scheme) would let it follow the OS theme.
+  assert.match(read('src/renderer/styles/global.css'), /@custom-variant dark \(&:not\(\*\)\);/)
+})
+
+// [RN-12] The lines in global.css that make Tailwind 4 render what Tailwind 3 did. Each
+// looks deletable, and each was measured moving pixels without it (2026-10-16).
+test('[RN-12] global.css keeps the lines that make Tailwind 4 render as Tailwind 3 did', () => {
+  const css = read('src/renderer/styles/global.css')
+  assert.match(css, /@import 'flag-icons\/css\/flag-icons\.min\.css' layer\(base\);/, 'unlayered, flag-icons beats the size utilities on every flag')
+  assert.match(css, /@custom-variant hover \(&:hover\);/, 'hover on every device, not only hover-capable ones')
+  const LINE_HEIGHTS = { xs: '1rem', sm: '1.25rem', base: '1.5rem', lg: '1.75rem', xl: '1.75rem', '2xl': '2rem', '3xl': '2.25rem' }
+  for (const [size, lh] of Object.entries(LINE_HEIGHTS)) {
+    assert.ok(css.includes(`--text-${size}--line-height: ${lh};`), `text-${size} keeps Tailwind 3's absolute line height`)
+  }
+  assert.match(css, /@utility space-y-\* \{\s*& > :not\(\[hidden\]\) ~ :not\(\[hidden\]\) \{\s*margin-top: --spacing\(--value\(number\)\);\s*margin-bottom: 0;\s*\}\s*:where\(&\) > :not\(_\) \{\s*margin-bottom: 0;\s*\}\s*\}/,
+    "space-y keeps Tailwind 3's selector")
+  assert.match(css, /button,\s*\[role="button"\]\s*\{\s*cursor: pointer;\s*\}/, 'buttons show the pointer')
+  assert.match(css, /:disabled\s*\{\s*cursor: default;\s*\}/)
+  assert.match(css, /input::placeholder,\s*textarea::placeholder\s*\{\s*color: #9ca3af;\s*\}/, 'placeholders keep their grey')
+  assert.match(css, /option\s*\{\s*padding: revert;\s*\}/, "an option keeps the browser's padding")
 })
 
 test('[ARCH-1] the renderer imports nothing from main, electron or Node', () => {

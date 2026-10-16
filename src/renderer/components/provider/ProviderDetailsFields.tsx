@@ -75,7 +75,7 @@ function Field({ label, value, placeholder, cap, disabled, onChange, rows }: {
 }) {
   const used = byteLength(value)
   const over = used > cap
-  const className = `mt-1 w-full bg-bg-tertiary border text-text-primary text-sm px-3 py-2 rounded-sm focus:outline-none disabled:opacity-40 ${
+  const className = `mt-1 w-full bg-bg-tertiary border text-text-primary text-sm px-3 py-2 rounded-sm focus:outline-hidden disabled:opacity-40 ${
     over ? 'border-danger' : 'border-border focus:border-border-focus'
   }`
   return (

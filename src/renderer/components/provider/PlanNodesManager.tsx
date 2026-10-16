@@ -494,7 +494,7 @@ function NodeDrawer({ planId, nodes, nodesLoading, nodesError, excluded, price, 
               placeholder="Name, country, city or address"
               aria-label="Search nodes"
               autoFocus
-              className="w-full bg-bg-tertiary border border-border text-text-primary text-sm pl-8 pr-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus placeholder:text-text-tertiary"
+              className="w-full bg-bg-tertiary border border-border text-text-primary text-sm pl-8 pr-2.5 py-1.5 rounded-sm focus:outline-hidden focus:border-border-focus placeholder:text-text-tertiary"
             />
           </div>
         </div>

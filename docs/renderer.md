@@ -184,11 +184,14 @@ from `src/main/`; `src/shared/` is the only overlap.
 - **[RN-5] A pure helper under `utils/` imports no sibling module, only types.** The native test
   runner cannot resolve an extensionless relative import, so `chain-node.ts` takes the
   pair rule as a parameter (`conflict`, i.e. `pairConflict`) instead of importing it.
-- **A component class in `global.css` must appear in the source spelled in full.**
-  Tailwind keeps an `@layer components` class only if it finds the literal name, so
-  `route-disc-${state}` would build fine and render unstyled in production.
-  `RouteStrip.tsx` maps each state to its full class string for that reason, and so do
-  the Multi-hop route bar's `LINK` and `CHIP_CLASS` maps in `MultihopView.tsx`. The bar
+- **A Tailwind utility must appear in the source spelled in full.** Tailwind generates a
+  utility only if it finds the literal name, so `bg-${tone}` builds fine and renders
+  unstyled. Under Tailwind 3 the same held for the `@layer components` classes in
+  `global.css`, which is why `RouteStrip.tsx` maps each state to its full class string
+  (`route-disc-${state}` lost its style in production) and so do the Multi-hop route
+  bar's `LINK` and `CHIP_CLASS` maps in `MultihopView.tsx`. Tailwind 4 passes
+  `@layer components` through untouched, so those classes now always ship; the maps
+  stay, since a full name is the one a search finds. The bar
   reuses RouteStrip's `.route-disc`/`.route-link` classes on purpose, so the picker, the
   review window and the Sessions cards draw one picture; its own parts are the
   `.hop-pill*`, `.role-chip-usable` and `.route-map-*` classes beside them.
@@ -289,15 +292,53 @@ from `src/main/`; `src/shared/` is the only overlap.
 - **A table whose rows are separate grids has no `auto` column.** Each row sizes its own
   auto column from its buttons while the header's is empty, so the header drifted off its
   values (the Provider nodes table, 2026-10-06). Fixed or fractional tracks only.
-- **[RN-7] Theme colours take no `/NN` opacity modifier.** Every colour in `tailwind.config.js`
-  is a `var()`, and Tailwind 3 cannot put an alpha on one, so `bg-accent/10` generates no
-  CSS at all. The catalog's selected row had no highlight for that reason, and a
-  `ring-accent/25` fell back to Tailwind's default blue, and a `border` whose colour
-  class is dead draws preflight's light grey `#e5e7eb` (the globe's two panels), all
-  found 2026-10-07. Use the `-subtle` tokens (12% tints), `opacity-NN` on an element with
-  no children, or a `color-mix` class in `global.css` (`.map-overlay`). None are left; a
+- **[RN-7] Theme colours take no `/NN` opacity modifier.** The palette's tints are the
+  `-subtle` tokens (12%) and the `color-mix` classes in `global.css` (`.map-overlay`), so a
+  tint is chosen once, where the palette lives, not per element. The rule began as a
+  defect: every theme colour is a `var()`, and Tailwind 3 could not put an alpha on one,
+  so `bg-accent/10` generated no CSS at all. The catalog's selected row had no highlight
+  for that reason, a `ring-accent/25` fell back to Tailwind's default blue, and a `border`
+  whose colour class was dead drew preflight's light grey `#e5e7eb` (the globe's two
+  panels), all found 2026-10-07. Tailwind 4 does generate `/NN` (as a `color-mix`), and
+  the rule stays by decision (2026-10-16). Use the `-subtle` tokens, `opacity-NN` on an
+  element with no children, or a `color-mix` class in `global.css`. None are left; a
   grep for `-(accent|success|danger|warning|info|bg-[a-z]+|text-[a-z]+|border)/[0-9]` in
   `src/renderer` should stay empty.
+- **[RN-12] Tailwind 4 renders exactly what Tailwind 3 did, and lines in `global.css`
+  are why.** Each one looks deletable, and each one is there because Tailwind 4 changed a
+  default. The migration (2026-10-16) was checked element by element: about 40 screens,
+  every computed style and box, at rest, hovered and focused, with the Tailwind 3 and 4
+  stylesheets swapped in one running app.
+  - flag-icons is imported `layer(base)`, so third-party CSS stays below the utilities
+    as it was under Tailwind 3. Tailwind 4 uses real cascade layers, and CSS outside
+    every layer beats all of them. No flag carries a size or display utility today, so
+    this moves nothing now (measured); unlayered, the first one added would silently
+    lose to flag-icons.
+  - The theme's `--text-*--line-height` are Tailwind 3's absolute values. Tailwind 4's
+    are unitless ratios, which a child inherits and multiplies by its own size. Without
+    them the connect windows' red "short by" line (`text-[11px]` inside `text-sm`) went
+    from 20px to 15.7px and every row below it moved up 4px (measured); 15 elements
+    across the screens checked inherit their line height that way.
+  - `@utility space-y-*` puts back Tailwind 3's selector, a top margin on every child
+    after the first at the weight of three classes. Tailwind 4 gives every child but the
+    last a bottom margin under `:where()`. A child's own margin then replaces the gap
+    instead of losing to it or collapsing into it: `SectionHead`'s `mb-2` inside a
+    `space-y-2.5` lost 2px in every connect window. An inline child's margin also lands
+    inside its line box, so the setup screens' Back links lost 1px.
+  - `@custom-variant hover (&:hover)`: Tailwind 4 puts `hover:` inside
+    `@media (hover: hover)`, which a laptop whose primary pointer is a touchscreen fails.
+  - The base rules for button cursors, the `#9ca3af` placeholder (the user's choice over
+    the theme's tertiary grey) and `option` padding restore what Tailwind 4's preflight
+    changed.
+
+  `divide-y` keeps Tailwind 4's selector on purpose: the line is now the row above's
+  bottom border instead of the row below's top border. The divider is opaque, so the
+  same pixels show at rest and on hover. Two scales moved, so the source says
+  `blur-xs` for Tailwind 3's `blur-sm` (4px), and `outline-hidden` for its
+  `outline-none` (Tailwind 4's `outline-none` drops the transparent outline that
+  forced-colours mode shows). Never run Tailwind's upgrade codemod on this tree: it
+  renames `rounded-sm` and `shadow-sm` as if the default scale applied, and this theme
+  redefines both.
 - **Placeholders are for a FIRST load only.** `.skeleton` blocks in the shape of what is
   coming, inside a `role="status"` with a label, replace a spinner line where nothing is
   on screen yet; a refetch keeps the previous render. While they show, nothing else
@@ -354,7 +395,9 @@ from `src/main/`; `src/shared/` is the only overlap.
   slack, so the buttons stay on screen at the 960x600 minimum (2026-10-10).
 - **[RN-8] Dark-only** — bg `#16181d`, accent `#e1bc99`. There is deliberately no theme switch:
   `tokens.css` `:root` holds the only semantic tokens, and components read those (never
-  primitives, never a `dark:` variant). Don't reintroduce a `.dark` selector.
+  primitives, never a `dark:` variant). Don't reintroduce a `.dark` selector. `global.css`
+  makes Tailwind's dark variant match nothing (`@custom-variant dark (&:not(*))`), so a
+  stray `dark:` utility stays inert instead of following the OS theme.
 - **The palette is derived from the app icon** (`build/icons/1024x1024.svg`) and both
   primitive ramps are sampled from it: `gunmetal-*` extends the icon's charcoal at its own
   hue (`gunmetal-850` IS `#1e2127` verbatim), `bronze-*` is its gradient stops verbatim.

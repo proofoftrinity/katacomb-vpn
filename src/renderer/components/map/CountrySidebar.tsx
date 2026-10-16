@@ -33,7 +33,7 @@ export default function CountrySidebar({ counts, onSelect }: Props) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search country..."
-          className="w-full bg-bg-tertiary border border-border text-text-primary text-sm px-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus"
+          className="w-full bg-bg-tertiary border border-border text-text-primary text-sm px-2.5 py-1.5 rounded-sm focus:outline-hidden focus:border-border-focus"
         />
         <div className="flex items-center gap-2 text-xs">
           <span className="text-text-tertiary">Sort by</span>
