@@ -282,6 +282,15 @@ from `src/main/`; `src/shared/` is the only overlap.
   world file's "Turkey" into a "Türkiye" the feed never sent, so Turkey's 144 nodes did
   not show on the globe. A new spelling goes into its country's row, never into a
   table of its own.
+- **[RN-13] A round flag is the 4:3 artwork covering a square.** `postcss.config.js`
+  drops flag-icons' square set (1.84 MB of SVG and 220 KB of CSS, 2026-08-25), so `fis`
+  only makes the box 1em wide, and flag-icons' `background-size: contain` fits the 4:3
+  flag inside it with a band above and below. The route strip and the Multi-hop pickers
+  drew their round flags that way from 2026-10-05, when they took up `fis` without the
+  square set behind it, until 2026-10-16. Every `fis` carries `bg-cover`, which trims an
+  eighth off each side instead; it beats flag-icons only because flag-icons is imported
+  `layer(base)` ([RN-12]). If a flag ever needs the square artwork, delete the postcss
+  plugin rather than working around it.
 - **A disabled filled button drops its fill** (`global.css`, every tab). The accent at the
   buttons' `disabled:opacity-40` turned a pane muddy brown when a row of them shared one
   blocking reason. Every filled button that can be disabled carries that opacity utility,
@@ -311,9 +320,9 @@ from `src/main/`; `src/shared/` is the only overlap.
   stylesheets swapped in one running app.
   - flag-icons is imported `layer(base)`, so third-party CSS stays below the utilities
     as it was under Tailwind 3. Tailwind 4 uses real cascade layers, and CSS outside
-    every layer beats all of them. No flag carries a size or display utility today, so
-    this moves nothing now (measured); unlayered, the first one added would silently
-    lose to flag-icons.
+    every layer beats all of them. The round flags' `bg-cover` ([RN-13]) depends on it:
+    with flag-icons unlayered, its `contain` won and the circles showed their bands
+    again (measured).
   - The theme's `--text-*--line-height` are Tailwind 3's absolute values. Tailwind 4's
     are unitless ratios, which a child inherits and multiplies by its own size. Without
     them the connect windows' red "short by" line (`text-[11px]` inside `text-sm`) went

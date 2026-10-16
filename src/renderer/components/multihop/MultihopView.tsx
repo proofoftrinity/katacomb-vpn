@@ -706,7 +706,7 @@ function HopPill({ role, node, active, latency, onActivate, onClear }: {
       </div>
       {node ? (
         <div className="flex items-center gap-1.5 min-w-0 text-[13px] leading-[18px]">
-          {code && <span className={`fi fis fi-${code} rounded-full shrink-0`} style={{ fontSize: '16px', lineHeight: 1 }} />}
+          {code && <span className={`fi fis fi-${code} rounded-full shrink-0 bg-cover`} style={{ fontSize: '16px', lineHeight: 1 }} />}
           <span className="font-semibold text-text-primary whitespace-nowrap">{node.city || node.country}</span>
           <span className="text-text-tertiary text-xs truncate">{node.moniker || node.address}</span>
         </div>
