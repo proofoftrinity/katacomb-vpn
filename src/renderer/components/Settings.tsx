@@ -54,6 +54,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
   const rpcHealth = useRpcHealth()
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [wallets, setWallets] = useState<StoredWallet[]>([])
+  const [keyringMissing, setKeyringMissing] = useState(false)
   const [rpcInput, setRpcInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState<SettingsTab>(initialTab)
@@ -86,6 +87,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
     setRpcInput(s.rpcEndpoint)
     setSplitTunnelInput((s.splitTunnelRoutes || []).join('\n'))
     setWallets(store.wallets)
+    setKeyringMissing(store.keyringMissing)
     setActiveWalletId(store.activeWalletId)
   }, [])
 
@@ -637,6 +639,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
           {tab === 'wallets' && (
             <WalletsTab
               wallets={wallets}
+              keyringMissing={keyringMissing}
               settings={settings}
               connected={connected}
               reload={load}

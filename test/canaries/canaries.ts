@@ -468,8 +468,22 @@ export const CANARIES: Canary[] = [
   {
     name: '[ARCH-5] the dedupe keeps the copy that no longer unlocks',
     file: 'src/main/settings.ts',
-    find: '    const survivor = group.find((w) => canUnlockWallet(w.id)) ?? group[0]',
-    replace: '    const survivor = group[0]',
+    find: '    const survivor = group.find((w) => canUnlockWallet(w.id))\n',
+    replace: '    const survivor = group[0]\n',
+    run: ['src/main/settings.test.ts'],
+  },
+  {
+    name: '[REL-41] when no copy opens, the dedupe deletes all but the first',
+    file: 'src/main/settings.ts',
+    find: '    if (survivor) survivorId.set(address, survivor.id)',
+    replace: '    survivorId.set(address, (survivor ?? group[0]).id)',
+    run: ['src/main/settings.test.ts'],
+  },
+  {
+    name: '[REL-41] the next start asks the desktop\'s keyring, not the one the seeds are in',
+    file: 'src/main/settings.ts',
+    find: "  if (recorded && recorded in PASSWORD_STORES && !(kde && recorded.startsWith('kwallet'))) return PASSWORD_STORES[recorded]\n",
+    replace: '',
     run: ['src/main/settings.test.ts'],
   },
   {

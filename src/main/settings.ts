@@ -1,5 +1,5 @@
 import { app, safeStorage } from 'electron'
-import { readFileSync, existsSync, unlinkSync, mkdirSync, cpSync } from 'fs'
+import { readFileSync, existsSync, unlinkSync, mkdirSync, cpSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { WALLET_EXISTS } from '../shared/error-markers'
@@ -79,6 +79,12 @@ export interface AppSettings {
    * zero wallets are stored; deriving from it or removing it clears it.
    */
   retainedSeedId: string | null
+  /**
+   * [REL-41] The keyring that last saved or opened a seed, as `getSelectedStorageBackend()`
+   * names it, so the next start asks for that keyring again (keyringSwitch). Null until a
+   * seed has been saved or opened under a real keyring.
+   */
+  keyringBackend: string | null
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -92,6 +98,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   bookmarkedNodes: [],
   splitTunnelRoutes: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'],
   retainedSeedId: null,
+  keyringBackend: null,
 }
 
 function settingsPath(): string {
@@ -117,6 +124,84 @@ export function isSecureStorageAvailable(): boolean {
   } catch {
     return true
   }
+}
+
+// --- Which keyring holds the seeds' key ([REL-41]) ---
+
+/** The backend names getSelectedStorageBackend() reports for a real keyring, mapped to how
+ *  Chromium's --password-store spells them. */
+const PASSWORD_STORES: Record<string, string> = {
+  gnome_libsecret: 'gnome-libsecret', kwallet: 'kwallet', kwallet5: 'kwallet5', kwallet6: 'kwallet6',
+}
+
+/** Whether Chromium takes this session for KDE, which is when it picks KWallet
+ *  (base::nix::GetDesktopEnvironment). */
+function isKdeSession(env: NodeJS.ProcessEnv): boolean {
+  const desktop = env['XDG_CURRENT_DESKTOP']
+  if (desktop) return desktop.split(':').includes('KDE')
+  return ['kde4', 'kde-plasma', 'kde'].includes(env['DESKTOP_SESSION'] ?? '') || env['KDE_FULL_SESSION'] !== undefined
+}
+
+/** Whether any seed is on disk, a wallet's or a retained one. A directory listing: no keyring. */
+function hasStoredSeed(): boolean {
+  const dir = join(app.getPath('userData'), 'wallets')
+  return existsSync(dir) && readdirSync(dir).some((f) => f.endsWith('.enc'))
+}
+
+/**
+ * [REL-41] The keyring this run should keep the seeds' key in, as a --password-store value,
+ * or null to leave the choice to Chromium. Left to itself Chromium picks by desktop: KWallet
+ * on KDE, the Secret Service (GNOME Keyring) on the desktops it knows, and a fixed built-in
+ * key on any other, under which no seed is saved at all. A seed saved under one keyring does
+ * not open under the other's key, so a seed saved under GNOME read as locked under Plasma on
+ * the same account. While a seed is stored, the keyring recorded for it wins. Any KWallet on
+ * KDE is left to Chromium, which picks the version the session runs; they share the wallets.
+ * With no seed stored, the Secret Service everywhere but KDE. Reads plain files and the
+ * environment only: it runs before `ready`, and a keyring call there would prompt.
+ */
+export function keyringSwitch(env: NodeJS.ProcessEnv): string | null {
+  const kde = isKdeSession(env)
+  const recorded = hasStoredSeed() ? loadSettings().keyringBackend : null
+  if (recorded && recorded in PASSWORD_STORES && !(kde && recorded.startsWith('kwallet'))) return PASSWORD_STORES[recorded]
+  return kde ? null : 'gnome-libsecret'
+}
+
+// The keyring cannot change while the app runs, so recording it once per run is enough.
+let keyringRecorded = false
+
+/** [REL-41] Remember the keyring that just saved or opened a seed, for keyringSwitch. */
+function recordKeyring(): void {
+  if (keyringRecorded) return
+  keyringRecorded = true
+  const backend = safeStorage.getSelectedStorageBackend()
+  if (backend in PASSWORD_STORES && loadSettings().keyringBackend !== backend) saveSettings({ keyringBackend: backend })
+}
+
+const KEYRING_NAMES: Record<string, string> = {
+  gnome_libsecret: 'GNOME Keyring', kwallet: 'KWallet', kwallet5: 'KWallet', kwallet6: 'KWallet',
+}
+
+/** [REL-41] No keyring answered this run (a prompt cancelled or left too long, or none
+ *  running), so every seed reads as locked until a restart. Removing one would delete it. */
+function noKeyringMessage(): string {
+  const recorded = loadSettings().keyringBackend
+  const keyring = recorded ? KEYRING_NAMES[recorded] : 'your keyring (GNOME Keyring or KWallet)'
+  return `No keyring answered in this session, so this wallet can't be unlocked. Start or unlock ${keyring}, ` +
+    'then restart the app. Keep the wallet meanwhile: removing it deletes its stored seed.'
+}
+
+/** [REL-41] Why a stored seed would not open, as far as this run can tell. */
+function unlockFailure(): string {
+  const funds = 'Your funds are on-chain and unaffected.'
+  const recorded = loadSettings().keyringBackend
+  if (safeStorage.getSelectedStorageBackend() === 'basic_text') return noKeyringMessage()
+  if (!recorded) {
+    return 'Your keyring can\'t unlock this wallet. If you saved it while logged in to another desktop, open the app ' +
+      'there once: from then on it uses that keyring here too. ' +
+      `Otherwise remove it and import the same seed phrase again. ${funds}`
+  }
+  return 'Your keyring can\'t unlock this wallet: it was saved under the app\'s previous name, or before the keyring ' +
+    `was reset. Remove it and import the same seed phrase again. ${funds}`
 }
 
 const INSECURE_STORAGE_MESSAGE =
@@ -214,6 +299,7 @@ export function addWalletEntry(
   const id = randomUUID()
   const encrypted = safeStorage.encryptString(mnemonic)
   writeFileAtomic(join(walletsDir(), `${id}.enc`), encrypted)
+  recordKeyring()
 
   const entry: WalletEntry = { id, name, address, accountIndex, addressIndex }
   const wallets = listWallets()
@@ -352,23 +438,21 @@ export function isSeedSource(id: string): boolean {
 }
 
 export function getWalletMnemonic(id: string): string {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('OS keyring encryption is not available')
-  }
+  if (!safeStorage.isEncryptionAvailable()) throw new Error(noKeyringMessage())
   const encPath = join(walletsDir(), `${id}.enc`)
   if (!existsSync(encPath)) throw new Error('Wallet file not found')
   const encrypted = readFileSync(encPath)
+  let mnemonic: string
   try {
-    return safeStorage.decryptString(encrypted)
+    mnemonic = safeStorage.decryptString(encrypted)
   } catch {
-    // safeStorage's keyring entry is keyed by app name, so a seed saved before
-    // the rename cannot be decrypted now. Tell the user what to do instead of
-    // surfacing "Error while decrypting the ciphertext provided to …".
-    throw new Error(
-      'This wallet was saved under the app\'s previous name and can no longer be unlocked. ' +
-      'Remove it and import the same seed phrase again. Your funds are on-chain and unaffected.'
-    )
+    // Saved under another keyring's key, or under the app's previous name (safeStorage keys
+    // its keyring entry by app name). Tell the user what to do instead of surfacing "Error
+    // while decrypting the ciphertext provided to …".
+    throw new Error(unlockFailure())
   }
+  recordKeyring()
+  return mnemonic
 }
 
 /**
@@ -395,7 +479,8 @@ export function canUnlockWallet(id: string): boolean {
  * not simply the oldest. A duplicate created by re-importing after the app
  * rename is the common case, and there the older entry is precisely the one
  * whose `.enc` no longer opens (safeStorage keys its entry by app name). Keeping
- * it would throw away the only working copy.
+ * it would throw away the only working copy. When no copy opens, none is deleted:
+ * under another desktop's keyring one of them may be the only working copy.
  *
  * Entries with a blank address are left alone — migrateOldWallet writes one
  * until the first restore fills it in, and blank is not an identity.
@@ -416,8 +501,10 @@ export function dedupeWalletEntries(): void {
   // startup never pays for this.
   const survivorId = new Map<string, string>() // address → id we keep
   for (const [address, group] of byAddress) {
-    const survivor = group.find((w) => canUnlockWallet(w.id)) ?? group[0]
-    survivorId.set(address, survivor.id)
+    // When none opens here, which copy opens under the keyring it was saved in is
+    // unknown ([REL-41]), so the group is kept whole.
+    const survivor = group.find((w) => canUnlockWallet(w.id))
+    if (survivor) survivorId.set(address, survivor.id)
   }
 
   const kept: WalletEntry[] = []
@@ -487,6 +574,7 @@ export function migrateOldWallet(): void {
     const id = randomUUID()
     const reEncrypted = safeStorage.encryptString(mnemonic)
     writeFileAtomic(join(walletsDir(), `${id}.enc`), reEncrypted)
+    recordKeyring()
 
     const entry: WalletEntry = { id, name: 'My Wallet', address: '' }
     // Index + active-id are written (atomically) before the old file is removed,

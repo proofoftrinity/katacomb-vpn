@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell, Tray, Menu, nativeImage, nativeTheme, powerMonitor } from 'electron'
 import { join } from 'path'
-import { execFile } from 'child_process'
+import { execFile, spawn, type ChildProcess } from 'child_process'
+import { readFile } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import { is } from '@electron-toolkit/utils'
 import {
@@ -8,11 +9,13 @@ import {
   performDisconnect, onConnectionStateChanged, getConnectionInfo, healStrandedKillSwitch,
   healOrphanedTunnel, type ConnectionInfo,
 } from './ipc-handlers'
-import { markedTrayBitmap, trayPainter, trayView, waitForTrayHost, type TrayView } from './tray-view'
+import {
+  markedTrayBitmap, panelShade, panelWatchCommand, trayPainter, trayView, waitForTrayHost, type PanelShade, type TrayView,
+} from './tray-view'
 import { killAllTunnels, detectExistingConnection } from './vpn/vpn-manager'
 import { onChainPathChanged, runAutoRpcSelection, startRpcMonitor, stopRpcMonitor } from './chain/rpc-monitor'
 import { sweepStaleSessionFiles } from './chain/chain-service'
-import { migrateLegacyUserData, dedupeWalletEntries, migrateProviderModeToWallet, migrateRpcMode } from './settings'
+import { migrateLegacyUserData, dedupeWalletEntries, migrateProviderModeToWallet, migrateRpcMode, keyringSwitch } from './settings'
 import { followRunningCopy } from './autostart'
 import { listProviders } from './provider/provider-service'
 import { registerWithDesktopSession } from './desktop-session'
@@ -120,13 +123,32 @@ function showAbout(): void {
   showWindow(() => mainWindow?.webContents.send(IPC.ABOUT_SHOW))
 }
 
+// [REL-42] The panel's shade as last read (readPanelShade); the tray is made only after the first read.
+let panel: PanelShade = 'dark'
+
 /** The tray is a flat single-colour silhouette (no background tile), like its
  *  neighbours in the panel — so unlike the launcher/About icon it needs a
  *  variant per panel theme. Filenames are keyed by the panel they're FOR, which
  *  is exactly what this returns, so there's no inversion to get backwards. */
-function trayPanel(): 'dark' | 'light' {
-  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+function trayPanel(): PanelShade {
+  return panel
 }
+
+/** [REL-42] Read the panel's shade from the desktop, falling back on the apps' theme. */
+async function readPanelShade(): Promise<void> {
+  panel = await panelShade({
+    env: process.env,
+    home: app.getPath('home'),
+    appsDark: nativeTheme.shouldUseDarkColors,
+    run: (cmd, args) => new Promise((resolve, reject) => {
+      execFile(cmd, args, { timeout: 3000 }, (err, stdout) => (err ? reject(err) : resolve(stdout)))
+    }),
+    readFile: (path) => readFile(path, 'utf-8'),
+  })
+}
+
+// [REL-42] Prints a line whenever the panel's theme changes without the apps' (panelWatchCommand).
+let panelWatch: ChildProcess | null = null
 
 /** Which tray PNG a state wants right now: the state's K + the current panel. */
 function trayIconKeyFor(icon: TrayView['icon']): string {
@@ -172,7 +194,10 @@ const paintTray = trayPainter((key, marked) => {
   tray?.setImage(marked ? nativeImage.createFromBitmap(markedTrayBitmap(image.toBitmap(), size), size) : image)
 })
 
-function createTrayIcon(): void {
+async function createTrayIcon(): Promise<void> {
+  // The first image is the right one: a wrong shade repainted a moment later would blink.
+  await readPanelShade()
+  if (quitHandled) return // a logout in the meantime: the quit has already taken the tray down
   const info = getConnectionInfo()
   trayIconKey = trayIconKeyFor(trayView(info).icon)
   tray = new Tray(trayImage(trayIconKey))
@@ -187,8 +212,18 @@ function createTrayIcon(): void {
   // neighbours. Those neighbours are symbolic icons the panel recolours itself,
   // which we can't match exactly — Tray takes a bitmap, so a swap is the only
   // mechanism available — but the event is as early as Electron will tell us.
+  // The re-read of the panel's shade answers at once where the apps' theme decides
+  // it, and in a few ms where it runs gsettings or xfconf-query ([REL-42]).
   // getConnectionInfo() is the whole state ([REL-35]), so this re-read loses nothing.
-  nativeTheme.on('updated', () => refreshTray(getConnectionInfo()))
+  const repaint = () => void readPanelShade().then(() => refreshTray(getConnectionInfo()))
+  nativeTheme.on('updated', repaint)
+  // A panel restyled on its own (Cinnamon, Xfce) fires no nativeTheme event.
+  const watch = panelWatchCommand(process.env)
+  if (watch) {
+    panelWatch = spawn(watch[0], watch[1], { stdio: ['ignore', 'pipe', 'ignore'] })
+    panelWatch.on('error', () => { panelWatch = null })
+    panelWatch.stdout?.on('data', repaint)
+  }
 }
 
 /**
@@ -317,6 +352,14 @@ function createWindow(onShown?: () => void): void {
   }
 }
 
+// [REL-41] Ask for the keyring the stored seeds are in, not the one this desktop suggests.
+// Chromium picks it as `ready` comes, so this has to run first. A --password-store the
+// user passed wins.
+if (!app.commandLine.hasSwitch('password-store')) {
+  const store = keyringSwitch(process.env)
+  if (store) app.commandLine.appendSwitch('password-store', store)
+}
+
 // Single-instance lock. A second instance would race the first over the sntl0
 // interface, the daemon socket, the kill-switch chain and the settings/wallet
 // files. The loser exits at once and focuses the winner's window.
@@ -380,13 +423,19 @@ app.whenReady().then(() => {
   // start asks for longer, since the panel may still be starting, and creates no
   // window until one is asked for: the page reads the wallet, which on an auto-login
   // account blocks main behind the keyring's unlock prompt. With no tray the window
-  // is the only way in, so it opens ([REL-40]).
-  if (startedAtLogin) void waitForTrayHost(probeTrayHost).then((drawn) => { if (!drawn) showWindow() })
-  else {
+  // is the only way in, so it opens. Its tray icon waits for the answer too: one made
+  // before the panel's tray is up falls back to an old XEmbed icon ([REL-40]).
+  if (startedAtLogin) {
+    void waitForTrayHost(probeTrayHost).then((drawn) => {
+      if (quitHandled) return // a logout in the meantime: the quit is under way
+      void createTrayIcon()
+      if (!drawn) showWindow()
+    })
+  } else {
     void probeTrayHost()
     createWindow()
+    void createTrayIcon()
   }
-  createTrayIcon()
   // A logout or a shutdown from the desktop must run the normal quit, teardown included,
   // before the session goes: GNOME's logout kills the GPU process out from under the
   // app, and Chromium then crashes itself instead of quitting; KDE's takes X away, and
@@ -464,6 +513,7 @@ app.on('before-quit', (e) => {
   // occasionally fails and strands a dead "ghost" icon in the panel.
   tray?.destroy()
   tray = null
+  panelWatch?.kill()
   if (quitHandled) {
     // A repeat quit (second menu Quit, double Ctrl+C) must not fall through to
     // the default quit path: that exits at once, cutting the in-flight teardown

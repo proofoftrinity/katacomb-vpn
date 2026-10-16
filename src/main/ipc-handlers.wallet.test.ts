@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadIpcHandlers, type FreshOptions, type IpcHarness } from '../../test/harness/ipc.ts'
 import { WALLET_MUTATORS, ACTIVE_WALLET_CALLS } from '../../test/harness/entry-points.ts'
@@ -91,4 +91,34 @@ describe('[REL-4] the active wallet is frozen while a session is live', () => {
     assert.equal(s.activeWalletId, 'w1', 'only wallet.ts writes activeWalletId')
     assert.equal(s.autoReconnect, true, 'the allowed key in the same call was saved')
   })
+})
+
+test('[REL-41] the wallet store says when no keyring answered, so a locked seed is not taken for a lost one', async (t) => {
+  const h = ipc.fresh(world())
+  t.after(() => h.dispose())
+  mkdirSync(join(h.world.userData, 'wallets'), { recursive: true })
+  for (const id of ['w1', 'w2']) writeFileSync(join(h.world.userData, 'wallets', `${id}.enc`), `enc:${h.world.safeStorage.keyId}:abandon abandon about`)
+  const status = async () => await h.invoke('WALLET_STORE_STATUS') as { wallets: Array<{ unlockable: boolean }>; keyringMissing: boolean }
+  // Every seed opens.
+  assert.deepEqual((await status()).wallets.map((w) => w.unlockable), [true, true])
+  assert.equal((await status()).keyringMissing, false)
+  // A prompt cancelled or left too long: Chromium turns encryption off for the run.
+  h.world.safeStorage.available = false
+  assert.deepEqual(await status().then((s) => [s.wallets.map((w) => w.unlockable), s.keyringMissing]), [[false, false], true])
+  // Only the built-in key: the keyring asked for was not there.
+  h.world.safeStorage.available = true
+  h.world.safeStorage.backend = 'basic_text'
+  writeFileSync(join(h.world.userData, 'wallets', 'w2.enc'), 'enc:another-desktop:abandon abandon about')
+  assert.equal((await status()).keyringMissing, true)
+  // A keyring that answers but cannot open one: that seed needs re-entry, so not this case.
+  h.world.safeStorage.backend = 'gnome_libsecret'
+  assert.deepEqual(await status().then((s) => [s.wallets.map((w) => w.unlockable), s.keyringMissing]), [[true, false], false])
+})
+
+test('[REL-41] whether a keyring answered is asked only once a seed failed: an empty store calls no keyring', async (t) => {
+  const h = ipc.fresh(world({ walletsIndex: [] }))
+  t.after(() => h.dispose())
+  h.world.safeStorage.calls = 0
+  assert.equal((await h.invoke('WALLET_STORE_STATUS') as { keyringMissing: boolean }).keyringMissing, false)
+  assert.equal(h.world.safeStorage.calls, 0, 'reading an empty store, as on a first run, must not bring up a keyring prompt')
 })
