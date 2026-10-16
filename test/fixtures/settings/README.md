@@ -13,7 +13,8 @@ custom split routes) so the test can tell whether a migration kept them.
 | G2-a14ee1b | global `providerMode: true`, which `migrateProviderModeToWallet` moves onto the active wallet |
 | G3-904787f | `retainedSeedId`; `providerMode` lives on the wallet entry |
 | G4-8cae033 | `lanSharing` |
-| G5-dcb4dc4 | `rpcMode` (current shape) |
+| G5-dcb4dc4 | `rpcMode` |
+| G6-9fbeab3 | `keyringBackend`, the keyring the seeds were saved in (current shape) |
 
 Never edit one to make a test pass: they are what is on users' disks. A new
 generation (a key added or retired in `DEFAULT_SETTINGS`) gets a new pair.

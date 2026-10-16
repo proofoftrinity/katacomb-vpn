@@ -27,7 +27,7 @@ const seed = (h: ModuleHarness, id: string, keyId = h.world.safeStorage.keyId) =
 }
 
 describe('[ARCH-5] every settings generation a release wrote still loads', () => {
-  assert.equal(GENERATIONS.length, 6, 'one fixture pair per DEFAULT_SETTINGS generation')
+  assert.equal(GENERATIONS.length, 7, 'one fixture pair per DEFAULT_SETTINGS generation')
   for (const gen of GENERATIONS) {
     test(`[ARCH-5] ${gen}: the user's choices survive, and a second run changes nothing`, (t) => {
       const h = settings.fresh()
@@ -45,6 +45,7 @@ describe('[ARCH-5] every settings generation a release wrote still loads', () =>
       assert.equal(s.rpcMode, written.rpcEndpoint === 'https://rpc.sentinel.co:443' ? 'auto' : 'manual',
         'a pre-feature custom endpoint is the user\'s choice: manual, never overwritten by Smart RPC')
       assert.equal(s.lanSharing, written.lanSharing ?? false)
+      assert.equal(s.keyringBackend, written.keyringBackend ?? null, 'the keyring the seeds are in was lost')
       assert.ok(!('providerMode' in JSON.parse(file(h, 'settings.json'))), 'providerMode no longer lives in settings.json')
       const wallets = (h.mod.listWallets as Fn)() as Array<{ id: string; name: string; address: string }>
       assert.deepEqual(wallets.map((w) => [w.id, w.name, w.address]), [['w1', 'Main', 'sent1aaa'], ['w2', 'Spare', 'sent1bbb']])
