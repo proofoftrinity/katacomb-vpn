@@ -647,3 +647,17 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   disconnect, after main changes one, and every two minutes. A change to what the tray
   would offer pushes `notifyTray()` ([REL-35]), and so does a wallet switch, delete or
   logout, which leave no session of that wallet to reconnect.
+- **[REL-39] Every tray repaint is sent twice.** A panel can drop one with nothing to tell
+  the app, and then the old icon stays up until the next state change: an amber K over a
+  connected tunnel, reported by the user. Reproduced on Cinnamon (2026-10-16): the panel
+  fetches the new image from the app's main thread with a 5 s timeout, so a main thread
+  busy that long right after the repaint loses it, and the panel logs `Could not get
+  properties … Timeout was reached` to `~/.xsession-errors`. So `paintTray`
+  (`trayPainter`, tray-view.ts) sends each repaint now and again 2 s later; a newer
+  repaint replaces the pending one. The second send is marked, one alpha step off in the
+  middle row's leftmost pixel (`markedTrayBitmap`), which no one can see: Cinnamon skips
+  an image whose checksum matches the one it holds, so a repaint lost after that check
+  would stay lost to a plain resend. The mark sits mid-image because Cinnamon takes the
+  checksum over a buffer it has already freed (xapp's `get_icon_surface`), and the
+  allocator writes over both ends of it: a mark in the top-left pixel never reached the
+  panel. `index.ts` sets the tray image nowhere else.

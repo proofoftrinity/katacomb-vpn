@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { trayView } from './tray-view.ts'
+import { markedTrayBitmap, TRAY_REPAINT_AGAIN_MS, trayPainter, trayView } from './tray-view.ts'
 import type { ConnectionInfo } from './ipc-handlers.ts'
 
 // What the tray draws for each connection state: icon, the disabled status rows at the
@@ -83,4 +83,47 @@ test('a kill switch that failed to arm is said, not hidden behind the green K', 
 
 test('control: blocked means nothing outside idle', () => {
   assert.equal(trayView({ ...up, blocked: true }).icon, 'connected')
+})
+
+// [REL-39] Reproduced on Cinnamon: with the app's main thread busy for 6.5 s right after
+// it painted the green K, the panel's fetch of the new image timed out and the amber K
+// stayed up for good.
+
+test('[REL-39] every repaint is sent again, marked, so a panel that dropped it catches up', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const painted: [string, boolean][] = []
+  const paint = trayPainter((key, marked) => painted.push([key, marked]))
+  paint('connected-dark')
+  assert.deepEqual(painted, [['connected-dark', false]])
+  t.mock.timers.tick(TRAY_REPAINT_AGAIN_MS - 1)
+  assert.equal(painted.length, 1)
+  t.mock.timers.tick(1)
+  assert.deepEqual(painted, [['connected-dark', false], ['connected-dark', true]])
+  t.mock.timers.tick(TRAY_REPAINT_AGAIN_MS * 10)
+  assert.equal(painted.length, 2, 'once again, not a repaint loop')
+})
+
+test('[REL-39] a newer repaint replaces the pending one: the second send is the latest icon', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const painted: [string, boolean][] = []
+  const paint = trayPainter((key, marked) => painted.push([key, marked]))
+  paint('connecting-dark')
+  t.mock.timers.tick(TRAY_REPAINT_AGAIN_MS / 2)
+  paint('connected-dark')
+  t.mock.timers.tick(TRAY_REPAINT_AGAIN_MS)
+  assert.deepEqual(painted, [['connecting-dark', false], ['connected-dark', false], ['connected-dark', true]])
+})
+
+test('[REL-39] the marked bitmap differs by one alpha step mid-image, and nowhere else', () => {
+  const plain = Buffer.alloc(32 * 32 * 4)
+  plain.fill(0xff, 4 * 40, 4 * 60) // some opaque pixels elsewhere
+  const before = Buffer.from(plain)
+  const marked = markedTrayBitmap(plain, { width: 32, height: 32 })
+  assert.deepEqual(plain, before, 'the source bitmap is left alone')
+  const diffs = [...marked.keys()].filter((i) => marked[i] !== plain[i])
+  assert.deepEqual(diffs, [16 * 32 * 4 + 3], 'only the alpha of the middle row’s leftmost pixel changes')
+  assert.equal(marked[diffs[0]], 1, 'from fully transparent to 1 of 255')
+  // Live on Cinnamon, a mark in the top-left pixel never reached the panel: it checksums
+  // the buffer after freeing it, and the allocator writes over both ends.
+  assert.ok(diffs[0] >= 64 && diffs[0] < plain.length - 64, 'the mark must sit clear of both ends of the buffer')
 })

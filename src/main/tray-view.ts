@@ -52,3 +52,34 @@ export function trayView(info: ConnectionInfo): TrayView {
         : null)
   }
 }
+
+/** [REL-39] How long after a repaint the tray sends the same icon again. */
+export const TRAY_REPAINT_AGAIN_MS = 2000
+
+/**
+ * [REL-39] Wraps the tray's image setter so every repaint goes out twice: now, and once
+ * more TRAY_REPAINT_AGAIN_MS later, marked (markedTrayBitmap). A panel can drop a
+ * repaint and nothing tells the app, so the second send is what brings it back. A newer
+ * repaint replaces the pending one, so the second send is always the latest icon.
+ */
+export function trayPainter(paint: (key: string, marked: boolean) => void): (key: string) => void {
+  let again: ReturnType<typeof setTimeout> | undefined
+  return (key) => {
+    clearTimeout(again)
+    paint(key, false)
+    again = setTimeout(() => paint(key, true), TRAY_REPAINT_AGAIN_MS)
+  }
+}
+
+/**
+ * [REL-39] A copy of a tray bitmap with one alpha step changed, in the leftmost pixel of the
+ * middle row: transparent in every tray PNG, so it goes from 0 to 1 of 255, which no one can
+ * see. Cinnamon skips an image whose checksum matches the one it holds, and takes that
+ * checksum over a buffer it has already freed, whose first and last bytes the allocator
+ * overwrites; a mark in the top-left pixel was lost that way, mid-image it is not.
+ */
+export function markedTrayBitmap(bitmap: Buffer, size: { width: number; height: number }): Buffer {
+  const marked = Buffer.from(bitmap)
+  marked[Math.floor(size.height / 2) * size.width * 4 + 3] ^= 1
+  return marked
+}
