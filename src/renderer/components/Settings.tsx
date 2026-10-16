@@ -338,7 +338,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                     const updated = await window.api.settingsSet({ dnsResolver: e.target.value })
                     setSettings(updated)
                   }}
-                  className="w-full bg-bg-tertiary border border-border text-text-primary text-sm px-3 py-2 rounded-sm focus:outline-none focus:border-border-focus"
+                  className="w-full bg-bg-tertiary border border-border text-text-primary text-sm px-3 py-2 rounded-sm focus:outline-hidden focus:border-border-focus"
                 >
                   {DNS_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -363,7 +363,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                     setSplitTunnelError('')
                     setSplitTunnelSaved(false)
                   }}
-                  className={`w-full bg-bg-tertiary border text-text-primary text-sm font-mono px-3 py-2 rounded-sm focus:outline-none h-20 resize-none ${
+                  className={`w-full bg-bg-tertiary border text-text-primary text-sm font-mono px-3 py-2 rounded-sm focus:outline-hidden h-20 resize-none ${
                     splitTunnel.invalid.length > 0 || splitTunnel.tooMany
                       ? 'border-danger focus:border-danger'
                       : 'border-border focus:border-border-focus'
@@ -494,7 +494,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                     type="text"
                     value={rpcInput}
                     onChange={(e) => setRpcInput(e.target.value)}
-                    className="flex-1 bg-bg-tertiary border border-border text-text-primary text-sm font-mono px-3 py-2 rounded-sm focus:outline-none focus:border-border-focus"
+                    className="flex-1 bg-bg-tertiary border border-border text-text-primary text-sm font-mono px-3 py-2 rounded-sm focus:outline-hidden focus:border-border-focus"
                     placeholder="https://rpc.sentinel.co:443"
                   />
                   <button

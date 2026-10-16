@@ -363,7 +363,7 @@ function WalletRow({ wallet: w, active, showHdPath, balance, connected, onSwitch
                   }
                   void save()
                 }}
-                className="bg-bg-secondary border border-border-focus text-text-primary text-sm font-medium px-1.5 py-0.5 w-48 rounded-sm focus:outline-none disabled:opacity-60"
+                className="bg-bg-secondary border border-border-focus text-text-primary text-sm font-medium px-1.5 py-0.5 w-48 rounded-sm focus:outline-hidden disabled:opacity-60"
               />
               {saving && <Spinner className="text-accent" />}
             </>
@@ -604,7 +604,7 @@ function NewWalletWindow({ group, onClose, onCreated }: {
           placeholder="e.g. Savings"
           maxLength={100}
           autoFocus
-          className="w-full bg-bg-primary border border-border text-text-primary text-sm px-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus"
+          className="w-full bg-bg-primary border border-border text-text-primary text-sm px-2.5 py-1.5 rounded-sm focus:outline-hidden focus:border-border-focus"
         />
       </div>
 
@@ -661,7 +661,7 @@ function NewWalletWindow({ group, onClose, onCreated }: {
               min={0}
               value={account}
               onChange={(e) => setAccount(e.target.value)}
-              className="w-24 bg-bg-primary border border-border text-text-primary text-sm px-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus font-mono"
+              className="w-24 bg-bg-primary border border-border text-text-primary text-sm px-2.5 py-1.5 rounded-sm focus:outline-hidden focus:border-border-focus font-mono"
             />
             <span className="text-text-tertiary text-xs font-mono">
               m/44'/118'/{accountIndex ?? '?'}'/0/<span className="text-text-secondary">x</span>
@@ -784,7 +784,7 @@ function PhraseWindow({ group, onClose }: { group: Group; onClose: () => void })
           <div className="relative">
             <div
               className={`grid grid-cols-3 gap-1.5 transition-[filter] ${
-                revealed ? '' : 'blur-sm select-none pointer-events-none'
+                revealed ? '' : 'blur-xs select-none pointer-events-none'
               }`}
             >
               {phrase.split(/\s+/).map((word, i) => (

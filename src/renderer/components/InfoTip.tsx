@@ -42,7 +42,7 @@ export default function InfoTip({ label, children }: Props) {
         // Click is a no-op on purpose: hover and focus already cover both input
         // methods, and a toggle would leave panels open behind the user.
         onClick={(e) => e.preventDefault()}
-        className={`w-3.5 h-3.5 rounded-full border text-[9px] leading-none flex items-center justify-center transition-colors focus:outline-none focus:border-border-focus focus:text-accent ${
+        className={`w-3.5 h-3.5 rounded-full border text-[9px] leading-none flex items-center justify-center transition-colors focus:outline-hidden focus:border-border-focus focus:text-accent ${
           open ? 'border-accent text-accent' : 'border-current text-text-tertiary'
         }`}
       >

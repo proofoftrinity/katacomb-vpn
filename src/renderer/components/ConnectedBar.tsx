@@ -92,7 +92,7 @@ function ConnectionCapsule({ status, exitIp }: { status: ConnectionStatus; exitI
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         title="Connection details"
-        className={`flex items-center gap-2 min-w-0 pl-2.5 pr-2 py-1 rounded-full border bg-bg-primary text-xs transition-colors hover:border-border-focus focus:outline-none focus-visible:border-border-focus ${tone}`}
+        className={`flex items-center gap-2 min-w-0 pl-2.5 pr-2 py-1 rounded-full border bg-bg-primary text-xs transition-colors hover:border-border-focus focus:outline-hidden focus-visible:border-border-focus ${tone}`}
       >
         <span className={`status-dot shrink-0 ${reconnecting ? 'status-dot-pending' : 'status-dot-active'}`} />
         {reconnecting && (

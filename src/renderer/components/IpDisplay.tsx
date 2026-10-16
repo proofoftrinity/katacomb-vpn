@@ -23,7 +23,7 @@ export default function IpDisplay({ ipInfo, loading, ipStale, refresh }: ExitIp)
         </span>
       ) : (
         <span
-          className={`font-mono text-text-primary ${revealed ? '' : 'blur-sm select-none'}`}
+          className={`font-mono text-text-primary ${revealed ? '' : 'blur-xs select-none'}`}
           title={ipInfo?.org ? `${ipInfo.org} (${ipInfo.asn})` : undefined}
         >
           {ip || '—'}

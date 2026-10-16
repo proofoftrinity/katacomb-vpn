@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { version } from './package.json'
 
 // Bundle everything except native modules and electron builtins.
@@ -102,9 +103,10 @@ const VENDORED_LICENCES: Record<string, string> = {
 
 // Package roots, collected across all three builds: electron-vite resolves this
 // config once and runs main, preload and renderer in turn in one process.
-// tailwindcss is seeded by hand. It is a devDependency, but its PostCSS plugin
-// writes its preflight stylesheet into the renderer CSS without the bundler ever
-// reading one of its files.
+// tailwindcss is seeded by hand. It is a devDependency, but its preflight and theme
+// CSS land in the renderer CSS. Tailwind 3's PostCSS plugin wrote them without the
+// bundler reading one of its files; Tailwind 4's Vite plugin does report them
+// (checked 2026-10-16), and the seed stays so the notice never rests on that.
 const bundledPackages = new Set([resolve(__dirname, 'node_modules/tailwindcss')])
 
 function npmNotices() {
@@ -209,7 +211,7 @@ export default defineConfig({
     define: {
       __APP_VERSION__: JSON.stringify(version),
     },
-    plugins: [react(), dropUnreferencedAssets(), npmNotices()],
+    plugins: [react(), tailwindcss(), dropUnreferencedAssets(), npmNotices()],
     css: {
       postcss: resolve(__dirname, 'postcss.config.js'),
     },

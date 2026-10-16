@@ -1,11 +1,126 @@
-@import 'flag-icons/css/flag-icons.min.css';
+@import 'tailwindcss' source(none);
+/* In a layer below the utilities, as it was under Tailwind 3 ([RN-12]): Tailwind 4
+   uses real cascade layers, and CSS outside every layer beats all of them, so a size
+   utility on a flag would silently lose to an unlayered flag-icons. */
+@import 'flag-icons/css/flag-icons.min.css' layer(base);
 @import './tokens.css';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Where Tailwind looks for class names: the renderer's own sources. Automatic
+   detection would also read the world geojson under assets/. */
+@source '../**/*.{html,tsx,ts}';
+
+/* The utilities named after the tokens in tokens.css (bg-bg-primary, text-accent,
+   rounded-md, shadow-overlay, ...). Each theme name is the token's own name, so
+   `reference` stops Tailwind writing a variable of its own under it (it would read
+   `--color-bg-primary: var(--color-bg-primary)`) and `inline` has each utility read
+   the token directly. `--color-*: initial` drops Tailwind's default palette, whose
+   variables share names with the primitives in tokens.css (`--color-green-400`,
+   `--color-red-500`); of that palette the app only ever used black and white. */
+@theme inline reference {
+  --color-*: initial;
+  --color-black: #000;
+  --color-white: #fff;
+
+  --color-bg-primary: var(--color-bg-primary);
+  --color-bg-secondary: var(--color-bg-secondary);
+  --color-bg-tertiary: var(--color-bg-tertiary);
+  --color-bg-hover: var(--color-bg-hover);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-tertiary: var(--color-text-tertiary);
+  /* For labels sitting ON a filled accent/status swatch. The palette's accent and
+     status colours are all light, so `text-white` on them is unreadable. */
+  --color-text-on-accent: var(--color-text-on-accent);
+  --color-border: var(--color-border);
+  --color-border-focus: var(--color-border-focus);
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-accent-subtle: var(--color-accent-subtle);
+  --color-success: var(--color-success);
+  --color-success-subtle: var(--color-success-subtle);
+  --color-danger: var(--color-danger);
+  --color-danger-subtle: var(--color-danger-subtle);
+  --color-warning: var(--color-warning);
+  --color-warning-subtle: var(--color-warning-subtle);
+  --color-info: var(--color-info);
+  --color-info-subtle: var(--color-info-subtle);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-full: var(--radius-full);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-overlay: var(--shadow-overlay);
+
+  /* [RN-12] Tailwind 3's line heights, which were absolute. Tailwind 4's are unitless
+     ratios, and a child inherits a ratio and multiplies it by its own size: the connect
+     windows' text-[11px] "short by" line inside text-sm would drop from 20px to 15.7px. */
+  --text-xs--line-height: 1rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl--line-height: 2.25rem;
+}
+
+/* [RN-8] The app is dark-only: this variant matches nothing, so a stray dark utility
+   stays inert. Tailwind 4's default would follow the OS theme. */
+@custom-variant dark (&:not(*));
+
+/* [RN-12] Hover on every device, as in Tailwind 3. Tailwind 4 wraps hover in
+   @media (hover: hover), which a laptop whose primary pointer is a touchscreen fails,
+   and every hover state would go. */
+@custom-variant hover (&:hover);
+
+/* [RN-12] Tailwind 3's space-y. Tailwind 4 gives every child but the last a bottom
+   margin under :where(), where Tailwind 3 gave every child but the first a top margin
+   at the weight of three classes. Two layouts moved with it: a child's own margin now
+   replaces the gap instead of losing to it or collapsing into it (SectionHead's mb-2
+   inside a space-y-2.5 lost 2px), and an inline child's margin lands inside its line
+   box (the setup screens' Back links lost 1px). Tailwind 4 still emits its own rule
+   beside this one; the :not(_) rule cancels it on the first child, with a type
+   selector's weight: above :where(), below any margin utility on the child. */
+@utility space-y-* {
+  & > :not([hidden]) ~ :not([hidden]) {
+    margin-top: --spacing(--value(number));
+    margin-bottom: 0;
+  }
+  :where(&) > :not(_) {
+    margin-bottom: 0;
+  }
+}
 
 @layer base {
+  /* [RN-12] Two defaults that Tailwind 4's preflight changed, kept at Tailwind 3's:
+     buttons show the pointer, and a placeholder is this grey rather than half the
+     text colour (the inputs without a placeholder: class rely on it). */
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  :disabled {
+    cursor: default;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: #9ca3af;
+  }
+
+  /* Tailwind 4's preflight zeroes every element's padding; Tailwind 3 left an
+     option's (the protocol dropdown's rows) at the browser's. */
+  option {
+    padding: revert;
+  }
+
   html, body, #root {
     @apply h-full w-full m-0 p-0;
     background-color: var(--color-bg-primary);
@@ -116,9 +231,9 @@
   }
 
   /* The globe's floating controls: a translucent panel with an accent hairline. Here
-     rather than as utilities because Tailwind cannot put an alpha on a var() colour:
-     the /80 and /40 opacity forms generated nothing, and the border fell back
-     to preflight's light grey. Hover utilities still override it. */
+     rather than as /80 and /40 utilities, which stay out of the source ([RN-7]): under
+     Tailwind 3 they generated nothing, and the border fell back to preflight's light
+     grey. Hover utilities still override it. */
   .map-overlay {
     background-color: color-mix(in srgb, var(--color-bg-secondary) 80%, transparent);
     border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);

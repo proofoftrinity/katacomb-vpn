@@ -107,7 +107,7 @@ written here binds both.
 
 ## Architecture
 
-Katacomb VPN desktop client: Electron 41 + React 18 + TypeScript + Vite + Tailwind CSS 3. Connects to the Sentinel blockchain (Cosmos SDK) to subscribe to decentralized VPN nodes and establish WireGuard/V2Ray tunnels. Linux-only target.
+Katacomb VPN desktop client: Electron 41 + React 18 + TypeScript + Vite + Tailwind CSS 4. Connects to the Sentinel blockchain (Cosmos SDK) to subscribe to decentralized VPN nodes and establish WireGuard/V2Ray tunnels. Linux-only target.
 
 ### Naming: the product vs. the chain (do not "finish the job")
 

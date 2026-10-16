@@ -12,7 +12,7 @@ export default function Toggle({ checked, onChange, disabled }: Props) {
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-200 focus:outline-none disabled:opacity-40 ${
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-200 focus:outline-hidden disabled:opacity-40 ${
         checked
           ? 'bg-accent border-accent'
           : 'bg-bg-tertiary border-border'

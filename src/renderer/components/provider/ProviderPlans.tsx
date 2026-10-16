@@ -1245,7 +1245,7 @@ function TermRow({ label, unit, value, onChange, presets, invalid, hint }: {
           aria-label={`${label}, in ${unit}`}
           aria-invalid={invalid}
           onChange={(e) => onChange(e.target.value)}
-          className="w-24 bg-bg-primary text-text-primary text-right text-sm font-mono font-semibold px-2 py-1 focus:outline-none"
+          className="w-24 bg-bg-primary text-text-primary text-right text-sm font-mono font-semibold px-2 py-1 focus:outline-hidden"
         />
         <span className="px-2 grid place-items-center bg-bg-tertiary text-text-secondary text-xs">{unit}</span>
       </span>

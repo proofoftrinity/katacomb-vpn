@@ -27,9 +27,9 @@ export interface RouteHop {
 type NodeState = 'plan' | 'waiting' | 'busy' | 'done' | 'ok' | 'failed'
 type LinkState = 'plan' | 'dim' | 'flow' | 'lit' | 'ok' | 'failed'
 
-// Spelled out in full rather than built as `route-disc-${state}`: Tailwind keeps a
-// component class only if it finds the literal name in the source, and a template
-// string hides it, so the state would silently lose its style in a production build.
+// Spelled out in full rather than built as `route-disc-${state}`, so a search for a
+// state's class finds where it is used. Under Tailwind 3 it was also the only way to
+// keep the class in a production build (docs/renderer.md).
 const DISC: Record<NodeState, string> = {
   plan: 'route-disc',
   waiting: 'route-disc route-disc-waiting',

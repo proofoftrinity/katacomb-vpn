@@ -321,7 +321,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
       <select
         value={exitWalletId}
         onChange={(e) => setExitWalletId(e.target.value)}
-        className="bg-bg-tertiary border border-border text-text-primary text-xs px-2 py-1 rounded-sm focus:outline-none focus:border-border-focus min-w-0 max-w-full"
+        className="bg-bg-tertiary border border-border text-text-primary text-xs px-2 py-1 rounded-sm focus:outline-hidden focus:border-border-focus min-w-0 max-w-full"
       >
         {otherWallets.map((w) => (
           <option key={w.id} value={w.id}>{w.name} · {w.address.slice(0, 12)}…{w.address.slice(-6)}</option>

@@ -45,7 +45,7 @@ const STATUS_OPTIONS: readonly [StatusKey, string, IconComponent][] = [
 ]
 
 const SELECT_CLASS =
-  'bg-bg-tertiary border border-border text-text-primary text-sm px-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus w-[140px]'
+  'bg-bg-tertiary border border-border text-text-primary text-sm px-2.5 py-1.5 rounded-sm focus:outline-hidden focus:border-border-focus w-[140px]'
 
 const CHIP_ON = 'bg-accent-subtle border-accent text-accent'
 const CHIP_OFF = 'bg-bg-tertiary border-border text-text-secondary hover:border-border-focus hover:text-text-primary'
@@ -149,7 +149,7 @@ export default function NodeFilters({
             value={filter.search}
             onChange={(e) => updateFilter({ search: e.target.value })}
             placeholder="Name, address, place, version"
-            className="bg-bg-tertiary border border-border text-text-primary text-sm pl-8 pr-2.5 py-1.5 rounded-sm focus:outline-none focus:border-border-focus w-[250px] placeholder:text-text-tertiary"
+            className="bg-bg-tertiary border border-border text-text-primary text-sm pl-8 pr-2.5 py-1.5 rounded-sm focus:outline-hidden focus:border-border-focus w-[250px] placeholder:text-text-tertiary"
           />
         </div>
 
