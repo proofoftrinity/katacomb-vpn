@@ -377,6 +377,24 @@ describe('reconnecting a saved session', () => {
       assert.deepEqual(seen.map((i) => i.reconnectSessionId), ['2001', undefined])
     })
 
+    // Reported 2026-10-17: after End the tray still offered the session, and the press
+    // answered "No saved tunnel config". End retires the saved config before the
+    // renderer's re-read, so that re-read saw no change in the offer and pushed nothing.
+    test('[REL-38] ending a session withdraws it from the tray at once', async (t) => {
+      const retired = new Set<string>()
+      const h = ipc.fresh({ chainSessions: [row('2001', '2026-10-06T00:00:00Z')], fakes: { 'chain/chain-service': {
+        loadSessionConfig: (id: string) => retired.has(id) ? null : SAVED(id),
+        endSession: async (p: { sessionId: string }) => { retired.add(p.sessionId) }, // as retireSessionConfig
+      } } })
+      t.after(() => h.dispose())
+      const seen = pushes(h)
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      assert.equal(seen.at(-1)?.reconnectSessionId, '2001')
+      await h.settle(h.invoke('WALLET_END_SESSION', '2001'))
+      await h.settle(h.invoke('WALLET_SESSIONS')) // the renderer's re-read, the row still listed active
+      assert.equal(seen.at(-1)?.reconnectSessionId, undefined)
+    })
+
     test('[REL-38] a wallet switch withdraws the previous wallet\'s session at once', async (t) => {
       const h = ipc.fresh({ chainSessions: [row('2001', '2026-10-06T00:00:00Z')], fakes: { 'chain/chain-service': { loadSessionConfig: (id: string) => SAVED(id) } } })
       t.after(() => h.dispose())

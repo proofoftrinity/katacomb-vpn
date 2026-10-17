@@ -646,7 +646,11 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   all. The cache is the renderer's: it reads sessions at startup, on every connect and
   disconnect, after main changes one, and every two minutes. A change to what the tray
   would offer pushes `notifyTray()` ([REL-35]), and so does a wallet switch, delete or
-  logout, which leave no session of that wallet to reconnect.
+  logout, which leave no session of that wallet to reconnect. So does End
+  (`WALLET_END_SESSION`): it retires the session's saved config, and the re-read that
+  follows found the offer already gone before the cache changed, so it pushed nothing and
+  the tray kept offering the ended session until the press failed with "No saved tunnel
+  config" (reported 2026-10-17).
 - **[REL-39] Every tray repaint is sent twice.** A panel can drop one with nothing to tell
   the app, and then the old icon stays up until the next state change: an amber K over a
   connected tunnel, reported by the user. Reproduced on Cinnamon (2026-10-16): the panel
