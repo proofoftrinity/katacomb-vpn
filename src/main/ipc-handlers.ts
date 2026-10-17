@@ -2843,6 +2843,10 @@ export function registerIpcHandlers(): void {
       // Unconditional: a cancel that reported an error may still have landed, and a
       // re-query is how the renderer finds out either way.
       notifySessionsChanged()
+      // [REL-38] The cancel retired the saved config the tray's Reconnect is read off.
+      // The re-query cannot be what tells the tray: the config is gone before the cache
+      // changes, so primeSessionsCache sees no change in the offer and pushes nothing.
+      notifyTray()
     }
   })
 
