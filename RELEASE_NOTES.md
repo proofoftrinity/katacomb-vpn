@@ -1,52 +1,102 @@
-# Katacomb VPN 1.16.1
+# Katacomb VPN 1.17.0
 
 A desktop client for the Sentinel decentralized VPN network. Pick a node, pay for a
 session on-chain, and tunnel through WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY or
 Hysteria2.
 
-1.16.1 is a security update. It moves the app to Electron 41.10.7 and axios 1.20.0,
-past the advisories published against the versions 1.16.0 shipped with. Nothing about
-how the app looks or works changes.
+1.17.0 adds Start at Login: the app can wait in the tray from the moment you log in,
+without connecting and without asking for your keyring until you open it. It also stops
+the app crashing when you log out, restart or shut down, and a WireGuard disconnect now
+removes the firewall rules that wg-quick used to leave behind until the next reboot.
 
 ## Highlights
 
-- **Electron 41.10.2 → 41.10.7.** Electron is the framework the app runs on. 41.10.2 is
-  affected by six advisories, five of them rated high, all fixed in 41.10.6:
-  - three where a popup or new window escapes the sandbox of the iframe or page that
-    opened it;
-  - file and http protocol handlers that allow cross-origin reads;
-  - `<webview>` able to turn on Node.js in Web Workers;
-  - a race in Squirrel.Mac updates, which affects macOS only.
+- **Start at Login.** Settings > General has a new Start at Login switch, off by
+  default. With it on, the app starts in the tray when you log in and opens no window
+  until you ask for one: click the tray icon, choose Show Window or About, or launch the
+  app again. Until then it does not touch your keyring, so an auto-login desktop shows no
+  unlock prompt at boot, and the app holds about 230 MB instead of 383 MB. It never
+  connects on its own, and until the window has been opened once the tray does not offer
+  Reconnect last session. If the desktop has no tray, the window opens within about ten
+  seconds instead. Tested on GNOME, KDE Plasma, Xfce and Cinnamon.
 
-  The app was not known to be exposed to any of them: it refuses every new window, has
-  no iframes or webviews, registers no protocol handlers and only ever loads its own
-  page. Updating removes the question. The Chromium inside is unchanged
-  (146.0.7680.216).
-- **axios 1.16.1 → 1.20.0.** axios is an HTTP library that comes into the app with the
-  Sentinel SDK. 1.20.0 fixes 21 advisories that affect 1.16.1, seven of them rated high,
-  among them prototype-pollution gadgets that can alter or hijack a request, ways around
-  the proxy and `NO_PROXY` settings, and several denial-of-service bugs.
-- **The tools that build the app were updated too**, past advisories of their own:
-  Electron's downloader, the image library that renders the icons, the CSS tooling and
-  the packager's helpers. None of them ship in the app, but this release is built with
-  the fixed versions.
-- **What is left.** Two groups of advisories remain in the project, and neither is in
-  what you download:
-  - `elliptic`, which the Sentinel SDK depends on, has no fixed release. Nothing from it
-    is in the app;
-  - the libraries Tailwind CSS 3 uses while building (`braces`, `micromatch`,
-    `fast-glob`, `chokidar` and two of its PostCSS dependencies) clear only with the move
-    to Tailwind 4, a larger change than this release.
+  The switch writes `~/.config/autostart/katacomb-vpn.desktop`, so your desktop's own
+  startup settings can turn it off too, and the switch then reads off. It works in the
+  installed app only (.deb or AppImage). An AppImage entry follows the file: after an
+  update, launch the new AppImage once and login starts use it from then on.
+- **Logging out, restarting or shutting down no longer crashes the app.** On GNOME,
+  every logout, and every restart or power-off from the system menu, crashed the app
+  ("GPU process isn't usable") before its quit could run, so a connected tunnel outlived
+  the app with nothing watching its quota. The app now registers with the desktop's
+  session manager (GNOME and Xfce over D-Bus, KDE Plasma over XSMP) and, when the session
+  ends, quits the normal way, closing the connection first. A reboot or shutdown started
+  outside the desktop, such as `sudo reboot`, now waits for the app to close the
+  connection too, and ending every app process at once no longer crashes it.
+- **A WireGuard disconnect removes wg-quick's firewall rules.** Bringing WireGuard up
+  through wg-quick adds firewall rules for the tunnel's address (nft tables named
+  `wg-quick-sntl0`, or iptables rules where nft is absent). The VPN helper never removed
+  them, so they stayed after every disconnect, logout and quit until the next reboot, and
+  each connection added another copy. The helper now removes them once the tunnel is
+  down, and leaves the kill switch and any other VPN's rules alone.
 
-Nothing else changes. The packages hold the same files as 1.16.0's, with the same
-dependencies and install scripts. Only Electron's own files, the app's main bundle and
+  This changes the VPN helper. The .deb updates it during the upgrade. With the
+  AppImage, Settings > System shows the helper as "Needs update", and your next
+  connection asks to update it, with one password prompt, before anything is paid.
+- **Wallets stay with the keyring that saved them.** Each desktop has its own keyring:
+  KDE Wallet on Plasma, GNOME Keyring elsewhere. A wallet saved while logged in to GNOME
+  read as locked from a Plasma session on the same account, and the other way round. The
+  app now records which keyring saved your seeds and asks that one on every desktop.
+  Wallets saved before 1.17.0 have no record yet: if one reads as locked, open the app
+  once on the desktop where you saved it, and from then on it opens everywhere. On a
+  window manager such as i3 or sway, where saving a wallet was refused because no keyring
+  was used, the app now uses GNOME Keyring when it is running.
+- **When no keyring answers, the app says to restart, not to re-import.** If a keyring
+  prompt is cancelled, or KDE Wallet's is answered after its 25-second timeout, no seed
+  can be opened until the app restarts. The wallet screens used to suggest importing the
+  wallet again, and the delete window called its seed unusable, so deleting it threw
+  away a seed that would have opened after a restart. They now say to unlock the keyring,
+  restart the app and keep the wallet.
+- **The tray icon:**
+  - **its K is drawn for the panel it sits on.** It followed the apps' light or dark
+    theme, so a dark K sat on GNOME's dark top bar and on Xfce's dark panel. The app now
+    reads the panel's own shade on GNOME, Ubuntu, Cinnamon (Mint's "Mixed" themes pair a
+    dark panel with light apps) and Xfce, and redraws within a few seconds when you
+    change it. Other desktops keep following the apps' theme;
+  - **Reconnect last session appears only when there is a session to reconnect.** It
+    used to be offered always: with no open session, pressing it only opened the Nodes
+    tab, and a used-up session or one on a broken chain was refused after the window
+    came up for it;
+  - **on Cinnamon it can no longer stay amber after you connect.** The panel gives up on
+    an image it cannot fetch within 5 seconds, so if the app was busy right after
+    connecting, the connecting icon could stay up. Every change of the icon is now sent
+    again 2 seconds later.
+- **Nodes the directory never read are marked "No details".** The node directory lists
+  some active nodes it has no details for: no protocol, location or version. They showed
+  as blank rows with a green Active label, and opening one said protocol "Unknown" isn't
+  supported. On 2026-10-16 that was 139 of the 2,127 nodes the default filters showed.
+  They now carry a grey "No details" status, cannot be picked, and the Healthy filter,
+  which is on by default, hides them. In a plan's node picker, such a node shows its
+  address instead of an empty name.
+- **Smaller fixes:**
+  - Test nodes no longer stalls on one bad address. If the directory gave one node an
+    address the app refuses to probe, the whole batch failed and every row stayed on
+    "..."; that node now gets its own "Invalid node probe URL" result and the rest are
+    tested;
+  - the round flags on the route the connect windows and the Sessions tab draw, and in
+    the Multi-hop tab, fill their circle, where they showed a band above and below.
+- **The styling moved to Tailwind CSS 4, with no visible change.** About 40 screens were
+  compared element by element against a Tailwind 3 build. This clears the build-time
+  advisories 1.16.1's notes listed as left (`braces`, `micromatch`, `fast-glob`,
+  `chokidar` and two PostCSS dependencies). What remains is `elliptic`, which the
+  Sentinel SDK depends on: it has no fixed release, and nothing from it is in the app.
+
+Nothing else changes. The packages hold the same files as 1.16.1's, with the same
+dependencies and install scripts. The app's code, the VPN helper and the Tailwind line in
 its list of npm licences are new.
 
-## Fixes in 1.16.1
+## Fixes in 1.17.0
 
-- Count a new Electron as a packaging change in the release scripts
-- Update Electron, axios and the build tools past their advisories
-- Name the canaries' test reporter, so CI's Node 22 can read the result
+<!-- regenerated by release.sh from v1.16.1..HEAD at cut time; leave the heading -->
 
 ## Known limitations
 
@@ -78,10 +128,10 @@ its list of npm licences are new.
 ## Platform support
 
 **Linux x86_64 only.** Tested on Debian 11+, Ubuntu 20.04+, and derivatives (Mint,
-Pop!\_OS, Zorin). The packaging is unchanged since 1.11.2. Because 1.16.1 changes the
-Electron runtime, its .deb and AppImage were checked again on a clean Ubuntu 24.04
-desktop, the .deb in containers on Debian 12 and 13 and Ubuntu 22.04, 24.04 and 26.04,
-and the AppImage in containers on those and Fedora 44.
+Pop!\_OS, Zorin). The packaging is unchanged since 1.11.2. Because 1.17.0 changes the
+VPN helper, its .deb and AppImage were checked again on a clean Ubuntu 24.04 desktop,
+the .deb in containers on Debian 12 and 13 and Ubuntu 22.04, 24.04 and 26.04, and the
+AppImage in containers on those and Fedora 44.
 
 ## Installation
 

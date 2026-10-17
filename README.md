@@ -79,15 +79,21 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
 - **Tray**: the K in the icon is an outline when disconnected, fills while connecting,
   is solid when connected and has a slash through it while the kill switch blocks all
   traffic. Its menu names the node and the state, and offers Disconnect, Restore internet
-  or Reconnect last session.
+  or, when there is an open session it can reconnect, Reconnect last session.
+- **Start at Login**: a switch in Settings > General starts the app in the tray when you
+  log in. It opens no window and asks nothing of your keyring until you open it, and it
+  never connects on its own.
 - Live traffic stats, real egress IP/geo check.
 
 **Wallet**
 
 - BIP-39 import or generate (12 or 24 words), multiple wallets, subaccounts derived at a
   chosen account index.
-- Seeds are encrypted at rest with Electron `safeStorage` (the OS keyring, libsecret on
-  Linux). If the keyring is unavailable, secrets are **not** written in plaintext instead.
+- Seeds are encrypted at rest with Electron `safeStorage`, whose key lives in the OS
+  keyring: KDE Wallet on Plasma, the Secret Service (GNOME Keyring) everywhere else. The
+  app records which keyring saved the seeds and asks that one on every desktop, so a
+  wallet saved under GNOME still opens from a Plasma session on the same account. If no
+  keyring is available, secrets are **not** written in plaintext instead.
 - A copied recovery phrase is wiped from the clipboard 30 seconds later, even if the
   screen that copied it has closed.
 - The active wallet is locked while a session is running: nothing on disk records which
@@ -184,8 +190,9 @@ yours; run `sudo usermod -aG katacomb-vpn $USER` if prompts persist.
 
 **Compatibility.** x86_64, Debian 11+ / Ubuntu 20.04+ and derivatives (Mint, Pop!_OS,
 Zorin). Wallet storage needs an OS keyring: GNOME and KDE ship one by default; on a bare
-XFCE/LXQt install, `apt install gnome-keyring`. Saving a wallet is refused outright rather
-than falling back to weak encryption, so a missing keyring is visible, not silent.
+XFCE/LXQt install or a window manager such as i3 or sway, `apt install gnome-keyring`.
+Saving a wallet is refused outright rather than falling back to weak encryption, so a
+missing keyring is visible, not silent.
 
 ### AppImage
 
@@ -426,6 +433,15 @@ daemon: `sudo systemctl restart katacomb-vpn-daemon`.
 libsecret entry by application name, so seeds encrypted under the old name cannot be
 decrypted under the new one. Settings, the wallet list and sessions migrate; the seed has
 to be re-imported once from your mnemonic.
+
+**A wallet says to restart the app.** No keyring answered in this run: its unlock prompt
+was cancelled, or KDE Wallet's was answered after its 25-second timeout. Unlock the
+keyring and restart the app. Keep the wallet: removing it deletes a seed that opens again
+after the restart.
+
+**A wallet saved on another desktop reads as locked.** Wallets saved before 1.17.0 carry
+no record of their keyring. Open the app once on the desktop where you saved the wallet;
+from then on it uses that keyring on every desktop.
 
 **No internet after a crash while connected.** The kill switch may still be armed.
 Starting the app again heals the stranded rules.
