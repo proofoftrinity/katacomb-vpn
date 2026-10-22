@@ -12,7 +12,7 @@ from independent node operators with a wallet you hold the keys to.
 Electron 41 + React 18 + TypeScript. **Linux x86_64, and Windows 10/11 x64 as a beta**
 (every protocol but OpenVPN; see [Windows](#windows-installer-beta)).
 
-> **Status:** release (1.17.1). Connecting spends real funds. See
+> **Status:** release (1.18.0). Connecting spends real funds. See
 > [Money](#money-this-app-spends-real-funds).
 
 ---
@@ -179,7 +179,7 @@ with `gpg --armor --detach-sign dist/SHA256SUMS`.
 ### .deb (recommended)
 
 ```bash
-sudo apt install ./dist/katacomb-vpn_1.17.1_amd64.deb
+sudo apt install ./dist/katacomb-vpn_1.18.0_amd64.deb
 ```
 
 Pulls in Electron's GUI libraries (GTK, NSS, libsecret and friends) plus
@@ -204,8 +204,8 @@ missing keyring is visible, not silent.
 ### AppImage
 
 ```bash
-chmod +x dist/katacomb-vpn-1.17.1.AppImage
-./dist/katacomb-vpn-1.17.1.AppImage
+chmod +x dist/katacomb-vpn-1.18.0.AppImage
+./dist/katacomb-vpn-1.18.0.AppImage
 ```
 
 No daemon here, so each privileged operation goes through `pkexec` (one prompt, cached
@@ -228,7 +228,7 @@ needed `libfuse2` from your system, and without it failed with `dlopen(): error 
 libfuse.so.2`. On a system with no FUSE at all (some containers, WSL), skip the mount:
 
 ```bash
-APPIMAGE_EXTRACT_AND_RUN=1 ./katacomb-vpn-1.17.1.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./katacomb-vpn-1.18.0.AppImage
 ```
 
 which unpacks to a temp directory and runs from there (verified working, no mount).
@@ -261,7 +261,7 @@ install it (`sudo apt install libgbm1`) or use the `.deb`, which declares it pro
 
 ### Windows installer (beta)
 
-`katacomb-vpn-1.17.1-setup.exe` installs the app for Windows 10 and 11 on x64 (tested on
+`katacomb-vpn-1.18.0-setup.exe` installs the app for Windows 10 and 11 on x64 (tested on
 Windows 11), with a Windows service that brings tunnels up for it. Run it and approve
 the administrator prompt; after that, connect and disconnect never ask. It is not
 code-signed yet, so SmartScreen warns first: check it against `SHA256SUMS` as above
