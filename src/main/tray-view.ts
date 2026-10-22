@@ -159,6 +159,20 @@ export async function panelShade(r: PanelReader): Promise<PanelShade> {
   return apps
 }
 
+/**
+ * [REL-42] Windows: the taskbar's shade is the system's mode (SystemUsesLightTheme), set
+ * apart from the apps' (AppsUseLightTheme, which is what nativeTheme reads): Windows 10's
+ * default pairs a dark taskbar with light apps. A failed read gets dark, that default.
+ */
+export async function windowsTaskbarShade(run: PanelReader['run']): Promise<PanelShade> {
+  try {
+    const out = await run('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize', '/v', 'SystemUsesLightTheme'])
+    const value = /SystemUsesLightTheme\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(out)?.[1]
+    if (value !== undefined) return parseInt(value, 16) ? 'light' : 'dark'
+  } catch { /* the default */ }
+  return 'dark'
+}
+
 /** [REL-42] The command that prints a line whenever the panel's theme changes on its own,
  *  without the apps' theme (nativeTheme fires for that): Mint's Mixed to Light changes
  *  only the panel. */

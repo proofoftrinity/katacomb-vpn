@@ -72,6 +72,7 @@ import {
   isWireGuardUp,
   isOpenVpnUp,
   hasDefaultRouteChanged,
+  readTunnelBytes,
   startProvisioningProxy,
   PROVISION_SOCKS_PORT,
   type ProvisioningProxy,
@@ -84,7 +85,8 @@ import { daemonMissingOp, daemonXfrmPolicyCount, daemonWireguardHandshakeAge } f
 import type { DaemonOp } from './helper/daemon-protocol'
 import { isAllowedBypassCidr, isAllowedDnsResolver } from './config-guard'
 import { enableKillSwitch, disableKillSwitch, isKillSwitchArmed } from './vpn/kill-switch'
-import { getTrafficStats, resetTrafficStats, maxUsageBytes, readTunnelBytes } from './vpn/traffic-stats'
+import { trafficStatsFrom, resetTrafficStats, maxUsageBytes } from './vpn/traffic-stats'
+import { IS_WINDOWS } from './platform'
 import { probeNode, getAllCachedResults, fetchNodeServiceType, fetchNodeServiceMetadata, fetchNodeSignsReplies, NODE_PROTOCOL_CHECK_TIMEOUT_MS } from './nodes/node-tester'
 import { classifyHopEligibility, buildEntryOnlyConfig, type HopMetadataEntry } from './protocols/multihop-config'
 import { SocksHttpsAgent } from './socks-agent'
@@ -411,22 +413,30 @@ function isRootTunnelProtocol(p: typeof desiredProtocol): boolean {
  */
 function startRootTunnelMonitor(): void {
   if (wgMonitorTimer) return
-  wgMonitorTimer = setInterval(() => {
-    if (isIntentionalDisconnect || reconnectAttempt > 0) return
-    if (!activeSessionId) return
-    if (isRootTunnelProtocol(desiredProtocol)) {
-      const up = desiredProtocol === 'openvpn' ? isOpenVpnUp() : isWireGuardUp()
-      if (!up) {
-        console.log(`[vpn] ${desiredProtocol} interface dropped, attempting reconnect...`)
-        attemptReconnect()
-      }
+  wgMonitorTimer = setInterval(() => { void checkTunnelLiveness() }, 5000)
+}
+
+async function checkTunnelLiveness(): Promise<void> {
+  const unsupervised = () => isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId
+  if (unsupervised()) return
+  if (isRootTunnelProtocol(desiredProtocol)) {
+    const up = desiredProtocol === 'openvpn' ? isOpenVpnUp() : isWireGuardUp()
+    if (!up) {
+      console.log(`[vpn] ${desiredProtocol} interface dropped, attempting reconnect...`)
+      attemptReconnect()
       return
     }
-    if (desiredProtocol !== null && desiredMode === 'tunnel' && hasDefaultRouteChanged()) {
-      console.log('[vpn] default route changed under the tunnel, attempting reconnect...')
-      attemptReconnect()
-    }
-  }, 5000)
+    // Windows pins WireGuard's endpoint route to the uplink as tun2socks does
+    // (hasDefaultRouteChanged), so it is watched the same way there.
+    if (!IS_WINDOWS) return
+  }
+  if (desiredProtocol === null || desiredMode !== 'tunnel') return
+  // The answer may take a round trip to the Windows service: the tunnel it describes
+  // must still be the supervised one when it lands.
+  const epoch = connectionEpoch
+  if (!await hasDefaultRouteChanged() || unsupervised() || connectionEpoch !== epoch) return
+  console.log('[vpn] default route changed under the tunnel, attempting reconnect...')
+  attemptReconnect()
 }
 
 function stopRootTunnelMonitor(): void {
@@ -531,14 +541,14 @@ const QUOTA_LEVEL_RANK = { ok: 0, warn: 1, expired: 2 } as const
 /** An 'expired' verdict carries no pct — it is already past the cap, so treat it as 100. */
 const quotaPct = (v: QuotaVerdict): number => ('pct' in v ? v.pct : 100)
 
-function verdictFor(quota: ActiveQuota) {
+function verdictFor(quota: ActiveQuota, liveRxBytes: number) {
   return evaluateQuota({
     maxDurationSeconds: quota.maxDurationSeconds,
     baselineDurationSeconds: quota.baselineDurationSeconds,
     connectedSeconds: connectedSecondsAlive(),
     maxBytes: quota.maxBytes,
     baselineBytes: quota.baselineBytes,
-    liveRxBytes: getTrafficStats().rxBytes,
+    liveRxBytes,
   })
 }
 
@@ -551,10 +561,10 @@ function verdictFor(quota: ActiveQuota) {
  * reporting an expiry against the entry when it was the exit that ran out names the
  * wrong node to replace.
  */
-function currentQuotaVerdict(): { verdict: QuotaVerdict; sessionId: string } | null {
+function currentQuotaVerdict(liveRxBytes: number): { verdict: QuotaVerdict; sessionId: string } | null {
   const scored = [activeQuota, activeExitQuota]
     .filter((q): q is ActiveQuota => q !== null)
-    .map((q) => ({ verdict: verdictFor(q), sessionId: q.sessionId }))
+    .map((q) => ({ verdict: verdictFor(q, liveRxBytes), sessionId: q.sessionId }))
   if (scored.length === 0) return null
   return scored.reduce((worst, s) =>
     QUOTA_LEVEL_RANK[s.verdict.level] > QUOTA_LEVEL_RANK[worst.verdict.level] ||
@@ -611,31 +621,40 @@ function startQuotaWatchdog(): void {
   aliveUntilMs = Math.max(aliveUntilMs, connectedAtMs)
   resetOneWayTracking()
   if (quotaTimer) return
-  quotaTimer = setInterval(() => {
-    if (isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId) return
-    const failure = checkTunnelStalled()
-    if (failure) {
-      void standDownSession(failure)
-      return
-    }
-    // Fire-and-forget: it awaits a daemon round trip and stands down on its own.
-    void checkWireGuardHandshake()
-    // Same shape: it may await a tunnel test.
-    void checkChainExitDeadline()
-    const scored = currentQuotaVerdict()
-    if (!scored) return
-    const verdict = scored.verdict
-    if (verdict.level === 'expired') {
-      void standDownSession(verdict.reason, scored.sessionId)
-      return
-    }
-    if (verdict.level === 'warn' && !quotaWarned) {
-      quotaWarned = true
-      notify('Katacomb VPN', `About ${describeRemaining(verdict.reason, verdict.remaining)} of your session left.`)
-      // Nudge the renderer to re-poll so the Sessions gauges catch up with the warning.
-      sendStateChange('connected')
-    }
-  }, QUOTA_POLL_MS)
+  quotaTimer = setInterval(() => { void quotaTick() }, QUOTA_POLL_MS)
+}
+
+async function quotaTick(): Promise<void> {
+  const unsupervised = () => isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId
+  if (unsupervised()) return
+  // One read per tick, for both checks. On Windows it is a round trip to the service,
+  // so the tunnel it was read from must still be the supervised one when it lands.
+  const epoch = connectionEpoch
+  const bytes = await readTunnelBytes()
+  if (unsupervised() || connectionEpoch !== epoch) return
+  const failure = checkTunnelStalled(bytes)
+  if (failure) {
+    void standDownSession(failure)
+    return
+  }
+  // Fire-and-forget: it awaits a daemon round trip and stands down on its own.
+  void checkWireGuardHandshake()
+  // Same shape: it may await a tunnel test.
+  void checkChainExitDeadline()
+  // No interface reads as zero bytes, as /proc/net/dev's absent line always did.
+  const scored = currentQuotaVerdict(bytes?.rx ?? 0)
+  if (!scored) return
+  const verdict = scored.verdict
+  if (verdict.level === 'expired') {
+    void standDownSession(verdict.reason, scored.sessionId)
+    return
+  }
+  if (verdict.level === 'warn' && !quotaWarned) {
+    quotaWarned = true
+    notify('Katacomb VPN', `About ${describeRemaining(verdict.reason, verdict.remaining)} of your session left.`)
+    // Nudge the renderer to re-poll so the Sessions gauges catch up with the warning.
+    sendStateChange('connected')
+  }
 }
 
 function stopQuotaWatchdog(): void {
@@ -648,7 +667,7 @@ function stopQuotaWatchdog(): void {
 }
 
 // Interface counters as of the last moment anything came IN, and when that was.
-// Tracked here rather than through getTrafficStats(), which mutates the speed
+// Tracked here rather than through trafficStatsFrom(), which moves the speed
 // baseline as a side effect and would corrupt every reading if sampled on this loop.
 let lastRxBytes = 0
 let lastTxAtRx = 0
@@ -657,8 +676,8 @@ let lastRxMovedAtMs = 0
 // is NOT counted as session usage: on a tunnel the node has stopped answering, the
 // chain meters nothing, and neither should we.
 let aliveUntilMs = 0
-// The interface counters as of that same moment. /proc/net/dev stops existing with
-// the interface, so getTrafficStats() reads a flat ZERO once the tunnel is gone —
+// The interface counters as of that same moment. The counters stop existing with
+// the interface, so the status poll reads a flat ZERO once the tunnel is gone —
 // the exact mirror of the clock problem above, and in the opposite direction. A
 // stand-down triggered BY the interface vanishing would otherwise record this
 // connect's traffic as nothing, dropping the byte floor back to the chain's
@@ -696,9 +715,8 @@ function resetOneWayTracking(): void {
  * gate: with auto-reconnect off that returns silently and leaves the dead tunnel up,
  * which is the very state being detected.
  */
-function checkTunnelStalled(): 'stalled' | 'dropped' | null {
+function checkTunnelStalled(bytes: { rx: number; tx: number } | null): 'stalled' | 'dropped' | null {
   const now = Date.now()
-  const bytes = readTunnelBytes()
   if (!bytes) {
     // Local-proxy mode has no interface to judge — abstain, and keep the clock
     // running (the session is being spent either way).
@@ -757,7 +775,10 @@ function checkTunnelStalled(): 'stalled' | 'dropped' | null {
  * returns silently with auto-reconnect off, leaving the dead tunnel up.
  */
 async function checkWireGuardHandshake(): Promise<void> {
-  if (desiredProtocol !== 'wireguard' || handshakeProbeInFlight) return
+  // On Windows the service's device answers for AmneziaWG as well: both protocols run
+  // on it there, and it keeps the same peer state either way.
+  const readable = desiredProtocol === 'wireguard' || (IS_WINDOWS && desiredProtocol === 'amneziawg')
+  if (!readable || handshakeProbeInFlight) return
   handshakeProbeInFlight = true
   const myEpoch = connectionEpoch
   try {
@@ -945,7 +966,7 @@ async function standDownSession(
   reconnectAttempt = 0
 
   await withConnectionLock(async () => {
-    rememberSessionUsage()
+    await rememberSessionUsage()
     stopRootTunnelMonitor()
     stopQuotaWatchdog()
 
@@ -1043,7 +1064,7 @@ const TUNNEL_PROBE_ATTEMPTS = 3
  * Only both failing, repeatedly, is a verdict.
  */
 async function tunnelCarriesTraffic(): Promise<boolean> {
-  const before = readTunnelBytes()
+  const before = await readTunnelBytes()
   for (let attempt = 0; attempt < TUNNEL_PROBE_ATTEMPTS; attempt++) {
     // Both targets at once, first success wins: by name (proves the whole path,
     // DNS included) and by IP (proves routing even when DNS is what is broken).
@@ -1062,7 +1083,7 @@ async function tunnelCarriesTraffic(): Promise<boolean> {
       }),
     ).then(() => true, () => false)
     if (passed) return true
-    const now = readTunnelBytes()
+    const now = await readTunnelBytes()
     if (before && now && now.rx - before.rx >= TUNNEL_PROBE_MIN_RX_BYTES) return true
   }
   return false
@@ -2161,22 +2182,21 @@ export async function healStrandedKillSwitch(): Promise<void> {
  * before the interface is torn down, so WALLET_SESSIONS keeps showing it while
  * the chain catches up. Must run while the tunnel is still up.
  */
-function rememberSessionUsage(): void {
+async function rememberSessionUsage(): Promise<void> {
   // Both hops of a chain carry the same stream, so both accrue the same usage and
   // both need a floor — otherwise the exit hop's gauge collapses to the lagging
   // chain figure the moment the tunnel goes down.
-  for (const id of [activeSessionId, activeExitSessionId]) {
-    if (id) rememberUsageFor(id)
-  }
-  if (activeSessionId || activeExitSessionId) saveSessionUsage()
+  const ids = [activeSessionId, activeExitSessionId].filter((id): id is string => !!id)
+  if (ids.length === 0) return
+  // readTunnelBytes(), which returns null instead of a misleading zero when the
+  // interface has already gone. Bytes are clamped at the last confirmed sign of life
+  // exactly as the duration is in rememberUsageFor — same rule, same reason.
+  const live = (await readTunnelBytes()) ?? aliveBytes
+  for (const id of ids) rememberUsageFor(id, live)
+  saveSessionUsage()
 }
 
-function rememberUsageFor(sessionId: string): void {
-  // readTunnelBytes(), not getTrafficStats(): the latter mutates the speed baseline
-  // as a side effect, and only this one returns null instead of a misleading zero
-  // when the interface has already gone. Bytes are clamped at the last confirmed
-  // sign of life exactly as the duration below is — same rule, same reason.
-  const live = readTunnelBytes() ?? aliveBytes
+function rememberUsageFor(sessionId: string, live: { rx: number; tx: number }): void {
   const baseline = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === sessionId)
   const baseDown = parseInt(baseline?.downloadBytes || '0', 10) || 0
   const baseUp = parseInt(baseline?.uploadBytes || '0', 10) || 0
@@ -2223,7 +2243,7 @@ export async function performDisconnect(): Promise<void> {
   reconnectAttempt = 0
 
   return withConnectionLock(async () => {
-    rememberSessionUsage()
+    await rememberSessionUsage()
 
     stopRootTunnelMonitor()
     stopQuotaWatchdog()
@@ -2309,7 +2329,7 @@ async function attemptReconnect(): Promise<void> {
     // the interface monitor fires first and burns through the attempts — so a
     // give-up this close to the cap is an expiry, and the user deserves the honest
     // reason rather than a generic connection failure.
-    const scored = currentQuotaVerdict()
+    const scored = currentQuotaVerdict((await readTunnelBytes())?.rx ?? 0)
     if (scored && (scored.verdict.level === 'expired' ||
       (scored.verdict.level === 'warn' && scored.verdict.pct >= QUOTA_GIVE_UP_PCT))) {
       await standDownSession(scored.verdict.reason, scored.sessionId)
@@ -2382,13 +2402,13 @@ async function attemptReconnect(): Promise<void> {
           // not silently come back as a full tunnel (that would take root).
           const proxyOnly = desiredMode === 'proxy'
           if (saved.protocol === 'hysteria2') {
-            connectHysteria2FromConfig(saved.configString, { proxyOnly }) // no DoH (see connectHysteria2FromConfig)
+            await connectHysteria2FromConfig(saved.configString, { proxyOnly }) // no DoH (see connectHysteria2FromConfig)
           } else {
             const dohIp = effectiveV2RayResolverIp(loadSettings())
             if (saved.protocol === 'xray') {
-              connectXRayFromConfig(saved.configString, dohIp, { proxyOnly })
+              await connectXRayFromConfig(saved.configString, dohIp, { proxyOnly })
             } else {
-              connectV2RayFromConfig(saved.configString, dohIp, { proxyOnly })
+              await connectV2RayFromConfig(saved.configString, dohIp, { proxyOnly })
             }
           }
           // A reconnect replays a saved config, so the detailed failure + the
@@ -3599,7 +3619,7 @@ export function registerIpcHandlers(): void {
 
   // Connection: Check for other active VPNs
   handle(IPC.CONNECTION_CHECK_VPN, async () => {
-    const found = detectOtherVpn()
+    const found = await detectOtherVpn()
     // detectOtherVpn reads interfaces, so an IPsec VPN is invisible to it: those
     // install policies, not links. Ask the daemon, which is root and can read
     // them. Null means we could not find out (no daemon, or one too old to
@@ -3732,7 +3752,7 @@ export function registerIpcHandlers(): void {
         // The config handed in wins, as for every protocol (see the WireGuard branch).
         const v2rayCfg = params.configString ?? activeV2rayConfig
         if (!v2rayCfg) throw new Error('No V2Ray config available')
-        connectV2RayFromConfig(v2rayCfg, dohIp, { proxyOnly })
+        await connectV2RayFromConfig(v2rayCfg, dohIp, { proxyOnly })
         await finishChildProxyConnect({
           protocol: 'v2ray', label: 'V2Ray', proxyOnly,
           fromSavedConfig: !activeV2rayConfig && !!params.configString,
@@ -3749,7 +3769,7 @@ export function registerIpcHandlers(): void {
         if (!xrayConfig) {
           throw new Error('No Xray config available')
         }
-        connectXRayFromConfig(xrayConfig, dohIp, { proxyOnly })
+        await connectXRayFromConfig(xrayConfig, dohIp, { proxyOnly })
         await finishChildProxyConnect({
           protocol: 'xray', label: 'Xray', proxyOnly,
           fromSavedConfig: !activeXrayConfig && !!params.configString,
@@ -3766,7 +3786,7 @@ export function registerIpcHandlers(): void {
         if (!hysteria2Config) {
           throw new Error('No Hysteria2 config available')
         }
-        connectHysteria2FromConfig(hysteria2Config, { proxyOnly })
+        await connectHysteria2FromConfig(hysteria2Config, { proxyOnly })
         await finishChildProxyConnect({
           protocol: 'hysteria2', label: 'Hysteria2', proxyOnly,
           fromSavedConfig: !activeHysteria2Config && !!params.configString,
@@ -3845,7 +3865,7 @@ export function registerIpcHandlers(): void {
 
   // Traffic Stats
   handle(IPC.TRAFFIC_STATS, async () => {
-    return getTrafficStats()
+    return trafficStatsFrom(await readTunnelBytes())
   })
 
   // Bookmarks

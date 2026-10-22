@@ -1,3 +1,5 @@
+//go:build linux
+
 // katacomb-vpn-helper: the ONE privileged binary of Katacomb VPN.
 //
 //	katacomb-vpn-helper daemon          systemd ExecStart; serves protocol v1 on the socket

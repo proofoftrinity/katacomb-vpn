@@ -19,24 +19,9 @@ files:
 # Ship only English UI strings (saves ~39 MB of Chromium locale .pak files).
 electronLanguages:
   - en-US
+# Each platform's own binaries are in its section below (linux.extraResources,
+# win.extraResources), which electron-builder adds to this list: neither ships the other's.
 extraResources:
-  # Everything under resources/linux/ ships to <resourcesPath>/linux/ with its
-  # subdirectory layout intact (copyDir preserves structure): bin/ holds the
-  # vendored binaries beside their licence texts, privileged/ holds the helper
-  # (the static Go binary scripts/build-daemon.sh produces; `npm run build` fails
-  # loudly if it is missing, because electron-builder would only warn), the
-  # polkit policy and the systemd unit that postinstall copies onto the system.
-  # packaging/ is excluded on purpose. It is fpm's INPUT, not runtime data:
-  # afterInstall/afterRemove below are resolved from projectDir and embedded in
-  # the deb control archive macro-EXPANDED, so the copy this glob would otherwise
-  # leave at /opt/.../resources/linux/ is root-owned, +x and macro-UNexpanded.
-  # Run by hand it would set APP_DIR to /opt/ and install the helper and unit
-  # from the wrong place. Nothing reads it.
-  - from: resources/linux/
-    to: linux/
-    filter:
-      - "**/*"
-      - "!packaging/"
   # The app is GPL-3.0-or-later; the bundled executables' licence texts and the linked
   # Go modules' notices must accompany the binaries, not just the repo.
   - from: LICENSE
@@ -74,6 +59,24 @@ linux:
     - deb
   category: Network
   icon: build/icons
+  extraResources:
+    # Everything under resources/linux/ ships to <resourcesPath>/linux/ with its
+    # subdirectory layout intact (copyDir preserves structure): bin/ holds the
+    # vendored binaries beside their licence texts, privileged/ holds the helper
+    # (the static Go binary scripts/build-daemon.sh produces; `npm run build` fails
+    # loudly if it is missing, because electron-builder would only warn), the
+    # polkit policy and the systemd unit that postinstall copies onto the system.
+    # packaging/ is excluded on purpose. It is fpm's INPUT, not runtime data:
+    # afterInstall/afterRemove below are resolved from projectDir and embedded in
+    # the deb control archive macro-EXPANDED, so the copy this glob would otherwise
+    # leave at /opt/.../resources/linux/ is root-owned, +x and macro-UNexpanded.
+    # Run by hand it would set APP_DIR to /opt/ and install the helper and unit
+    # from the wrong place. Nothing reads it.
+    - from: resources/linux/
+      to: linux/
+      filter:
+        - "**/*"
+        - "!packaging/"
   # An AppImage carries no package metadata, so it cannot declare the libasound2
   # the deb declares below, and Chromium hard-links libasound.so.2 (DT_NEEDED on
   # the main binary). A host without it, or with only Ubuntu's partial OSS4 shim,
@@ -192,6 +195,30 @@ deb:
     - gnome-keyring | kwalletmanager
   afterInstall: resources/linux/packaging/postinstall.sh
   afterRemove: resources/linux/packaging/postrm.sh
+# Windows (beta, docs/windows.md): one per-machine NSIS installer for x64. Built on
+# Linux (npm run dist:win), with Debian's wine in docker for the uninstaller step
+# (scripts/wine/). Unsigned on purpose for the beta; SHA256SUMS covers it.
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icons/256x256.png
+  # resources/win/ ships to <resourcesPath>/win/: bin/ holds the three cores beside
+  # their licence texts, privileged/ the helper (scripts/build-daemon.sh's Windows
+  # build, gitignored), wintun.dll beside it, where the helper loads it from, and its
+  # licence. The service runs the helper from there.
+  extraResources:
+    - from: resources/win/
+      to: win/
+      filter:
+        - "**/*"
+nsis:
+  # Per-machine: the service the installer registers runs from Program Files, which
+  # only an administrator can write, so the user it serves cannot swap it.
+  perMachine: true
+  artifactName: katacomb-vpn-${version}-setup.exe
+  # The service's install and uninstall (build/installer.nsh).
+  include: build/installer.nsh
 appImage:
   artifactName: katacomb-vpn-${version}.AppImage
 # The static type2 runtime (libfuse3 linked in, zstd squashfs) instead of the default
@@ -201,3 +228,5 @@ appImage:
 # which cannot start this runtime at all. See docs/packaging.md before changing it.
 toolsets:
   appimage: "1.0.3"
+  # The NSIS that electron-builder 26 runs natively on Linux (checksum-pinned download).
+  nsis: "1.2.1"

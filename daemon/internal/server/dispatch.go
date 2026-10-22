@@ -38,12 +38,6 @@ func Dispatch(ctx context.Context, req protocol.Request, e *ops.Env) protocol.Re
 	case "status":
 		return reply(ops.Status(e))
 
-	case "xfrm_policies":
-		// Read-only, like status: no lock, no state change. Lets the app warn about
-		// an IPsec VPN it structurally cannot see for itself (no interface, and
-		// reading policies needs CAP_NET_ADMIN).
-		return reply(map[string]int{"count": ops.XfrmPolicyCount(ctx, e)})
-
 	case "wireguard_handshake":
 		// Read-only, like status and xfrm_policies: no lock, no state change, no
 		// args (the interface is ours, so there is no untrusted input to guard).
@@ -82,22 +76,6 @@ func Dispatch(ctx context.Context, req protocol.Request, e *ops.Env) protocol.Re
 
 	case "amneziawg_down":
 		if err := ops.AmneziaWgDown(ctx, e); err != nil {
-			return failErr(err)
-		}
-		return reply(nil)
-
-	case "openvpn_up":
-		cfg, ok := args.str("configString")
-		if !ok {
-			return fail("openvpn_up: configString required")
-		}
-		if err := ops.OpenVpnUp(ctx, e, []byte(cfg)); err != nil {
-			return failErr(err)
-		}
-		return reply(nil)
-
-	case "openvpn_down":
-		if err := ops.OpenVpnDown(ctx, e); err != nil {
 			return failErr(err)
 		}
 		return reply(nil)
@@ -194,6 +172,9 @@ func Dispatch(ctx context.Context, req protocol.Request, e *ops.Env) protocol.Re
 			return failErr(err)
 		}
 		return reply(nil)
+	}
+	if res, ok := dispatchPlatform(ctx, req, args, e); ok {
+		return res
 	}
 	return fail("unknown op: " + req.Op)
 }

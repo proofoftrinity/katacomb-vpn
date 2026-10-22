@@ -142,3 +142,30 @@ test('[PKG-2] at launch an entry that already starts this copy, or is switched o
   follow(h)
   assert.equal(execOf(h), 'Exec="/opt/Katacomb VPN/katacomb-vpn" --autostart', 'control: a stale enabled entry is moved')
 })
+
+// Windows: the setting is the user's Run entry (Electron's login items), not a file.
+const autostartWin = await loadModule({
+  entries: ['src/main/autostart.ts'], fake: [], stubs: { 'src/main/platform': 'test/harness/platform-windows.ts' },
+})
+
+test('[PKG-2] Windows: the Run entry starts the installed app with --autostart, and the toggle reads it back', (t) => {
+  const h = autostartWin.fresh()
+  t.after(() => h.dispose())
+  h.world.isPackaged = true
+  assert.deepEqual(state(h), { available: true, enabled: false })
+  assert.deepEqual(set(h, true), { available: true, enabled: true })
+  assert.deepEqual(h.world.loginItem, { openAtLogin: true, args: ['--autostart'] })
+  assert.deepEqual(set(h, false), { available: true, enabled: false })
+  assert.equal(existsSync(entryFile(h)), false, 'no XDG file on Windows')
+})
+
+test('[PKG-2] Windows: a dev build offers no entry, and an upgrade has nothing to follow', (t) => {
+  const h = autostartWin.fresh()
+  t.after(() => h.dispose())
+  assert.deepEqual(state(h), { available: false, enabled: false })
+  assert.throws(() => set(h, true), /installed app/)
+  assert.equal(h.world.loginItem, null)
+  h.world.isPackaged = true
+  follow(h)
+  assert.equal(h.world.loginItem, null, 'the installed path is the same after an upgrade')
+})

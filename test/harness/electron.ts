@@ -16,6 +16,14 @@ export const app = {
     return path
   },
   getVersion: (): string => '0.0.0-test',
+  // Windows' start-at-login entry (the Run key), kept in the world.
+  getLoginItemSettings(options?: { args?: string[] }): { openAtLogin: boolean } {
+    const item = world().loginItem
+    return { openAtLogin: !!item && item.openAtLogin && JSON.stringify(item.args ?? []) === JSON.stringify(options?.args ?? []) }
+  },
+  setLoginItemSettings(settings: { openAtLogin: boolean; args?: string[] }): void {
+    world().loginItem = { openAtLogin: settings.openAtLogin, args: settings.args }
+  },
 }
 
 export const ipcMain = {

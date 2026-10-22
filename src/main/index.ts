@@ -10,7 +10,8 @@ import {
   healOrphanedTunnel, type ConnectionInfo,
 } from './ipc-handlers'
 import {
-  markedTrayBitmap, panelShade, panelWatchCommand, trayPainter, trayView, waitForTrayHost, type PanelShade, type TrayView,
+  markedTrayBitmap, panelShade, panelWatchCommand, trayPainter, trayView, waitForTrayHost, windowsTaskbarShade,
+  type PanelShade, type TrayView,
 } from './tray-view'
 import { killAllTunnels, detectExistingConnection } from './vpn/vpn-manager'
 import { onChainPathChanged, runAutoRpcSelection, startRpcMonitor, stopRpcMonitor } from './chain/rpc-monitor'
@@ -21,6 +22,7 @@ import { listProviders } from './provider/provider-service'
 import { registerWithDesktopSession } from './desktop-session'
 import { registerWithXsmp } from './xsmp-session'
 import { IPC } from '../shared/ipc-channels'
+import { IS_WINDOWS } from './platform'
 import { setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net'
 
 // Node's connection selection ("happy eyeballs") tries a host's addresses one at
@@ -59,6 +61,8 @@ const startedAtLogin = process.argv.includes('--autostart')
  *  answer only matters by the time the user closes the window, or for a login
  *  start, whether the window opens at all. */
 function probeTrayHost(): Promise<boolean> {
+  // Windows always draws the notification area's icons (in the overflow at worst).
+  if (IS_WINDOWS) return Promise.resolve(true)
   return new Promise((resolve) => {
     execFile('gdbus', [
       'call', '--session',
@@ -136,13 +140,14 @@ function trayPanel(): PanelShade {
 
 /** [REL-42] Read the panel's shade from the desktop, falling back on the apps' theme. */
 async function readPanelShade(): Promise<void> {
-  panel = await panelShade({
+  const run = (cmd: string, args: string[]): Promise<string> => new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: 3000 }, (err, stdout) => (err ? reject(err) : resolve(stdout)))
+  })
+  panel = IS_WINDOWS ? await windowsTaskbarShade(run) : await panelShade({
     env: process.env,
     home: app.getPath('home'),
     appsDark: nativeTheme.shouldUseDarkColors,
-    run: (cmd, args) => new Promise((resolve, reject) => {
-      execFile(cmd, args, { timeout: 3000 }, (err, stdout) => (err ? reject(err) : resolve(stdout)))
-    }),
+    run,
     readFile: (path) => readFile(path, 'utf-8'),
   })
 }
@@ -292,6 +297,12 @@ function createWindow(onShown?: () => void): void {
     onShown?.()
   })
 
+  // [REL-36] Windows asks every top-level window, hidden ones too, before a logoff, a
+  // shutdown or an installer's close: the earliest notice there is, so the normal quit,
+  // teardown included, starts here. With no window (a login start still in the tray)
+  // the service's logoff teardown is the backstop (docs/windows.md).
+  if (IS_WINDOWS) mainWindow.on('query-session-end', () => { forceQuit = true; app.quit() })
+
   mainWindow.on('close', (e) => {
     if (forceQuit) return // Allow quit (from tray menu or app.quit())
     // No desktop shows our tray icon (stock GNOME on Debian/Ubuntu): hiding here
@@ -372,6 +383,9 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.whenReady().then(() => {
+  // Electron's default menu bar (File, Edit, View...) shows in the window on Windows, and
+  // offers nothing this app uses. Linux keeps what it has always had.
+  if (IS_WINDOWS) Menu.setApplicationMenu(null)
   // Must run before anything touches userData (sweepStaleSessionFiles, settings,
   // the wallet store): the rename moved the directory, so this brings the user's
   // profile across from the pre-rename location.
@@ -442,7 +456,8 @@ app.whenReady().then(() => {
   // Electron crashes on that ([REL-36]). GNOME and Xfce over D-Bus, KDE over XSMP: each
   // waits until the app has exited. XSMP only when no D-Bus session manager took the app
   // on, since GNOME and Xfce answer XSMP as well.
-  void registerWithDesktopSession({
+  // Windows tells the window instead (createWindow's query-session-end).
+  if (!IS_WINDOWS) void registerWithDesktopSession({
     address: process.env['DBUS_SESSION_BUS_ADDRESS'],
     uid: process.getuid?.() ?? 0,
     startupId: process.env['DESKTOP_AUTOSTART_ID'] ?? '',

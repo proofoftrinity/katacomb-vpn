@@ -280,3 +280,32 @@ test('[ARCH-5] [REL-41] when no copy of a duplicate opens in this keyring, the d
   assert.deepEqual(((h.mod.listWallets as Fn)() as Array<{ id: string }>).map((w) => w.id), ['a', 'b'])
   assert.ok(existsSync(join(h.world.userData, 'wallets', 'a.enc')) && existsSync(join(h.world.userData, 'wallets', 'b.enc')))
 })
+
+// Windows: safeStorage is DPAPI, under the user's own account. There is no keyring to pick
+// or pin, and getSelectedStorageBackend (Linux-only) is never asked.
+const settingsWin = await loadModule({
+  entries: ['src/main/settings.ts'], fake: [], stubs: { 'src/main/platform': 'test/harness/platform-windows.ts' },
+})
+
+describe('[REL-41] Windows has one store, and nothing to pin', () => {
+  test('[REL-41] Windows: no --password-store, a seed saves and opens, and no keyring is recorded', (t) => {
+    const h = settingsWin.fresh()
+    t.after(() => h.dispose())
+    // What a Linux-only call would answer here must not matter: it is never made.
+    h.world.safeStorage.backend = 'basic_text'
+    assert.equal((h.mod.keyringSwitch as Fn)({}), null)
+    const { id } = (h.mod.addWalletEntry as Fn)('Main', 'sent1aaa', 'abandon abandon about') as { id: string }
+    assert.equal((h.mod.getWalletMnemonic as Fn)(id), 'abandon abandon about')
+    assert.equal(((h.mod.loadSettings as Fn)() as { keyringBackend: string | null }).keyringBackend, null)
+  })
+
+  test('[REL-41] Windows: a seed DPAPI will not open names the Windows account, not a keyring', (t) => {
+    const h = settingsWin.fresh()
+    t.after(() => h.dispose())
+    seed(h, 'w1', 'another-windows-account')
+    let message = ''
+    try { (h.mod.getWalletMnemonic as Fn)('w1') } catch (e) { message = (e as Error).message }
+    assert.match(message, /another Windows account/)
+    assert.doesNotMatch(message, /keyring/i)
+  })
+})

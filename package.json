@@ -16,7 +16,7 @@
     "build:daemon": "bash scripts/build-daemon.sh",
     "preview": "electron-vite preview",
     "test": "node --test \"src/**/*.test.ts\" \"test/**/*.test.ts\" && npm run test:daemon && npm run check:architecture",
-    "test:daemon": "cd daemon && go test -shuffle=on ./...",
+    "test:daemon": "cd daemon && go test -shuffle=on ./... && GOOS=windows GOARCH=amd64 go vet ./...",
     "test:fuzz": "bash scripts/fuzz-daemon.sh",
     "test:canaries": "node --test test/canaries/run.canary.ts",
     "check:architecture": "bash scripts/check-architecture-doc.sh",
@@ -24,10 +24,11 @@
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.test.json",
     "verify": "npm run typecheck && npm test && npm run test:canaries",
     "postinstall": "electron-builder install-app-deps",
-    "dist": "npm run build && electron-builder --linux",
+    "dist": "npm run build && electron-builder --linux && scripts/wine/wine --prepare && USE_SYSTEM_WINE=true PATH=\"$PWD/scripts/wine:$PATH\" electron-builder --win",
     "dist:deb": "npm run build && electron-builder --linux deb",
     "dist:appimage": "npm run build && electron-builder --linux AppImage",
-    "checksums": "cd dist && sha256sum katacomb-vpn_*_amd64.deb katacomb-vpn-*.AppImage > SHA256SUMS && sha256sum -c SHA256SUMS"
+    "dist:win": "npm run build && scripts/wine/wine --prepare && USE_SYSTEM_WINE=true PATH=\"$PWD/scripts/wine:$PATH\" electron-builder --win",
+    "checksums": "cd dist && sha256sum katacomb-vpn_*_amd64.deb katacomb-vpn-*.AppImage katacomb-vpn-*-setup.exe > SHA256SUMS && sha256sum -c SHA256SUMS"
   },
   "dependencies": {
     "@cosmjs/proto-signing": "^0.38.1",

@@ -1,11 +1,6 @@
-package ops
+//go:build linux
 
-// StatusResult is the `status` op's reply, key for key what the app reads.
-type StatusResult struct {
-	WgUp   bool `json:"wgUp"`
-	TunUp  bool `json:"tunUp"`
-	OvpnUp bool `json:"ovpnUp"`
-}
+package ops
 
 // Status reads the kernel's interface table (world-readable; no lock, no spawn).
 func Status(e *Env) StatusResult {

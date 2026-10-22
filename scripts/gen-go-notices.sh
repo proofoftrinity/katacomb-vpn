@@ -10,14 +10,17 @@
 # and the MIT/BSD attribution clauses are all satisfied by shipping the text.
 #
 # Run after any change to daemon/go.mod and commit the result; the module set is
-# what `go list -deps` sees from the helper's main package, i.e. what the linker
-# actually pulls in, not everything in go.sum.
+# what `go list -deps` sees from the helper's main package for Linux and for
+# Windows, i.e. what the linker actually pulls in, not everything in go.sum.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/daemon/THIRD-PARTY-NOTICES.md"
 cd "$ROOT/daemon"
 
-mods="$(go list -deps -f '{{if and .Module (not .Standard)}}{{.Module.Path}}{{end}}' . | sort -u | grep -v '^katacomb.vpn/daemon$')"
+# Both builds ship, so both module sets count: the Windows one adds winipcfg and
+# wintun's loader, the Linux one nothing the Windows one lacks today.
+deps() { go list -deps -f '{{if and .Module (not .Standard)}}{{.Module.Path}}{{end}}' .; }
+mods="$( { deps; GOOS=windows GOARCH=amd64 deps; } | sort -u | grep -v '^katacomb.vpn/daemon$')"
 
 {
   echo "# Third-party notices for the privileged helper"

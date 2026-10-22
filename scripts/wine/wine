@@ -1,0 +1,24 @@
+#!/bin/sh
+# `wine` for electron-builder (USE_SYSTEM_WINE=true, this directory first on PATH): runs
+# Debian's wine in docker, as the calling user, with a throwaway prefix. electron-builder
+# runs one program, `wine <out dir>/<installer>.exe`, which writes the uninstaller beside
+# itself, so that directory is the only one mounted, at the same path (Wine reaches it
+# as Z:). `wine --prepare` builds the image (minutes: Wine is ~700 MB of packages), and
+# again whenever the Dockerfile changes; `npm run dist:win` runs it before
+# electron-builder, whose call to wine would give up on a build that long.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+image="katacomb-wine:$(sha256sum "$here/Dockerfile" | cut -c1-12)"
+if [ "${1:-}" = --prepare ]; then
+  docker image inspect "$image" >/dev/null 2>&1 || docker build -t "$image" "$here"
+  exit 0
+fi
+docker image inspect "$image" >/dev/null 2>&1 || { echo "scripts/wine/wine: no $image; run scripts/wine/wine --prepare" >&2; exit 2; }
+case "${1:-}" in
+  /*) dir=$(dirname "$1") ;;
+  *) echo "scripts/wine/wine: expected an absolute path to run, got '${1:-}'" >&2; exit 2 ;;
+esac
+exec docker run --rm -i --user "$(id -u):$(id -g)" \
+  --tmpfs "/wp:uid=$(id -u),gid=$(id -g),exec" -e HOME=/wp -e WINEPREFIX=/wp/prefix -e WINEDEBUG=-all \
+  -e __COMPAT_LAYER="${__COMPAT_LAYER:-}" \
+  -v "$dir:$dir" "$image" wine "$@"

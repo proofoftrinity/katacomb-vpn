@@ -16,6 +16,11 @@
 
 export type ProtocolType = 0 | 1 | 2 | 3 | 4 | 5 | 6
 
+// Windows (beta) runs every protocol but OpenVPN: its service has no OpenVPN op
+// (docs/windows.md). The renderer is sandboxed, with no `process`; Chromium's user
+// agent names the real OS.
+export const IS_WINDOWS = typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows')
+
 export interface ProtocolMeta {
   label: string      // full name for modals/details: "WireGuard", "AmneziaWG"
   short: string      // compact node-table badge: "WG", "AWG", "HY2"
@@ -29,7 +34,7 @@ const PROTOCOLS: Record<number, ProtocolMeta> = {
   0: { label: 'Unknown', short: '—', color: 'text-text-tertiary', supported: false },
   1: { label: 'WireGuard', short: 'WG', color: 'text-info', supported: true },
   2: { label: 'V2Ray', short: 'V2Ray', color: 'text-warning', supported: true },
-  3: { label: 'OpenVPN', short: 'OVPN', color: 'text-accent', supported: true },
+  3: { label: 'OpenVPN', short: 'OVPN', color: 'text-accent', supported: !IS_WINDOWS },
   4: { label: 'XRAY', short: 'XRAY', color: 'text-warning', supported: true },
   5: { label: 'AmneziaWG', short: 'AWG', color: 'text-info', supported: true },
   6: { label: 'Hysteria2', short: 'HY2', color: 'text-success', supported: true },
@@ -43,6 +48,11 @@ export function protocolMeta(type: number | undefined): ProtocolMeta {
 
 export function isProtocolSupported(type: number): boolean {
   return protocolMeta(type).supported
+}
+
+/** ` on Windows` where that is why `type` can't be connected to, else nothing: for the copy that says so. */
+export function unsupportedWhere(type: number): string {
+  return IS_WINDOWS && type === 3 ? ' on Windows' : ''
 }
 
 // The child-proxy protocols (local SOCKS5 listener): the only ones local

@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package ops implements the twelve privileged verbs natively. It is THE trust
 // boundary of the helper: both entry modes (the daemon socket and the pkexec
 // one-shot) end here, and every argument is validated here regardless of which
@@ -33,9 +35,6 @@ const (
 	// ChildPath is the ONLY PATH a child process ever sees (deviation 7): never the
 	// caller's, since the caller is a pkexec'd user or an unauthenticated socket.
 	ChildPath = "/usr/sbin:/usr/bin:/sbin:/bin"
-	// OpTimeout bounds one verb: the budget the client's request timer and the old
-	// daemon's execFileSync both used.
-	OpTimeout = 60 * time.Second
 )
 
 // RunOpt carries the per-command options a verb can set.

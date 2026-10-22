@@ -166,7 +166,7 @@ describe('[REL-2] the lock and the epoch: a disconnect is final', () => {
         'chain/chain-service': { loadSessionConfig: () => SAVED('1001', { protocol: 'v2ray', configString: 'cfg-v2ray' }) },
         'vpn/vpn-manager': {
           onV2RayUnexpectedExit: (cb: () => void) => { exitCb = cb },
-          connectV2RayFromConfig: () => {
+          connectV2RayFromConfig: async () => {
             spawns++
             // The first connect works; reconnect attempts 1-4 bring up dead tunnels; attempt 5 is slow.
             h.tunnel.carries = spawns === 1 || spawns >= 6

@@ -151,7 +151,7 @@ export interface QuotaInput {
   maxBytes: number
   /** On-chain download settled before this connect. */
   baselineBytes: number
-  /** Interface rx counter for the current tunnel (getTrafficStats().rxBytes). */
+  /** Interface rx counter for the current tunnel (readTunnelBytes().rx). */
   liveRxBytes: number
 }
 

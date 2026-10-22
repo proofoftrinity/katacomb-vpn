@@ -2,7 +2,8 @@
 
 Verify packaging by installing, never by reading config.
 
-`electron-builder.yml` targets Linux only (AppImage + deb). Bundled binaries live in
+`electron-builder.yml` targets Linux (AppImage + deb) and Windows (one NSIS installer,
+beta; "Windows installer" below). Bundled binaries live in
 **The `v2ray` binary CANNOT be replaced by `xray`, so both ship.** Tested, not
 assumed, because the reasoning that they could is seductive: xray-core IS a
 v2ray-core fork, it DOES read the same JSON config, and multihop already runs
@@ -21,8 +22,10 @@ script after any xray bump; if it ever prints PARITY, the change is
 `resolveV2RayBinary()` plus the pin in `binary-integrity.ts`.
 
 `resources/linux/bin/`, beside their `LICENSE.*` texts, and reach the package through the
-ONE `extraResources` entry for `resources/linux/` (copyDir preserves the `bin/` and
-`privileged/` subfolders). That entry excludes `packaging/` on purpose: fpm embeds a
+ONE `linux.extraResources` entry for `resources/linux/` (copyDir preserves the `bin/` and
+`privileged/` subfolders). A platform's `extraResources` is ADDED to the top-level list,
+the one exception to the replace rule below: moving this entry there from the top level
+changed no file in either Linux package (2026-10-22, every file's hash compared). That entry excludes `packaging/` on purpose: fpm embeds a
 macro-EXPANDED copy of postinstall/postrm in the control archive, and the copy the glob
 used to leave at `/opt/.../resources/linux/` was root-owned, +x and macro-UNexpanded, so
 running it by hand would set `APP_DIR` to `/opt/` and install the helper and unit from
@@ -31,7 +34,10 @@ the wrong place. Nothing reads it.
 and the pin is checked before each spawn: a mismatch throws rather than falling back to
 `$PATH`, and a binary with no pin at all is refused the same way. Replacing a binary
 means updating its pin in the same change; `binary-integrity.test.ts` hashes the
-git-tracked files against the table.
+git-tracked files against the table. Pins are keyed by file name, so the Windows cores
+(`xray.exe` …) have their own and neither platform's binary passes the other's.
+`wintun.dll` has no runtime pin (only the service loads it, from Program Files); the test
+holds it to the DLL in wintun.net's published 0.14.1 zip.
 
 **Every custom key in `electron-builder.yml` REPLACES its default, never merges.**
 This cost three of the four defects in the portability audit: `deb.depends` dropped
@@ -221,8 +227,43 @@ Measured in the release VM on an account that had used Plasma: 3 of 6 GNOME logi
 SIGSEGV'd 1.3 s in, the released 1.16.1 4 of 6 (so not this feature's code),
 `LD_DEBUG=files` showed both modules loaded and then unloaded, and a plain GNOME account
 started clean. GNOME's own entries use the same key (update-notifier's waits 60 s).
+On **Windows** the entry is the user's Run key, through `setLoginItemSettings` with
+`--autostart`, read back by the same arguments; Task Manager's Startup tab switches it off,
+and reads as off here. The installed app's path never changes across upgrades (a
+per-machine install), so there is nothing to follow, and a dev build writes none.
 
-**Verify packaging by installing, not by reading config** —
+## Windows installer (beta)
+
+`npm run dist:win` builds `katacomb-vpn-<version>-setup.exe`, one per-machine NSIS
+installer for x64, on this Linux host; `npm run dist` builds it after the deb and the
+AppImage, so a release cut (`release.sh`) ships all three under one `SHA256SUMS`. It ships `resources/win/` to `<resourcesPath>/win/`:
+the three cores and their licences in `bin/`, and in `privileged/` the helper's Windows
+build (from `scripts/build-daemon.sh`, gitignored like the Linux one), `wintun.dll` beside
+it, where the helper loads it from, and the DLL's licence. It is unsigned for the beta;
+SmartScreen asks "More info, Run anyway", and SHA256SUMS covers the file.
+
+**[PKG-3] The Windows installer ships only `resources/win/`, registers the service from
+the helper it ships, and its uninstaller removes the service before any file goes.**
+`build/installer.nsh` runs the installed helper's `service install` (`customInstall`,
+after the files are in place) and `service uninstall` (`customUnInstall`, which
+electron-builder's uninstaller runs before it deletes `$INSTDIR`: the service runs from a
+file in it). An upgrade runs the old uninstaller first, so the service is removed and
+registered again with the new helper; the app is closed by then, and its quit is the full
+disconnect ([REL-29]). A failed `service install` says so and exits with code 2, so a
+silent install is seen to fail. Per-machine on purpose: the service runs from Program
+Files, which only an administrator can write. `test/static/windows-installer.test.ts`
+pins the wiring; what it does on a machine is checked by installing it in the Windows VM.
+
+NSIS itself runs natively (`toolsets.nsis`, checksum-pinned). One step needs Wine:
+electron-builder runs the installer it has just made to write the uninstaller. Its own
+Linux Wine (`toolsets.wine`) is broken upstream (no 64-bit Windows DLLs in the archive,
+so wine dies with ntdll c0000135), so `scripts/wine/wine` runs Debian's in docker instead
+(`USE_SYSTEM_WINE=true`, that directory first on PATH), as the calling user with a
+throwaway prefix and only the output directory mounted. `scripts/wine/wine --prepare`
+builds its image, about 700 MB, before electron-builder starts: its call to wine gives up
+on a build that long.
+
+
 `scripts/verify-deb-portability.sh` (interactive, needs root, pauses for GUI steps)
 does the full install/launch/connect/upgrade/remove cycle, plus an `appimage` phase for
 the sandbox check above; re-run it after touching

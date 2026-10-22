@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Builds the privileged helper (daemon/) into
 # resources/linux/privileged/katacomb-vpn-helper, where electron-builder's
-# extraResources picks it up and postinstall / installHelper install it from.
+# extraResources picks it up and postinstall / installHelper install it from,
+# and its Windows build into resources/win/privileged/katacomb-vpn-helper.exe,
+# which the Windows installer registers as the service.
 #
 # Runs on every `npm run build`, `npm run dist` and (via predev) `npm run dev`.
 #
@@ -24,6 +26,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/resources/linux/privileged/katacomb-vpn-helper"
+OUT_WIN="$ROOT/resources/win/privileged/katacomb-vpn-helper.exe"
 cd "$ROOT/daemon"
 
 fail() { echo "build-daemon: $*" >&2; exit 1; }
@@ -40,12 +43,20 @@ VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$ROOT/package.json")"
 export CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly
 go mod verify >/dev/null || fail "go mod verify failed"
 go vet ./... || fail "go vet failed"
-go build -trimpath -buildvcs=false \
-  -ldflags "-s -w -buildid= -X main.version=$VERSION" \
-  -o "$OUT" . || fail "go build failed"
+GOOS=windows GOARCH=amd64 go vet ./... || fail "go vet failed for Windows"
+LDFLAGS="-s -w -buildid= -X main.version=$VERSION"
+go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$OUT" . || fail "go build failed"
+mkdir -p "$(dirname "$OUT_WIN")"
+GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$OUT_WIN" . \
+  || fail "go build failed for Windows"
 
 command -v file >/dev/null 2>&1 || fail "the \`file\` utility is required to verify static linking"
 file "$OUT" | grep -q 'statically linked' || fail "$OUT is not statically linked: $(file "$OUT")"
 [ "$("$OUT" --version)" = "$VERSION" ] || fail "--version mismatch"
+# The Windows build cannot run here: check it is a 64-bit PE and carries the version.
+file "$OUT_WIN" | grep -q 'PE32+ executable.*x86-64' || fail "$OUT_WIN is not a 64-bit Windows executable: $(file "$OUT_WIN")"
+LC_ALL=C grep -aqF -- "$VERSION" "$OUT_WIN" || fail "$OUT_WIN does not carry version $VERSION"
 
-echo "built $OUT ($VERSION, $(stat -c %s "$OUT") bytes, sha256 $(sha256sum "$OUT" | cut -c1-12)…)"
+for f in "$OUT" "$OUT_WIN"; do
+  echo "built $f ($VERSION, $(stat -c %s "$f") bytes, sha256 $(sha256sum "$f" | cut -c1-12)…)"
+done

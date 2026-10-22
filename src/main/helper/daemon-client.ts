@@ -3,15 +3,24 @@ import { createConnection } from 'net'
 import { existsSync } from 'fs'
 import {
   DAEMON_SOCKET_PATH,
+  DAEMON_PIPE_PATH,
   type DaemonOp,
   type DaemonRequest,
   type DaemonResponse,
 } from './daemon-protocol'
 import { withTimeout } from '../async-utils'
+import { IS_WINDOWS } from '../platform'
 
-/** The daemon is present (deb install). When false, callers use the pkexec fallback. */
+const DAEMON_PATH = IS_WINDOWS ? DAEMON_PIPE_PATH : DAEMON_SOCKET_PATH
+
+/**
+ * The daemon is present (deb install). When false, callers use the pkexec fallback.
+ * Always true on Windows: the service is the only door to root there, and whether it
+ * answers is learned by asking it, never by looking for its pipe (opening a pipe to
+ * look IS a connection).
+ */
 export function isDaemonAvailable(): boolean {
-  return existsSync(DAEMON_SOCKET_PATH)
+  return IS_WINDOWS || existsSync(DAEMON_SOCKET_PATH)
 }
 
 /**
@@ -37,7 +46,7 @@ let nextId = 1
 export function daemonRequest(
   op: DaemonOp,
   args?: Record<string, unknown>,
-  socketPath: string = DAEMON_SOCKET_PATH, // overridable only for tests
+  socketPath: string = DAEMON_PATH, // overridable only for tests
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const id = nextId++
@@ -195,5 +204,53 @@ export async function daemonWireguardHandshakeAge(): Promise<number | null> {
   } catch {
     // Includes `unknown op` from a daemon predating this op. Same answer: unknown.
     return null
+  }
+}
+
+/**
+ * A Windows tunnel interface's byte counters, read by the service: Windows has no
+ * world-readable /proc/net/dev. Null when the interface is not up or the answer
+ * cannot be read; the caller treats that as "no tunnel interface", as it does an
+ * absent /proc line on Linux.
+ */
+export async function daemonTrafficCounters(iface: 'sntl0' | 'sntl-tun'): Promise<{ rx: number; tx: number } | null> {
+  try {
+    const result = await withTimeout(daemonRequest('traffic_counters', { iface }), 3000, 'daemon counters probe')
+    const r = (result ?? {}) as { present?: unknown; rxBytes?: unknown; txBytes?: unknown }
+    if (r.present !== true || typeof r.rxBytes !== 'number' || typeof r.txBytes !== 'number') return null
+    return { rx: r.rxBytes, tx: r.txBytes }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The Windows default route as the service sees it ({gateway, iface}, iface being the
+ * interface index), or null when it cannot be read. Only ever compared with itself:
+ * the service picks the uplink for its own routes, whatever the app sends.
+ */
+export async function daemonDefaultRoute(): Promise<{ gateway: string; iface: string } | null> {
+  try {
+    const result = await withTimeout(daemonRequest('default_route'), 3000, 'daemon route probe')
+    const r = (result ?? {}) as { gateway?: unknown; iface?: unknown }
+    if (typeof r.gateway !== 'string' || !r.gateway || typeof r.iface !== 'string' || !r.iface) return null
+    return { gateway: r.gateway, iface: r.iface }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The names of other VPN adapters that are up on Windows, for the same warning
+ * detectOtherVpn gives on Linux. Empty when none, or when the answer cannot be read:
+ * the warning never gates a connect.
+ */
+export async function daemonOtherVpns(): Promise<string[]> {
+  try {
+    const result = await withTimeout(daemonRequest('other_vpns'), 3000, 'daemon VPN probe')
+    const names = (result as { names?: unknown } | null)?.names
+    return Array.isArray(names) ? names.filter((n): n is string => typeof n === 'string') : []
+  } catch {
+    return []
   }
 }

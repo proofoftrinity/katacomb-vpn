@@ -40,7 +40,9 @@
 #
 # The portability run, when packaging changed. It is interactive, needs root,
 # ends with the package UNINSTALLED and wants a reboot after. A wrapper cannot
-# carry anyone through that, so it prints the command and stops.
+# carry anyone through that, so it prints the command and stops. The Windows VM
+# run, when the Windows side of packaging changed, is asked about the same way:
+# it boots a VM, and the Ubuntu one must be off while it does.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -308,6 +310,41 @@ EOF
     read -r reply
     case "$reply" in
       y|Y|yes|YES) ok "taking the portability run as done" ;;
+      *) die "stopping so you can run it. Then: ./scripts/ship.sh $VERSION" ;;
+    esac
+  fi
+fi
+
+# The Windows installer's own check, on the paths release.sh's preflight names.
+WIN_PACKAGING_CHANGED=0
+if [ -z "$PREV_TAG" ]; then
+  WIN_PACKAGING_CHANGED=1
+elif [ -n "$(git diff --name-only "$PREV_TAG".."$RANGE_END" -- electron-builder.yml build/installer.nsh resources/win/ daemon/ scripts/build-daemon.sh scripts/wine/ 2>/dev/null)" ]; then
+  WIN_PACKAGING_CHANGED=1
+elif [ "$(electron_version "$PREV_TAG")" != "$(electron_version "$RANGE_END")" ]; then
+  WIN_PACKAGING_CHANGED=1
+fi
+if [ "$WIN_PACKAGING_CHANGED" = 0 ]; then
+  skip "Windows packaging unchanged since ${PREV_TAG:-the last release}, not required"
+else
+  info "Windows packaging changed since ${PREV_TAG:-the last release}"
+  cat <<EOF
+
+  Also yours: the Windows VM run, on this release's installer, with the Ubuntu VM
+  off. Run it, then run this again:
+
+      ./scripts/verify-windows-vm.sh fullcycle dist/katacomb-vpn-$VERSION-setup.exe
+
+  If you have already done it for $TAG, just carry on: answer y below.
+
+EOF
+  if [ "$DRY_RUN" = 1 ]; then
+    info "would ask whether the Windows VM run is already done"
+  else
+    printf '  Windows VM run already done for %s? [y/N] ' "$TAG"
+    read -r reply
+    case "$reply" in
+      y|Y|yes|YES) ok "taking the Windows VM run as done" ;;
       *) die "stopping so you can run it. Then: ./scripts/ship.sh $VERSION" ;;
     esac
   fi

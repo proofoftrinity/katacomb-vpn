@@ -3,7 +3,8 @@
 Katacomb VPN itself is **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
 
 The packages (`.deb`, AppImage) additionally ship three third-party executables under
-`resources/linux/bin/`. Each is a **separate program**, executed as its own process;
+`resources/linux/bin/`, and the Windows installer (beta) the Windows builds of the same
+three releases under `resources/win/bin/`. Each is a **separate program**, executed as its own process;
 the application links none of their code. Their licenses apply to those files only, and
 the full text of each accompanies the binary in the same directory. The privileged
 helper is different: it is a Go program that **statically links** third-party modules,
@@ -14,6 +15,10 @@ listed in their own section below.
 | `v2ray` | [v2fly/v2ray-core](https://github.com/v2fly/v2ray-core) | v5.47.0 | — | MIT | `LICENSE.v2ray` |
 | `xray` | [XTLS/Xray-core](https://github.com/XTLS/Xray-core) | v26.3.27 | `d2758a0` | MPL-2.0 | `LICENSE.xray` |
 | `hysteria` | [apernet/hysteria](https://github.com/apernet/hysteria) | app/v2.10.0 | `f2ad1de` | MIT | `LICENSE.hysteria` |
+
+On Windows they are `v2ray.exe`, `xray.exe` and `hysteria.exe`, from the same releases'
+`v2ray-windows-64.zip`, `Xray-windows-64.zip` and `hysteria-windows-amd64.exe`, each
+verified against the release's published digest, beside the same licence texts.
 
 Every one of these is SHA-256 pinned in [`src/main/binary-integrity.ts`](src/main/binary-integrity.ts):
 the app checks each before it spawns it. Root runs none of them — nor any other vendored
@@ -44,6 +49,22 @@ maintainers of this repository will also, for at least three years, supply that 
 on request via the repository's issue tracker. Because the library is dynamically
 linked and shipped as a separate file with its SONAME intact, a recipient may replace
 it with their own build of alsa-lib by substituting the file.
+
+## Wintun (Windows)
+
+The Windows installer ships `wintun.dll`, the driver library the privileged helper creates
+its tunnel adapters with, at `resources/win/privileged/`, beside the helper.
+
+| Library | Upstream | Pinned version | License | Text |
+|---|---|---|---|---|
+| `wintun.dll` (amd64) | [wintun.net](https://www.wintun.net/) (WireGuard LLC) | 0.14.1 | Prebuilt Binaries License | `LICENSE.wintun` |
+
+It is the unmodified DLL from `wintun-0.14.1.zip`, whose SHA2-256 wintun.net publishes
+(`07c25618…ef51`), signed by WireGuard LLC. Its licence permits redistribution only
+alongside software that uses it through the API of `wintun.h` (§3d), which is how the
+helper uses it, through the `golang.zx2c4.com/wintun` module below. "Wintun" names the
+component here and nothing more: the licence forbids using WireGuard LLC's names to
+endorse or promote a product (§3e).
 
 ## AppImage runtime
 
@@ -95,6 +116,10 @@ from it.
 | [gvisor](https://github.com/google/gvisor) (the userspace netstack) | v0.0.0-20250523182742-eede7a881b20 | Apache-2.0 |
 | `golang.org/x/{crypto,net,sys,time}` | see notices | BSD-3-Clause |
 | `go.uber.org/{zap,atomic,multierr}`, `github.com/go-chi/*`, `github.com/google/*`, `github.com/gorilla/*`, `github.com/docker/go-units`, `github.com/ajg/form`, `github.com/go-gost/relay` | see notices | MIT / BSD-3-Clause / Apache-2.0 |
+| Windows build only: `golang.zx2c4.com/wintun` (loads `wintun.dll`), `golang.zx2c4.com/wireguard` (its TUN driver), [`golang.zx2c4.com/wireguard/windows`](https://git.zx2c4.com/wireguard-windows) (`winipcfg`, the IP Helper API) | see notices | MIT |
+
+The Windows helper's filtering-platform calls (`daemon/internal/wfp`) are adapted from
+wireguard-windows' `tunnel/firewall` (MIT, WireGuard LLC), credited in each file.
 
 The full licence text of every linked module, verbatim at the pinned version, is in
 [`daemon/THIRD-PARTY-NOTICES.md`](daemon/THIRD-PARTY-NOTICES.md), which ships beside this
@@ -106,8 +131,9 @@ and the helper's own source is in this repository.
 
 ## Source code offer
 
-All three binaries are vendored **verbatim** from their upstream release archives at the
-versions in the table; nothing shipped is built from source by this repository any more.
+All three binaries, and their three Windows builds, are vendored **verbatim** from their
+upstream release archives at the versions in the table; nothing shipped is built from
+source by this repository any more.
 `xray` is MPL-2.0, whose §3.2 source obligation is satisfied by the upstream release page
 for the pinned tag; `v2ray` and `hysteria` are MIT and carry no source obligation.
 

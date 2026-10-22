@@ -27,7 +27,8 @@ interface Harness {
   calls: Array<{ op: string; args: unknown }>
   execCalls: Array<{ cmd: string; argv: string[] }>
   Unreachable: new (m: string) => Error
-  set: (c: Partial<{ daemonUp: boolean; helperInstalled: boolean; fail: Error | null }>) => void
+  set: (c: Partial<{ daemonUp: boolean; helperInstalled: boolean; fail: Error | null; windows: boolean }>) => void
+  serviceUnreachable: string
 }
 
 let H: Harness
@@ -55,6 +56,11 @@ export async function daemonRequest(op: string, args?: unknown): Promise<unknown
 `)
   writeFileSync(join(root, 'config-guard.ts'),
     `export const LAN_SHARING_ARG = ${JSON.stringify(LAN_SHARING_ARG)}\n`)
+  // The platform, settable per test: a live binding, so the module sees each change.
+  writeFileSync(join(root, 'platform.ts'), `
+export let IS_WINDOWS = false
+export function setWindows(on: boolean): void { IS_WINDOWS = on }
+`)
 
   // Node builtins, so no helper binary or pkexec is ever touched.
   writeFileSync(join(dir, 'fs-stub.ts'), `
@@ -74,6 +80,7 @@ execFile.__promisify__ = undefined
   writeFileSync(entry, `
 export * from './main/helper/privileged'
 export { state, calls, DaemonUnreachableError } from './main/helper/daemon-client'
+export { setWindows } from './main/platform'
 export { fsState } from './fs-stub'
 export { execCalls } from './cp-stub'
 `)
@@ -96,14 +103,16 @@ export { execCalls } from './cp-stub'
       if (c.daemonUp !== undefined) mod.state.daemonUp = c.daemonUp
       if (c.fail !== undefined) mod.state.fail = c.fail
       if (c.helperInstalled !== undefined) mod.fsState.helperInstalled = c.helperInstalled
+      if (c.windows !== undefined) mod.setWindows(c.windows)
     },
+    serviceUnreachable: mod.WINDOWS_SERVICE_UNREACHABLE,
   }
 })
 
 function reset(daemonUp = true) {
   H.calls.length = 0
   H.execCalls.length = 0
-  H.set({ daemonUp, fail: null, helperInstalled: false })
+  H.set({ daemonUp, fail: null, helperInstalled: false, windows: false })
 }
 
 describe('verb to daemon op mapping', () => {
@@ -230,5 +239,32 @@ describe('canEscalatePrivileges', () => {
     reset(false)
     H.set({ helperInstalled: false })
     assert.equal(H.canEscalatePrivileges(), false)
+  })
+})
+
+// [PH-12] Windows has one door to root, the service's pipe. An unreachable service is
+// the reinstall message, never an elevation of any kind, even with a helper on disk.
+describe('Windows', () => {
+  test('[PH-12] every op goes to the service', async () => {
+    reset(false)
+    H.set({ windows: true })
+    await H.runPrivileged(['up', '/tmp/c.conf'])
+    await H.runPrivileged(['tun-down'])
+    assert.deepEqual(H.calls.map((c) => c.op), ['wireguard_up', 'tun_down'])
+    assert.equal(H.execCalls.length, 0)
+  })
+
+  test('[PH-12] an UNREACHABLE service says reinstall, and nothing is run instead', async () => {
+    reset()
+    H.set({ windows: true, fail: new H.Unreachable('connect ENOENT'), helperInstalled: true })
+    await assert.rejects(() => H.runPrivileged(['down']), (err: Error) => err.message === H.serviceUnreachable)
+    assert.equal(H.execCalls.length, 0, 'no pkexec, no elevation: the service is the only door')
+  })
+
+  test('[PH-12] a REJECTED op propagates as the service said it', async () => {
+    reset()
+    H.set({ windows: true, fail: new Error('invalid config: line 3 rejected'), helperInstalled: true })
+    await assert.rejects(() => H.runPrivileged(['up', '/tmp/c.conf']), /line 3 rejected/)
+    assert.equal(H.execCalls.length, 0)
   })
 })

@@ -13,7 +13,8 @@
 # afterwards is exactly this build:
 #     katacomb-vpn_<version>_amd64.deb
 #     katacomb-vpn-<version>.AppImage
-#     SHA256SUMS       checksums of exactly those two files
+#     katacomb-vpn-<version>-setup.exe   the Windows installer (beta, unsigned)
+#     SHA256SUMS       checksums of exactly those three files
 #     SHA256SUMS.asc   detached armored signature over SHA256SUMS
 #
 # The version bump is committed and tagged only if every earlier step passed; if
@@ -72,7 +73,8 @@
 #                 You do NOT have to work out whether step 2 applies: preflight
 #                 diffs electron-builder.yml and resources/linux/ (and the Electron
 #                 version) against the last tag and says so, and the closing output
-#                 prints the steps that follow from its answer.
+#                 prints the steps that follow from its answer. The same goes for
+#                 step 2b, on resources/win/ and build/installer.nsh.
 #
 #   1. cut        ./scripts/release.sh <version> --dry-run     (preflight is real)
 #                 ./scripts/release.sh <version>
@@ -82,6 +84,12 @@
 #                 cut: it picks its deb by mtime, so run first it tests the
 #                 PREVIOUS release (or dies, if dist/ is empty). It ends with the
 #                 package UNINSTALLED, which is why step 3 exists.
+#
+#   2b. windows   ./scripts/verify-windows-vm.sh fullcycle dist/katacomb-vpn-<version>-setup.exe
+#                 ONLY when step 0 found Windows packaging changes. Installs the
+#                 installer in the Windows test VM, drives the app, uninstalls it
+#                 (docs/windows.md, "The release check"). Not with the Ubuntu VM
+#                 running: the host has RAM for one VM at a time.
 #
 #   3. install    sudo apt install ./dist/katacomb-vpn_<version>_amd64.deb
 #
@@ -107,7 +115,7 @@
 #
 #   7. publish    ./scripts/publish-release.sh <version>
 #                 Pushes the branch, pushes the tag, creates the GitHub release with
-#                 the four artifacts. Verifies first that dist/ really is this tag's
+#                 the five artifacts. Verifies first that dist/ really is this tag's
 #                 build (sha256sum -c AND gpg --verify), because gh uploads whatever
 #                 it is handed and nothing else ties dist/ to the tag. Idempotent, so
 #                 a publish that got halfway is resumed by re-running it.
@@ -218,11 +226,12 @@ EOF
 
   sed -i -E "s/katacomb-vpn_[0-9]+\.[0-9]+\.[0-9]+_amd64\.deb/katacomb-vpn_${version}_amd64.deb/g" "$out_file"
   sed -i -E "s/katacomb-vpn-[0-9]+\.[0-9]+\.[0-9]+\.AppImage/katacomb-vpn-${version}.AppImage/g" "$out_file"
+  sed -i -E "s/katacomb-vpn-[0-9]+\.[0-9]+\.[0-9]+-setup\.exe/katacomb-vpn-${version}-setup.exe/g" "$out_file"
 }
 
-# Same idea for README.md, which carries the version in five places: the status
-# line and the four install commands. Unlike the notes it is hand-written prose,
-# so this only ever rewrites those five and never generates a file from scratch —
+# Same idea for README.md, which carries the version in its status line and in
+# the install commands and file names. Unlike the notes it is hand-written prose,
+# so this only ever rewrites those and never generates a file from scratch —
 # a missing README is left missing rather than invented.
 generate_readme() {
   local version=$1 src_readme=$2 out_file=$3
@@ -233,6 +242,7 @@ generate_readme() {
   sed -i -E "s/(\*\*Status:\*\* release )\([0-9]+\.[0-9]+\.[0-9]+\)/\1(${version})/" "$out_file"
   sed -i -E "s/katacomb-vpn_[0-9]+\.[0-9]+\.[0-9]+_amd64\.deb/katacomb-vpn_${version}_amd64.deb/g" "$out_file"
   sed -i -E "s/katacomb-vpn-[0-9]+\.[0-9]+\.[0-9]+\.AppImage/katacomb-vpn-${version}.AppImage/g" "$out_file"
+  sed -i -E "s/katacomb-vpn-[0-9]+\.[0-9]+\.[0-9]+-setup\.exe/katacomb-vpn-${version}-setup.exe/g" "$out_file"
 
   # A sed that silently matches nothing is the exact failure this function exists
   # to prevent, and the status line is the one that is prose and can be reworded.
@@ -396,6 +406,7 @@ NOTES=RELEASE_NOTES.md
 READMEDOC=README.md
 DEB_NAME="katacomb-vpn_${VERSION}_amd64.deb"
 APPIMAGE_NAME="katacomb-vpn-${VERSION}.AppImage"
+SETUP_NAME="katacomb-vpn-${VERSION}-setup.exe"
 
 cd "$REPO_ROOT"
 
@@ -526,6 +537,11 @@ ok "version $CURRENT -> $VERSION"
 gpg --list-secret-keys "$SIGNING_KEY" >/dev/null 2>&1 || die "no secret key $SIGNING_KEY in the keyring, import it with: gpg --import private.asc"
 ok "signing key $SIGNING_KEY present"
 
+# The Windows installer's build runs wine in docker (scripts/wine/), after the Linux
+# packages are built: asked here so a missing docker stops the cut before the bump.
+docker info >/dev/null 2>&1 || die "docker is not reachable, and the Windows installer's build runs wine in it (scripts/wine/)"
+ok "docker reachable, for the Windows installer's build"
+
 # Does this release need the packaging verification? The rule (CLAUDE.md) is
 # "after touching electron-builder.yml, either maintainer script, or the systemd
 # unit", and resources/linux/ holds the latter three; daemon/ is the privileged
@@ -554,6 +570,24 @@ elif [ "$(electron_version "$PREV_TAG")" != "$(electron_version HEAD)" ]; then
   info "Electron $(electron_version "$PREV_TAG") -> $(electron_version HEAD) since $PREV_TAG, verify-deb-portability.sh is REQUIRED"
 else
   ok "packaging unchanged since $PREV_TAG, verify-deb-portability.sh can be skipped"
+fi
+
+# The same question for the Windows installer, which nothing else installs before it
+# ships: its own resources, the NSIS hooks that register the service, the helper the
+# service runs, and the wine that writes the uninstaller.
+WIN_PATHS=(electron-builder.yml build/installer.nsh resources/win/ daemon/ scripts/build-daemon.sh scripts/wine/)
+WIN_PACKAGING_CHANGED=0
+if [ -z "$PREV_TAG" ]; then
+  WIN_PACKAGING_CHANGED=1
+elif [ -n "$(git diff --name-only "$PREV_TAG"..HEAD -- "${WIN_PATHS[@]}")" ]; then
+  WIN_PACKAGING_CHANGED=1
+  info "Windows packaging changed since $PREV_TAG, verify-windows-vm.sh fullcycle is REQUIRED:"
+  git diff --stat "$PREV_TAG"..HEAD -- "${WIN_PATHS[@]}" | sed 's/^/          /'
+elif [ "$(electron_version "$PREV_TAG")" != "$(electron_version HEAD)" ]; then
+  WIN_PACKAGING_CHANGED=1
+  info "Electron changed since $PREV_TAG, verify-windows-vm.sh fullcycle is REQUIRED"
+else
+  ok "Windows packaging unchanged since $PREV_TAG, verify-windows-vm.sh can be skipped"
 fi
 
 # RELEASE_NOTES.md's title, fixes section and install commands are derived
@@ -628,16 +662,18 @@ run npm run typecheck
 run npm test
 
 # --- 5. build ---------------------------------------------------------------
-step 5 "build both artifacts (this takes a few minutes)"
+step 5 "build the three packages (this takes a few minutes)"
 run npm run dist
 
 if [ "$DRY_RUN" = 1 ]; then
-  info "would then expect dist/$DEB_NAME and dist/$APPIMAGE_NAME"
+  info "would then expect dist/$DEB_NAME, dist/$APPIMAGE_NAME and dist/$SETUP_NAME"
 else
   [ -f "dist/$DEB_NAME" ] || die "electron-builder did not produce dist/$DEB_NAME"
   [ -f "dist/$APPIMAGE_NAME" ] || die "electron-builder did not produce dist/$APPIMAGE_NAME"
+  [ -f "dist/$SETUP_NAME" ] || die "electron-builder did not produce dist/$SETUP_NAME"
   ok "$DEB_NAME ($(du -h "dist/$DEB_NAME" | cut -f1))"
   ok "$APPIMAGE_NAME ($(du -h "dist/$APPIMAGE_NAME" | cut -f1))"
+  ok "$SETUP_NAME ($(du -h "dist/$SETUP_NAME" | cut -f1))"
 fi
 
 # --- 6. checksums -----------------------------------------------------------
@@ -645,9 +681,9 @@ fi
 # every older build still sitting in dist/ into this release's SHA256SUMS.
 step 6 "checksums"
 if [ "$DRY_RUN" = 1 ]; then
-  info "would write dist/SHA256SUMS over $DEB_NAME and $APPIMAGE_NAME"
+  info "would write dist/SHA256SUMS over $DEB_NAME, $APPIMAGE_NAME and $SETUP_NAME"
 else
-  ( cd dist && sha256sum "$DEB_NAME" "$APPIMAGE_NAME" > SHA256SUMS && sha256sum -c SHA256SUMS )
+  ( cd dist && sha256sum "$DEB_NAME" "$APPIMAGE_NAME" "$SETUP_NAME" > SHA256SUMS && sha256sum -c SHA256SUMS )
   ok "dist/SHA256SUMS"
 fi
 
@@ -703,6 +739,15 @@ build still wants installing once:
 EOF
 fi
 
+if [ "$WIN_PACKAGING_CHANGED" = 1 ]; then
+  cat <<EOF
+
+Windows packaging changed too, so the Windows VM run is required (with the Ubuntu VM off):
+
+    ./scripts/verify-windows-vm.sh fullcycle dist/$SETUP_NAME
+EOF
+fi
+
 cat <<EOF
 
 $(printf '\033[1mRelease %s is ready, and entirely local.\033[0m' "$TAG")
@@ -711,7 +756,7 @@ Push, when that passes:
     git push origin $RELEASE_BRANCH
     git push origin $TAG
 
-Then publish the four files, either at
+Then publish the five files, either at
 https://github.com/proofoftrinity/katacomb-vpn/releases/new?tag=$TAG
 or with the gh CLI:
 
@@ -719,6 +764,7 @@ or with the gh CLI:
       --notes-file RELEASE_NOTES.md \\
       dist/$DEB_NAME \\
       dist/$APPIMAGE_NAME \\
+      dist/$SETUP_NAME \\
       dist/SHA256SUMS \\
       dist/SHA256SUMS.asc
 

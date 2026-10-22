@@ -22,9 +22,12 @@ const Version = 1
 // app can find out what a running daemon can do BEFORE it acts. That ordering
 // matters: without it a stale daemon is discovered by `unknown op` from the
 // bring-up, which for OpenVPN and AmneziaWG is after the session has been paid
-// for. Pinned to testdata/corpus/protocol.json, which the TypeScript side reads
-// too. Keep in dispatch order.
-var Ops = []string{
+// for. It is LinuxOps or WindowsOps (ops_linux.go, ops_windows.go), both pinned
+// to testdata/corpus/protocol.json, which the TypeScript side reads too. Keep
+// each list in dispatch order.
+
+// LinuxOps is the op list of the Linux daemon.
+var LinuxOps = []string{
 	"protocol_version",
 	"status",
 	"xfrm_policies",
@@ -35,6 +38,29 @@ var Ops = []string{
 	"amneziawg_down",
 	"openvpn_up",
 	"openvpn_down",
+	"tun_up",
+	"tun_down",
+	"killswitch_on",
+	"killswitch_off",
+	"dns_set",
+	"dns_restore",
+}
+
+// WindowsOps is the op list of the Windows service: no OpenVPN (so the app
+// refuses those nodes before payment) and no IPsec probe, plus the read-only
+// facts the app reads for itself on Linux (byte counters, the default route,
+// other VPNs' adapters).
+var WindowsOps = []string{
+	"protocol_version",
+	"status",
+	"wireguard_handshake",
+	"traffic_counters",
+	"default_route",
+	"other_vpns",
+	"wireguard_up",
+	"wireguard_down",
+	"amneziawg_up",
+	"amneziawg_down",
 	"tun_up",
 	"tun_down",
 	"killswitch_on",

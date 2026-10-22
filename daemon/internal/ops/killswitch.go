@@ -1,37 +1,16 @@
+//go:build linux
+
 package ops
 
 import (
 	"context"
 	"fmt"
-
-	"katacomb.vpn/daemon/internal/guard"
 )
 
 const (
 	chain4 = "KATACOMB_KILLSWITCH"
 	chain6 = "KATACOMB_KILLSWITCH6"
 )
-
-// Destinations that stay reachable while the kill switch is armed, so the user
-// can still reach their own LAN. Hardcoded HERE on purpose: the app sends one
-// boolean and never a range, so nothing a compromised renderer or the
-// unauthenticated socket can say turns this into a hole to a public address. An
-// ACCEPT in OUTPUT only permits; it does not route, so these cannot pull tunnel
-// traffic out of the tunnel. 100.64.0.0/10 (CGNAT, Tailscale) is deliberately
-// absent.
-var (
-	lanRangesV4 = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4", "255.255.255.255/32"}
-	// fe80::/10 also unbreaks neighbour discovery, which the v6 chain drops otherwise.
-	lanRangesV6 = []string{"fe80::/10", "fc00::/7", "ff00::/8"}
-)
-
-// KillswitchParams is `killswitch-on <iface> <host> [dns] [lan-sharing]`.
-type KillswitchParams struct {
-	Iface      string
-	RemoteHost string
-	DnsIp      string // "" = none
-	LanSharing bool
-}
 
 // The `-w 5` on every call is load-bearing: without it a concurrent xtables-lock
 // holder (NetworkManager, ufw, docker) makes a `-D OUTPUT` fail silently and
@@ -87,20 +66,8 @@ func ipv6KillswitchOn(ctx context.Context, e *Env, ip6, iface string, lan bool) 
 // tunnel interface only, the LAN ranges when asked, then DROP. IPv6 is
 // best-effort and never aborts the IPv4 chain.
 func KillswitchOn(ctx context.Context, e *Env, p KillswitchParams) error {
-	if !guard.IsValidInterfaceName(p.Iface) {
-		return fmt.Errorf("invalid interface name: %s", p.Iface)
-	}
-	if !guard.IsIPv4(p.RemoteHost) {
-		return fmt.Errorf("invalid IPv4 address: %s", p.RemoteHost)
-	}
-	// A 0.0.0.0/32 whitelist matches no packet, so the DROP-all rule would swallow
-	// the tunnel's own outer traffic: interface up, "connected", nothing gets
-	// through. Refuse instead of installing a self-defeating chain.
-	if p.RemoteHost == "0.0.0.0" {
-		return fmt.Errorf("killswitch remote host 0.0.0.0 whitelists nothing")
-	}
-	if p.DnsIp != "" && !guard.IsIPv4(p.DnsIp) {
-		return fmt.Errorf("invalid IPv4 address: %s", p.DnsIp)
+	if err := p.check(); err != nil {
+		return err
 	}
 	return withLock(ctx, e, func() error {
 		ipt4, err := tool(e, "iptables")

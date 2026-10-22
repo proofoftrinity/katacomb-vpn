@@ -1,3 +1,5 @@
+//go:build linux
+
 package ops
 
 import (
@@ -6,20 +8,6 @@ import (
 	"strings"
 	"time"
 )
-
-// WgHandshakeResult is the `wireguard_handshake` op's reply, key for key what the
-// app reads.
-type WgHandshakeResult struct {
-	// Kernel is false when there is nothing to read: no sntl0, or an sntl0 that is
-	// the userspace AmneziaWG device (a `type tun` link, and internal/amneziawg
-	// deliberately never opens a UAPI socket, so wg(8) cannot reach it either), or
-	// wg not installed. The app reads false as "cannot know", never as "dead".
-	Kernel bool `json:"kernel"`
-	// AgeSeconds is how long ago the most recent peer handshake completed. -1 when
-	// the device exists but no peer has ever completed one — wg reports that as a
-	// timestamp of 0, which must not be read as "1970, so decades stale".
-	AgeSeconds int `json:"ageSeconds"`
-}
 
 // WgHandshake reports the age of the last completed handshake on sntl0 when it is
 // a kernel WireGuard device. It exists because nothing else can tell an idle tunnel

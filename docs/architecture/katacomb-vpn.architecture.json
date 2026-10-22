@@ -48,7 +48,7 @@
     ],
     "repository": {
       "url": "git@github-proofoftrinity:proofoftrinity/katacomb-vpn.git",
-      "revision": "4e3fe9d8719ce6796d824dbeac97fe2647a798b0",
+      "revision": "b634931901bf51f1cfe839e40ff6bfb7e3cdff72",
       "link_mode": "local-only"
     }
   },
@@ -185,7 +185,7 @@
         },
         {
           "path": "src/main/helper/privileged.ts",
-          "label": "routes to daemon or pkexec"
+          "label": "routes to daemon, pkexec or service"
         }
       ]
     },
@@ -193,7 +193,7 @@
       "id": "helper",
       "type": "security",
       "label": "Privileged Helper",
-      "sublabel": "Go, runs as root",
+      "sublabel": "Go, root or SYSTEM",
       "pos": [
         930,
         250
@@ -202,7 +202,7 @@
         160,
         64
       ],
-      "tag": "daemon or pkexec",
+      "tag": "daemon, pkexec, service",
       "sources": [
         {
           "path": "daemon/main.go",
@@ -211,6 +211,10 @@
         {
           "path": "daemon/internal/ops/tun.go",
           "label": "one verb"
+        },
+        {
+          "path": "daemon/internal/service/service_windows.go",
+          "label": "Windows service on a pipe"
         }
       ]
     },
@@ -298,7 +302,7 @@
     },
     {
       "kind": "security-group",
-      "label": "root: katacomb-vpn-helper",
+      "label": "root or LocalSystem: katacomb-vpn-helper",
       "wraps": [
         "helper",
         "tunnel"
@@ -447,7 +451,8 @@
       "title": "Privilege",
       "items": [
         "One Go binary: root daemon or pkexec one shot",
-        "tun2socks and AmneziaWG are linked in, not vendored"
+        "tun2socks and AmneziaWG are linked in, not vendored",
+        "Windows: a LocalSystem service, no elevation fallback"
       ]
     },
     {

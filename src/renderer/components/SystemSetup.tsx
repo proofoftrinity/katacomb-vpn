@@ -35,6 +35,14 @@ const ROWS: { item: SetupItem; label: string; detail: string }[] = [
   },
 ]
 
+// Windows: the one thing a connect needs is the service the installer registered, and
+// the only fix the app can offer is the installer itself.
+const WINDOWS_ROW = {
+  item: 'helper' as const,
+  label: 'VPN service',
+  detail: 'Brings the tunnel and firewall up for the app. Installed with Katacomb VPN. Needed for full-tunnel connections; local proxy mode works without it.',
+}
+
 function isReady(item: SetupItem, status: SetupStatus): boolean {
   if (item === 'helper') return status.helper === 'ready'
   if (item === 'wireguard-tools') return status.wireguardTools
@@ -68,7 +76,8 @@ export default function SystemSetup({ only, connected = false, onReadyChange }: 
     void refresh()
   }, [refresh])
 
-  const rows = only ? ROWS.filter((r) => only.includes(r.item)) : ROWS
+  const platformRows = status?.platform === 'windows' ? [WINDOWS_ROW] : ROWS
+  const rows = only ? platformRows.filter((r) => only.includes(r.item)) : platformRows
   const allReady = loadError !== null || (status !== null && rows.every((r) => isReady(r.item, status)))
   useEffect(() => {
     onReadyChange?.(allReady)
@@ -106,8 +115,9 @@ export default function SystemSetup({ only, connected = false, onReadyChange }: 
       {rows.map(({ item, label, detail }) => {
         const ready = isReady(item, status)
         const outdated = item === 'helper' && status.helper === 'outdated'
-        const manualOnly = item === 'resolvconf' ? status.resolvconfPackage === null
-          : item !== 'helper' && status.packageManager === null
+        const windows = status.platform === 'windows'
+        const manualOnly = windows || (item === 'resolvconf' ? status.resolvconfPackage === null
+          : item !== 'helper' && status.packageManager === null)
         const helperBlocked = item === 'helper' && connected
         const error = errors[item]
 
@@ -131,7 +141,12 @@ export default function SystemSetup({ only, connected = false, onReadyChange }: 
                   (for example <span className="font-mono">openresolv</span>) the way your distribution documents, then press Recheck.
                 </p>
               )}
-              {!ready && manualOnly && item !== 'resolvconf' && (
+              {!ready && windows && (
+                <p className="text-text-secondary text-xs mt-1">
+                  The Katacomb VPN service isn't running. Reinstall Katacomb VPN to restore it, then press Recheck.
+                </p>
+              )}
+              {!ready && manualOnly && !windows && item !== 'resolvconf' && (
                 <p className="text-text-secondary text-xs mt-1">
                   Install the <span className="font-mono">{item}</span> package with your system's package manager, then press Recheck.
                 </p>

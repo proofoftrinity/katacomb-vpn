@@ -30,6 +30,34 @@
     "xfrm_policies",
     "wireguard_handshake"
   ],
+  "_windows": "The Windows service's contract: the same framing over a named pipe, without OpenVPN or the IPsec probe, plus three read-only ops for facts the app reads for itself on Linux. Pinned by daemon/internal/protocol/corpus_test.go and daemon/internal/server's Windows tests.",
+  "pipePath": "\\\\.\\pipe\\ProtectedPrefix\\Administrators\\Katacomb VPN\\daemon",
+  "windowsOps": [
+    "protocol_version",
+    "status",
+    "wireguard_handshake",
+    "traffic_counters",
+    "default_route",
+    "other_vpns",
+    "wireguard_up",
+    "wireguard_down",
+    "amneziawg_up",
+    "amneziawg_down",
+    "tun_up",
+    "tun_down",
+    "killswitch_on",
+    "killswitch_off",
+    "dns_set",
+    "dns_restore"
+  ],
+  "windowsLockFreeOps": [
+    "status",
+    "protocol_version",
+    "wireguard_handshake",
+    "traffic_counters",
+    "default_route",
+    "other_vpns"
+  ],
   "_requests": "Framing and parse taxonomy. `outcome` is one of valid | invalidJSON | invalidRequest | blank. The two invalid outcomes get a fixed {\"id\":0,...} reply and the connection STAYS OPEN — deviation 3 from the bash helper, because any group member could otherwise bounce the daemon with a single `null` line.",
   "requests": [
     {
@@ -177,7 +205,7 @@
     "maxBypassRoutes": 64,
     "lanSharingArg": "lan-sharing"
   },
-  "_results": "What the read-only ops answer with. server/corpus_test.go marshals the real producers and compares keys and JSON types; daemon-client's readers are tested against these and against malformed variants, which must read as 'cannot know'.",
+  "_results": "What the read-only ops answer with. server/corpus_test.go marshals the real producers and compares keys and JSON types; daemon-client's readers are tested against these and against malformed variants, which must read as 'cannot know'. traffic_counters, default_route and other_vpns are Windows-only; ops/results_shape_test.go pins their Go types on every platform.",
   "results": {
     "protocol_version": {
       "version": 1,
@@ -192,6 +220,20 @@
     "wireguard_handshake": {
       "kernel": true,
       "ageSeconds": 42
+    },
+    "traffic_counters": {
+      "present": true,
+      "rxBytes": 1048576,
+      "txBytes": 65536
+    },
+    "default_route": {
+      "gateway": "192.168.1.1",
+      "iface": "12"
+    },
+    "other_vpns": {
+      "names": [
+        "WireGuard"
+      ]
     }
   }
 }

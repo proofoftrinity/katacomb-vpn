@@ -21,6 +21,8 @@ type corpus struct {
 	MaxMessageBytes int      `json:"maxMessageBytes"`
 	Ops             []string `json:"ops"`
 	LockFreeOps     []string `json:"lockFreeOps"`
+	WindowsOps      []string `json:"windowsOps"`
+	PipePath        string   `json:"pipePath"`
 	Requests        []struct {
 		Name    string `json:"name"`
 		Line    string `json:"line"`
@@ -64,15 +66,21 @@ func TestCorpusConstants(t *testing.T) {
 	}
 }
 
-// Ops is served on the wire, so it is part of the contract, not a test fixture.
+// The op lists are served on the wire, so they are part of the contract, not
+// test fixtures. Both are checked on every platform.
 func TestCorpusOpsList(t *testing.T) {
 	c := loadCorpus(t)
-	if len(Ops) != len(c.Ops) {
-		t.Fatalf("Ops has %d entries, corpus has %d", len(Ops), len(c.Ops))
-	}
-	for i := range Ops {
-		if Ops[i] != c.Ops[i] {
-			t.Errorf("Ops[%d] = %q, corpus says %q", i, Ops[i], c.Ops[i])
+	for _, l := range []struct {
+		name      string
+		got, want []string
+	}{{"LinuxOps", LinuxOps, c.Ops}, {"WindowsOps", WindowsOps, c.WindowsOps}} {
+		if len(l.got) != len(l.want) {
+			t.Fatalf("%s has %d entries, corpus has %d", l.name, len(l.got), len(l.want))
+		}
+		for i := range l.got {
+			if l.got[i] != l.want[i] {
+				t.Errorf("%s[%d] = %q, corpus says %q", l.name, i, l.got[i], l.want[i])
+			}
 		}
 	}
 }

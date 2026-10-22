@@ -176,3 +176,37 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   packaging by building + extracting the deb (`dpkg-deb -x`), not just by reading
   config, and with `scripts/verify-deb-containers.sh` (the five supported images:
   install, `ldd`, launch, `--version`, static, the daemon over its socket, the usage line).
+
+### Windows (beta)
+
+On Windows the same Go helper (`katacomb-vpn-helper.exe`, beside `wintun.dll`) runs as the
+LocalSystem service `KatacombVPN` and is the only door to root: there is no pkexec, and
+an unreachable service is an error, never an elevation prompt. The installer runs
+`katacomb-vpn-helper service install|uninstall`; `service teardown` is the full teardown
+for support. The service serves the same protocol v1 on a named pipe, from the same
+`Dispatch` and the same `ops` trust boundary; `protocol_version` reports `WindowsOps`
+(no OpenVPN, no IPsec probe, plus `traffic_counters`, `default_route` and `other_vpns`,
+which answer what the app reads for itself on Linux). [docs/windows.md](windows.md) has
+the mapping of every Linux mechanism.
+
+- **[PH-10] The Windows pipe admits SYSTEM, the Administrators and the user the service
+  was installed for, and nobody else.** Its DACL is protected and has exactly those three
+  allow entries (the user's read and write, not full control); the listener refuses remote
+  clients and fails rather than join a pipe that already exists. The name sits under
+  `\\.\pipe\ProtectedPrefix\Administrators\`, where only an administrator can create a
+  pipe, so no user process can take it before the service starts and receive the app's
+  configs. The user is the one logged on to the session the installer runs in, not the
+  elevated process's user: with an administrator's credentials typed over a standard
+  account, that is the person who will run the app. Checked in the VM 2026-10-22: a second
+  standard user is refused with "Access is denied".
+- **[PH-11] No tunnel verb is accepted on the Windows command line.** `windowsCommand`
+  is the whole argv contract (`--version`, the `service` verbs, `daemon` for the service
+  manager, the hidden `_tun2socks` engine); every Linux one-shot verb prints the usage
+  line. A command-line door would skip the pipe's DACL, and any process that can start
+  the helper elevated could hand it a config.
+- **[PH-12] On Windows the app reaches root through the service and nothing else.**
+  `runPrivileged` sends every op to the pipe, whatever `isDaemonAvailable` would say about a
+  socket; an unreachable service is the "Reinstall Katacomb VPN" error, and nothing is run
+  in its place: there is no pkexec, and the app never asks for elevation. The setup gate's
+  one Windows row is that service answering `protocol_version`, and its fix is the
+  installer. A rejected op propagates as the service said it, as [PH-9] has it on Linux.

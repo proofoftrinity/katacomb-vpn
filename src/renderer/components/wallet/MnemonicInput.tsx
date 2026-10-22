@@ -3,6 +3,7 @@ import { checkMnemonic } from '../../../shared/mnemonic'
 import { parseWalletExists } from '../../../shared/wallet-errors'
 import { displayConnectError } from '../../utils/connect-errors'
 import { countryCode, polyCode } from '../../utils/country-codes'
+import { IS_WINDOWS } from '../../utils/protocols'
 import { DENSITY_STEPS, densityStep, dotMap } from '../../utils/world-dots'
 import { useNodes } from '../../hooks/useNodes'
 import { SMALL_COUNTRIES, countryPoint, useWorldCountries } from '../map/world-geo'
@@ -181,8 +182,8 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
               <Highlight icon={<KeyIcon className="w-4 h-4" />} title="You hold the keys">
                 No sign-up. Your wallet pays each node directly, on chain.
               </Highlight>
-              <Highlight icon={<ProtocolIcon type={1} className="w-4 h-4" />} title="Six protocols">
-                WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY and Hysteria2.
+              <Highlight icon={<ProtocolIcon type={1} className="w-4 h-4" />} title={IS_WINDOWS ? 'Five protocols' : 'Six protocols'}>
+                {IS_WINDOWS ? 'WireGuard, AmneziaWG, V2Ray, XRAY and Hysteria2.' : 'WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY and Hysteria2.'}
               </Highlight>
               <Highlight icon={<LayersIcon className="w-4 h-4" />} title="Multi-hop">
                 Chain two nodes: one sees your IP, the other the sites, neither sees both.

@@ -268,8 +268,8 @@ export const CANARIES: Canary[] = [
   {
     name: '[REL-30] the watchdog is stopped before the usage is remembered',
     file: IPC_TS,
-    find: '  return withConnectionLock(async () => {\n    rememberSessionUsage()\n\n    stopRootTunnelMonitor()\n    stopQuotaWatchdog()',
-    replace: '  return withConnectionLock(async () => {\n    stopQuotaWatchdog()\n    rememberSessionUsage()\n\n    stopRootTunnelMonitor()',
+    find: '  return withConnectionLock(async () => {\n    await rememberSessionUsage()\n\n    stopRootTunnelMonitor()\n    stopQuotaWatchdog()',
+    replace: '  return withConnectionLock(async () => {\n    stopQuotaWatchdog()\n    await rememberSessionUsage()\n\n    stopRootTunnelMonitor()',
     run: [TEARDOWN],
   },
   {
@@ -431,8 +431,8 @@ export const CANARIES: Canary[] = [
   {
     name: '[REL-7] the WireGuard sink hands root the hostname',
     file: 'src/main/vpn/vpn-manager.ts',
-    find: '  // by now the kill switch may be the thing blocking the lookup).\n  const configString = pinWireguardEndpoint(raw, resolveHostToIPv4)\n',
-    replace: '  // by now the kill switch may be the thing blocking the lookup).\n  const configString = raw\n',
+    find: '  // by now the kill switch may be the thing blocking the lookup).\n  await resolveAhead((resolve) => pinWireguardEndpoint(raw, resolve))\n  const configString = pinWireguardEndpoint(raw, resolveHostToIPv4)\n',
+    replace: '  // by now the kill switch may be the thing blocking the lookup).\n  await resolveAhead((resolve) => pinWireguardEndpoint(raw, resolve))\n  const configString = raw\n',
     run: [SINKS],
   },
 
@@ -519,7 +519,7 @@ export const CANARIES: Canary[] = [
   // --- the socket contract (P6) -------------------------------------------------------
   {
     name: "[PH-4] the daemon's bypass-route cap drifts from the app's",
-    file: 'daemon/internal/ops/tun.go',
+    file: 'daemon/internal/ops/common.go',
     find: 'const MaxBypassRoutes = 64',
     replace: 'const MaxBypassRoutes = 65',
     run: ['go:./internal/server/'],
@@ -533,7 +533,7 @@ export const CANARIES: Canary[] = [
   },
   {
     name: '[PH-2] the daemon renames a result field the app reads',
-    file: 'daemon/internal/ops/handshake.go',
+    file: 'daemon/internal/ops/common.go',
     find: 'json:"ageSeconds"',
     replace: 'json:"age_seconds"',
     run: ['go:./internal/server/'],
@@ -706,8 +706,8 @@ export const CANARIES: Canary[] = [
   {
     name: '[REL-2] the monitor asks vpn-manager which protocol to watch, and loses it with the interface',
     file: IPC_TS,
-    find: '    if (isRootTunnelProtocol(desiredProtocol)) {',
-    replace: '    if (isRootTunnelProtocol(getConnectionStatus().protocol as typeof desiredProtocol)) {',
+    find: '  if (isRootTunnelProtocol(desiredProtocol)) {',
+    replace: '  if (isRootTunnelProtocol(getConnectionStatus().protocol as typeof desiredProtocol)) {',
     run: [PROTOCOLS],
   },
 
@@ -785,7 +785,7 @@ export const CANARIES: Canary[] = [
   {
     name: '[MH-12] the watchdog stops watching the exit hop\'s deadline',
     file: IPC_TS,
-    find: '    void checkChainExitDeadline()\n',
+    find: '  void checkChainExitDeadline()\n',
     replace: '',
     run: [CHAIN],
   },
@@ -918,5 +918,63 @@ export const CANARIES: Canary[] = [
     find: '        registry: CHAIN_REGISTRY,',
     replace: '',
     run: ['src/main/provider/provider-console.test.ts'],
+  },
+
+  // --- Windows (beta) -----------------------------------------------------------------
+  {
+    name: '[REL-43] the Windows kill switch permits the LAN with LAN sharing off',
+    file: 'daemon/internal/ops/wfp_plan.go',
+    find: '\tif lan {\n\t\tfor _, r := range lanRangesV4 {',
+    replace: '\tif true {\n\t\tfor _, r := range lanRangesV4 {',
+    run: ['go:./internal/ops/'],
+  },
+  {
+    name: '[REL-44] the Windows DNS guard lets port 53 out of any interface',
+    file: 'daemon/internal/ops/wfp_plan.go',
+    find: 'Interface: tunnel, Protocols: dns, RemotePort: 53},',
+    replace: 'Protocols: dns, RemotePort: 53},',
+    run: ['go:./internal/ops/'],
+  },
+  {
+    name: '[PH-10] the Windows pipe admits everyone',
+    file: 'daemon/internal/server/pipe.go',
+    find: '(A;;GRGW;;;%s)"',
+    replace: '(A;;GRGW;;;%s)(A;;GRGW;;;WD)"',
+    run: ['go:./internal/server/'],
+  },
+  {
+    name: '[PH-11] the Windows helper accepts a tunnel verb on its command line',
+    file: 'daemon/command.go',
+    find: '(args[0] == "daemon" || args[0] == "_tun2socks")',
+    replace: '(args[0] == "daemon" || args[0] == "_tun2socks" || args[0] == "up")',
+    run: ['go:.'],
+  },
+  {
+    name: '[PH-12] an unreachable Windows service falls back to pkexec',
+    file: 'src/main/helper/privileged.ts',
+    find: '  if (IS_WINDOWS) {\n    try {\n      await runViaDaemon(args)',
+    replace: '  if (IS_WINDOWS && false) {\n    try {\n      await runViaDaemon(args)',
+    run: ['src/main/helper/privileged.test.ts'],
+  },
+  {
+    name: '[REL-45] a Windows WireGuard tunnel is not watched for an uplink change',
+    file: IPC_TS,
+    find: '    if (!IS_WINDOWS) return\n  }\n  if (desiredProtocol === null',
+    replace: '    return\n  }\n  if (desiredProtocol === null',
+    run: ['src/main/ipc-handlers.windows.test.ts'],
+  },
+  {
+    name: '[REL-45] a Windows AmneziaWG peer is never asked its handshake age',
+    file: IPC_TS,
+    find: "  const readable = desiredProtocol === 'wireguard' || (IS_WINDOWS && desiredProtocol === 'amneziawg')",
+    replace: "  const readable = desiredProtocol === 'wireguard'",
+    run: ['src/main/ipc-handlers.windows.test.ts'],
+  },
+  {
+    name: '[PKG-3] the Windows uninstaller leaves the service behind',
+    file: 'build/installer.nsh',
+    find: "\\katacomb-vpn-helper.exe\" service uninstall'",
+    replace: "\\katacomb-vpn-helper.exe\" service teardown'",
+    run: ['test/static/windows-installer.test.ts'],
   },
 ]
