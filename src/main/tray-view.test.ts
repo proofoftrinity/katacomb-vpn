@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CINNAMON_PANEL, cssPanelShade, markedTrayBitmap, panelShade, panelWatchCommand, TRAY_HOST_ATTEMPTS, TRAY_HOST_INTERVAL_MS, TRAY_REPAINT_AGAIN_MS,
-  trayPainter, trayView, waitForTrayHost, XFCE_PANEL, type PanelReader,
+  trayPainter, trayView, waitForTrayHost, windowsTaskbarShade, XFCE_PANEL, type PanelReader,
 } from './tray-view.ts'
 import type { ConnectionInfo } from './ipc-handlers.ts'
 
@@ -311,4 +311,17 @@ test('[REL-42] a panel restyled on its own is watched where the desktop can say 
   // GNOME's top bar never changes shade; elsewhere the apps' theme, which nativeTheme reports, decides.
   assert.equal(panelWatchCommand({ XDG_CURRENT_DESKTOP: 'ubuntu:GNOME' }), null)
   assert.equal(panelWatchCommand({ XDG_CURRENT_DESKTOP: 'KDE' }), null)
+})
+
+test('[REL-42] Windows: the taskbar follows the system mode, not the apps\' mode', async () => {
+  // `reg query` prints the value under its key; 0 is the dark taskbar.
+  const reg = (value: string) => async (cmd: string, args: string[]) => {
+    assert.equal(cmd, 'reg')
+    assert.deepEqual(args.slice(-2), ['/v', 'SystemUsesLightTheme'])
+    return `\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\r\n    SystemUsesLightTheme    REG_DWORD    ${value}\r\n\r\n`
+  }
+  assert.equal(await windowsTaskbarShade(reg('0x0')), 'dark')
+  assert.equal(await windowsTaskbarShade(reg('0x1')), 'light')
+  assert.equal(await windowsTaskbarShade(async () => { throw new Error('ERROR: The system was unable to find the specified registry key or value.') }), 'dark',
+    'no value: Windows\' default dark taskbar')
 })

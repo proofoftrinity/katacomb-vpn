@@ -133,29 +133,29 @@ function defaults(tunnel: Tunnel, state: { nextSession: number; chainSessions: u
       isProxyChildAlive: () => tunnel.up && !isRoot(tunnel.protocol),
       waitForChildProxyListener: async () => undefined,
       isVpnActive: () => tunnel.up && tunnel.mode === 'tunnel',
-      detectOtherVpn: () => [],
+      detectOtherVpn: async () => [],
       getV2RayError: () => '',
       getV2RayRemoteHost: () => tunnel.remoteHost,
       getWireGuardRemoteHost: () => tunnel.remoteHost,
       getOpenVpnRemoteHost: () => tunnel.remoteHost,
       isWireGuardUp: () => tunnel.up && (tunnel.protocol === 'wireguard' || tunnel.protocol === 'amneziawg'),
       isOpenVpnUp: () => tunnel.up && tunnel.protocol === 'openvpn',
-      hasDefaultRouteChanged: () => false,
+      hasDefaultRouteChanged: async () => false,
+      // Traffic flows both ways while the tunnel carries: each read sees more.
+      readTunnelBytes: async () => {
+        if (!tunnel.up) return null
+        if (tunnel.carries) { tunnel.rx += 200_000; tunnel.tx += 20_000 } else { tunnel.tx += 20_000 }
+        return { rx: tunnel.rx, tx: tunnel.tx }
+      },
       startProvisioningProxy: async () => ({ port: 1081, stop: noop }),
       protocolRuntimeError: () => null,
       onV2RayUnexpectedExit: noop,
       reapOrphanedProxyChildren: async () => false,
     },
     'vpn/traffic-stats': {
-      getTrafficStats: () => ({ rxBytes: tunnel.rx, txBytes: tunnel.tx, rxRate: 0, txRate: 0 }),
+      trafficStatsFrom: (b: { rx: number; tx: number } | null) => ({ rxBytes: b?.rx ?? 0, txBytes: b?.tx ?? 0, rxSpeed: 0, txSpeed: 0 }),
       resetTrafficStats: noop,
       maxUsageBytes,
-      // Traffic flows both ways while the tunnel carries: each read sees more.
-      readTunnelBytes: () => {
-        if (!tunnel.up) return null
-        if (tunnel.carries) { tunnel.rx += 200_000; tunnel.tx += 20_000 } else { tunnel.tx += 20_000 }
-        return { rx: tunnel.rx, tx: tunnel.tx }
-      },
     },
     'helper/privileged': { runPrivileged: async () => undefined, canEscalatePrivileges: () => true },
     'helper/daemon-client': {
@@ -216,8 +216,15 @@ const flush = () => new Promise<void>((r) => setImmediate(r))
 
 export const T0 = Date.parse('2026-10-07T00:00:00Z')
 
-export async function loadIpcHandlers(): Promise<{ fresh: (opts?: FreshOptions) => IpcHarness }> {
-  const b: Bundle = await bundle({ entries: ['src/main/ipc-handlers.ts', 'src/main/chain/chain-service.ts'], fake: FAKED })
+/** `windows`: the same state machine with src/main/platform.ts saying Windows (docs/windows.md). */
+export async function loadIpcHandlers(
+  { windows = false }: { windows?: boolean } = {},
+): Promise<{ fresh: (opts?: FreshOptions) => IpcHarness }> {
+  const b: Bundle = await bundle({
+    entries: ['src/main/ipc-handlers.ts', 'src/main/chain/chain-service.ts'],
+    fake: FAKED,
+    ...(windows ? { stubs: { 'src/main/platform': 'test/harness/platform-windows.ts' } } : {}),
+  })
   return {
     fresh(opts: FreshOptions = {}): IpcHarness {
       const userData = mkdtempSync(join(tmpdir(), 'kv-userdata-'))

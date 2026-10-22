@@ -221,6 +221,10 @@ Measured in the release VM on an account that had used Plasma: 3 of 6 GNOME logi
 SIGSEGV'd 1.3 s in, the released 1.16.1 4 of 6 (so not this feature's code),
 `LD_DEBUG=files` showed both modules loaded and then unloaded, and a plain GNOME account
 started clean. GNOME's own entries use the same key (update-notifier's waits 60 s).
+On **Windows** the entry is the user's Run key, through `setLoginItemSettings` with
+`--autostart`, read back by the same arguments; Task Manager's Startup tab switches it off,
+and reads as off here. The installed app's path never changes across upgrades (a
+per-machine install), so there is nothing to follow, and a dev build writes none.
 
 **Verify packaging by installing, not by reading config** —
 `scripts/verify-deb-portability.sh` (interactive, needs root, pauses for GUI steps)

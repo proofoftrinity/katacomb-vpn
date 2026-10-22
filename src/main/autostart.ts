@@ -2,13 +2,21 @@ import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs'
 import { dirname, join } from 'path'
 import { writeFileAtomic } from './fs-utils'
+import { IS_WINDOWS } from './platform'
 
 /**
  * Start at login, through the XDG Autostart spec: every Linux desktop starts what it finds in
  * ~/.config/autostart when the user logs in, and Electron's setLoginItemSettings covers only
  * macOS and Windows. The file IS the setting, with nothing kept in settings.json, so an entry
  * removed or switched off with the desktop's own startup tool reads as off here too.
+ *
+ * Windows: setLoginItemSettings, the user's Run key, which is the setting there in the same
+ * way (Task Manager's Startup tab switches it off). The installed app's path never changes
+ * across upgrades (a per-machine install into Program Files), so there is nothing to follow.
  */
+
+/** [PKG-2] Windows: the Run entry starts the installed app with --autostart; asked by the same args. */
+const LOGIN_ITEM = { args: ['--autostart'] }
 
 export interface AutostartState {
   /** False in a dev build, whose entry would start a broken app at every login. */
@@ -89,10 +97,18 @@ function isEnabled(keys: Map<string, string> | null): keys is Map<string, string
 }
 
 export function autostartState(): AutostartState {
+  if (IS_WINDOWS) {
+    return { available: app.isPackaged, enabled: app.isPackaged && app.getLoginItemSettings(LOGIN_ITEM).openAtLogin }
+  }
   return { available: command() !== null, enabled: isEnabled(readEntry()) }
 }
 
 export function setAutostart(enabled: boolean): AutostartState {
+  if (IS_WINDOWS) {
+    if (!app.isPackaged) throw new Error('Start at login is only available in the installed app')
+    app.setLoginItemSettings({ ...LOGIN_ITEM, openAtLogin: enabled })
+    return autostartState()
+  }
   const path = command()
   if (path === null) throw new Error('Start at login is only available in the installed app')
   const file = entryPath()
@@ -112,6 +128,7 @@ export function setAutostart(enabled: boolean): AutostartState {
  * the entry survive. Best-effort: the toggle still shows the entry as it is.
  */
 export function followRunningCopy(): void {
+  if (IS_WINDOWS) return
   const path = command()
   if (path === null) return
   try {

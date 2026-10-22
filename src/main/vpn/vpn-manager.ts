@@ -2,7 +2,8 @@ import { execSync, execFileSync, spawn, type ChildProcess } from 'child_process'
 import { connect as netConnect } from 'node:net'
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdtempSync, appendFileSync } from 'fs'
 import { join } from 'path'
-import { tmpdir } from 'os'
+import { tmpdir, networkInterfaces } from 'os'
+import { lookup } from 'dns/promises'
 import { app } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import {
@@ -24,13 +25,25 @@ import { isOnPath } from '../fs-utils'
 import { trackProxyChildIn, reapOrphanedProxyChildrenIn } from './proxy-children'
 import { isChildProxyCarryingTraffic } from './connect-decisions'
 import { runPrivileged } from '../helper/privileged'
+import { daemonDefaultRoute, daemonOtherVpns, daemonTrafficCounters } from '../helper/daemon-client'
+import { IS_WINDOWS, RESOURCE_PLATFORM_DIR, executableName } from '../platform'
+import { readProcNetDev } from './traffic-stats'
 import { loadSettings } from '../settings'
 import { parseDefaultRoute, v2rayRunArgs, firstIPv4FromGetent } from './vpn-parse'
 import { isDnsProvisionError } from './connect-decisions'
 import { DNS_PROVISION_FAILED } from '../../shared/error-markers'
 import { SOCKS_PORT } from '../../shared/socks'
+import { withTimeout } from '../async-utils'
 
 const WG_IFACE = 'sntl0'
+
+/** OpenVPN nodes are refused on Windows before any payment (docs/windows.md). */
+const OPENVPN_NOT_ON_WINDOWS = "OpenVPN isn't available on Windows yet. Pick a node with another protocol."
+
+/** What a privileged service left running across an upgrade is told as, per platform. */
+const STALE_SERVICE = IS_WINDOWS
+  ? 'The Katacomb VPN service is out of date. Reinstall Katacomb VPN, then reconnect.'
+  : 'The Katacomb privileged service is out of date. Restart it (sudo systemctl restart katacomb-vpn-daemon) or reboot, then reconnect.'
 
 // Create a private temp directory for config files (mode 0o700, not predictable)
 const SECURE_TMPDIR = mkdtempSync(join(tmpdir(), 'katacomb-vpn-'))
@@ -49,12 +62,14 @@ function resolveBundled(name: string): string {
   // within src/main. Do not "correct" it to match this file's depth — doing that
   // sent it to <repo>/../resources, where nothing exists, and resolveBundled then
   // fell through to the unverified $PATH binary with the SHA-256 check skipped.
+  const file = executableName(name)
   const bundled = is.dev
-    ? join(__dirname, '../../resources/linux/bin', name)
-    : join(process.resourcesPath, 'linux/bin', name)
+    ? join(__dirname, '../../resources', RESOURCE_PLATFORM_DIR, 'bin', file)
+    : join(process.resourcesPath, RESOURCE_PLATFORM_DIR, 'bin', file)
 
   if (existsSync(bundled)) {
-    if (!verifyBinaryIntegrity(bundled, name)) {
+    // Pinned per file: `xray` and `xray.exe` are different binaries with different pins.
+    if (!verifyBinaryIntegrity(bundled, file)) {
       throw new Error(
         `Bundled binary ${name} failed SHA-256 integrity check. ` +
         `Refusing to run. Reinstall the app to restore the verified binary.`
@@ -115,7 +130,8 @@ let activeConfigFile: string | null = null
 let activeLogPath: string | null = null
 let v2rayStderr = ''
 let tunActive = false
-// The default route the tun2socks bypass route was pinned to at bring-up.
+// The default route the tunnel's route to the node was pinned to at bring-up: the
+// tun2socks bypass route, and on Windows the WireGuard endpoint's route too.
 let tunRoute: { gateway: string; iface: string } | null = null
 let v2rayExitCallback: (() => void) | null = null
 
@@ -143,6 +159,8 @@ function isBinaryAvailable(name: string): boolean {
 export function protocolRuntimeError(protocol: 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2' | 'openvpn'): string | null {
   try {
     if (protocol === 'wireguard') {
+      // Windows: the service runs WireGuard on its own embedded device; no wg-quick.
+      if (IS_WINDOWS) return null
       return binaryExists('wg-quick') ? null : 'wg-quick is not installed. Install the wireguard-tools package.'
     }
     if (protocol === 'amneziawg') {
@@ -152,6 +170,8 @@ export function protocolRuntimeError(protocol: 'wireguard' | 'amneziawg' | 'v2ra
       return null
     }
     if (protocol === 'openvpn') {
+      // The Windows service serves no OpenVPN op: refused here, before any payment.
+      if (IS_WINDOWS) return OPENVPN_NOT_ON_WINDOWS
       resolveOpenVpnBinary()
       return null
     }
@@ -164,8 +184,18 @@ export function protocolRuntimeError(protocol: 'wireguard' | 'amneziawg' | 'v2ra
   }
 }
 
+/**
+ * Windows: is one of our Wintun adapters up? Node's own interface list answers it
+ * with no exec and no privilege: it lists an adapter by its name once the adapter is
+ * up and has an address, which the service gives it before its bring-up returns.
+ */
+function isWindowsAdapterUp(name: string): boolean {
+  return name in networkInterfaces()
+}
+
 /** Check if our WireGuard interface (sntl0) is currently up */
 export function isWireGuardUp(): boolean {
+  if (IS_WINDOWS) return isWindowsAdapterUp(WG_IFACE)
   try {
     execSync(`ip link show ${WG_IFACE}`, { stdio: 'pipe' })
     return true
@@ -176,6 +206,8 @@ export function isWireGuardUp(): boolean {
 
 /** Check if ANY WireGuard interface is up (including third-party VPNs) */
 function isAnyWireGuardUp(): boolean {
+  // Windows: the only WireGuard device this app can tear down is its own sntl0.
+  if (IS_WINDOWS) return isWindowsAdapterUp(WG_IFACE)
   try {
     const output = execSync('ip -o link show type wireguard', { stdio: 'pipe' }).toString().trim()
     return output.length > 0
@@ -191,6 +223,9 @@ function isAnyWireGuardUp(): boolean {
  * adoption, status) branches on this.
  */
 function sntl0IsKernelWireGuard(): boolean {
+  // Windows has no kernel WireGuard: sntl0 is the service's userspace device for both
+  // protocols, and the two teardown verbs are the same op there.
+  if (IS_WINDOWS) return false
   try {
     const output = execSync('ip -o link show type wireguard', { stdio: 'pipe' }).toString().trim()
     return output.split('\n').some((line) => line.match(/^\d+:\s+(\S+):/)?.[1] === WG_IFACE)
@@ -201,6 +236,7 @@ function sntl0IsKernelWireGuard(): boolean {
 
 /** Bring down ALL WireGuard interfaces — single password prompt via helper */
 async function bringDownAllWireGuard(): Promise<void> {
+  forgetWireGuardRoute()
   if (!isAnyWireGuardUp()) return
 
   try {
@@ -218,6 +254,7 @@ async function bringDownAllWireGuard(): Promise<void> {
 
 /** Bring down our AmneziaWG tunnel (userspace sntl0) and clean its config */
 async function bringDownAmneziaWg(): Promise<void> {
+  forgetWireGuardRoute()
   try {
     await runPrivileged(['awg-down'])
   } catch {
@@ -275,6 +312,7 @@ async function bringUpWireGuard(configFile: string): Promise<void> {
 
 /** Check if our TUN interface for tun2socks is up */
 function isTunUp(): boolean {
+  if (IS_WINDOWS) return isWindowsAdapterUp(TUN_IFACE)
   try {
     execSync(`ip link show ${TUN_IFACE}`, { stdio: 'pipe' })
     return true
@@ -316,6 +354,9 @@ function resolveHostToIPv4(host: string): string | null {
   // Validate hostname first, then use execFile (no shell) so injection-safety is
   // structural rather than relying only on the regex (finding L4).
   if (!/^[a-zA-Z0-9._-]+$/.test(host)) return null
+  // Windows has no synchronous resolver: resolveAhead() has just looked the host up,
+  // and the cache holds its answer (or the last good one, as below).
+  if (IS_WINDOWS) return lastResolvedIpByHost.get(host) ?? null
   try {
     const out = execFileSync('getent', ['ahostsv4', host], { stdio: 'pipe', timeout: 5000 }).toString()
     const ip = firstIPv4FromGetent(out)
@@ -325,6 +366,27 @@ function resolveHostToIPv4(host: string): string | null {
     }
   } catch { /* ignore */ }
   return lastResolvedIpByHost.get(host) ?? null
+}
+
+/**
+ * Windows: look up, ahead and async, every host `pin` will ask resolveHostToIPv4 for,
+ * so the synchronous pinning finds each one in the cache. Windows has no getent and
+ * Node has no synchronous lookup; this one goes through the same system resolver. A dry
+ * run of the pinner names the hosts: the pinners are pure, and a null answer leaves the
+ * config as it was. A failed lookup leaves the cache alone, so the last good answer
+ * still serves while the kill switch blocks DNS outside the tunnel, as on Linux.
+ */
+async function resolveAhead(pin: (resolve: (host: string) => string | null) => unknown): Promise<void> {
+  if (!IS_WINDOWS) return
+  const hosts = new Set<string>()
+  pin((host) => { hosts.add(host); return null })
+  await Promise.all([...hosts].map(async (host) => {
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || !/^[a-zA-Z0-9._-]+$/.test(host)) return
+    try {
+      const { address } = await withTimeout(lookup(host, { family: 4 }), 5000, `lookup ${host}`)
+      lastResolvedIpByHost.set(host, address)
+    } catch { /* the cache keeps the last good answer */ }
+  }))
 }
 
 /**
@@ -382,6 +444,11 @@ function getDefaultRoute(): { gateway: string; iface: string } | null {
   return null
 }
 
+/** The default route now: `ip route` on Linux; on Windows, the service's answer. */
+async function currentDefaultRoute(): Promise<{ gateway: string; iface: string } | null> {
+  return IS_WINDOWS ? daemonDefaultRoute() : getDefaultRoute()
+}
+
 /**
  * Bring up the tun2socks TUN interface — routes all traffic through the SOCKS proxy.
  *
@@ -393,7 +460,9 @@ function getDefaultRoute(): { gateway: string; iface: string } | null {
  * the helper ignores it, and this app passes `-`.
  */
 async function bringUpTun(): Promise<void> {
-  const defaultRoute = getDefaultRoute()
+  // On Windows the service reads the route again itself and ignores these two; the
+  // copy kept here is what hasDefaultRouteChanged compares against.
+  const defaultRoute = await currentDefaultRoute()
   if (!defaultRoute) {
     throw new Error('Cannot determine default gateway. Is your network connected?')
   }
@@ -446,7 +515,7 @@ async function bringDownTun(): Promise<void> {
 }
 
 /**
- * Has the physical default route moved since the TUN was brought up?
+ * Has the physical default route moved since the tunnel was brought up?
  *
  * tun2socks does NOT replace the default route (it adds the two /1 halves plus a
  * host route to the node via the gateway that existed at bring-up), so
@@ -458,12 +527,27 @@ async function bringDownTun(): Promise<void> {
  *
  * Returns false when there is nothing to compare or the route can't be read: a
  * tunnel must never be torn down because `ip route` hiccuped.
+ *
+ * Windows: WireGuard and AmneziaWG have the same exposure there, because the service
+ * pins the endpoint's /32 to the uplink of the moment, as tun2socks pins the node's
+ * (on Linux wg-quick's policy routing follows the uplink by itself). So a WireGuard
+ * bring-up on Windows records the route too.
  */
-export function hasDefaultRouteChanged(): boolean {
-  if (!tunActive || !tunRoute) return false
-  const now = getDefaultRoute()
-  if (!now) return false
+export async function hasDefaultRouteChanged(): Promise<boolean> {
+  if (!tunRoute) return false
+  const now = await currentDefaultRoute()
+  if (!now || !tunRoute) return false
   return now.gateway !== tunRoute.gateway || now.iface !== tunRoute.iface
+}
+
+/** Windows: record the uplink a WireGuard bring-up pinned its endpoint to. */
+async function recordWireGuardRoute(): Promise<void> {
+  if (IS_WINDOWS) tunRoute = await currentDefaultRoute()
+}
+
+/** Windows: the WireGuard device is gone, and its route with it. */
+function forgetWireGuardRoute(): void {
+  if (IS_WINDOWS) tunRoute = null
 }
 
 // Cached major version per binary path. The bundled binary is pinned (its hash is
@@ -613,7 +697,7 @@ export async function bringUpV2RayTunnel(): Promise<void> {
 }
 
 export async function connectWireGuardFromConfig(raw: string): Promise<void> {
-  if (!binaryExists('wg-quick')) {
+  if (!IS_WINDOWS && !binaryExists('wg-quick')) {
     throw new Error(
       'wg-quick not found in PATH. Install wireguard-tools: sudo apt install wireguard-tools'
     )
@@ -624,6 +708,7 @@ export async function connectWireGuardFromConfig(raw: string): Promise<void> {
   // A saved config carries whatever the node advertised at handshake time, so a
   // reconnect needs the same endpoint pin as a fresh connect (and needs it more:
   // by now the kill switch may be the thing blocking the lookup).
+  await resolveAhead((resolve) => pinWireguardEndpoint(raw, resolve))
   const configString = pinWireguardEndpoint(raw, resolveHostToIPv4)
 
   // Saved/reconnect configs are equally untrusted — guard before wg-quick (root).
@@ -638,6 +723,7 @@ export async function connectWireGuardFromConfig(raw: string): Promise<void> {
     if (existsSync(configFile)) unlinkSync(configFile)
     throw err
   }
+  await recordWireGuardRoute()
 
   activeProtocol = 'wireguard'
   activeMode = 'tunnel'
@@ -661,9 +747,7 @@ async function bringUpAmneziaWg(configFile: string): Promise<void> {
     }
     if (msg.includes('unknown op')) {
       // A pre-AWG daemon is still running (deb upgraded but the unit restart failed).
-      throw new Error(
-        'The Katacomb privileged service is out of date. Restart it (sudo systemctl restart katacomb-vpn-daemon) or reboot, then reconnect.'
-      )
+      throw new Error(STALE_SERVICE)
     }
     if (isDnsProvisionError(msg)) {
       throw new Error(`${DNS_PROVISION_FAILED}: Failed to bring up AmneziaWG interface: ${msg}`)
@@ -676,6 +760,7 @@ export async function connectAmneziaWgFromConfig(raw: string): Promise<void> {
   await ensureSntl0Down()
 
   // Rides the WG branch, so it has the WG endpoint problem too — same pin.
+  await resolveAhead((resolve) => pinWireguardEndpoint(raw, resolve))
   const configString = pinWireguardEndpoint(raw, resolveHostToIPv4)
 
   // Node operators are untrusted: same PostUp/PreUp root-exec surface as
@@ -691,6 +776,7 @@ export async function connectAmneziaWgFromConfig(raw: string): Promise<void> {
     if (existsSync(configFile)) unlinkSync(configFile)
     throw err
   }
+  await recordWireGuardRoute()
 
   activeProtocol = 'amneziawg'
   activeMode = 'tunnel'
@@ -714,6 +800,7 @@ function resolveOpenVpnBinary(): string {
 
 /** Check if our OpenVPN interface (sntl-ovpn) is currently up */
 export function isOpenVpnUp(): boolean {
+  if (IS_WINDOWS) return false // no OpenVPN on Windows
   try {
     execSync(`ip link show ${OVPN_IFACE}`, { stdio: 'pipe' })
     return true
@@ -747,9 +834,7 @@ async function bringUpOpenVpn(configFile: string): Promise<void> {
     }
     if (msg.includes('unknown op')) {
       // A pre-OpenVPN daemon is still running (deb upgraded but the unit restart failed).
-      throw new Error(
-        'The Katacomb privileged service is out of date. Restart it (sudo systemctl restart katacomb-vpn-daemon) or reboot, then reconnect.'
-      )
+      throw new Error(STALE_SERVICE)
     }
     throw new Error(`Failed to bring up OpenVPN interface: ${msg}`)
   }
@@ -798,7 +883,7 @@ export function getOpenVpnRemoteHost(): string | null {
   return null
 }
 
-export function connectV2RayFromConfig(configString: string, dohResolverIp?: string | null, opts?: { proxyOnly?: boolean }): void {
+export async function connectV2RayFromConfig(configString: string, dohResolverIp?: string | null, opts?: { proxyOnly?: boolean }): Promise<void> {
   const bin = resolveV2RayBinary()
   if (bin === 'v2ray' && !binaryExists('v2ray')) {
     throw new Error('v2ray binary not found. The bundled binary is missing and no system v2ray is installed.')
@@ -814,6 +899,7 @@ export function connectV2RayFromConfig(configString: string, dohResolverIp?: str
       'Please end this session and create a new subscription.'
     )
   }
+  await resolveAhead((resolve) => pinV2RayNodeAddresses(parsed, resolve))
   const cfg = pinV2RayNodeAddresses(withV2RayDiagnosticLog(parsed), resolveHostToIPv4)
   assertSafeV2RayConfig(cfg)
   // Inject DoH after validation (trusted, allow-listed resolver only) — see connectV2Ray.
@@ -836,7 +922,7 @@ export function connectV2RayFromConfig(configString: string, dohResolverIp?: str
  * in the binary (xray) and its CLI. The config is built by xray-config.ts (the SDK
  * can't emit Reality) in the handshake, or reloaded from a saved session on reconnect.
  */
-export function connectXRayFromConfig(configString: string, dohResolverIp?: string | null, opts?: { proxyOnly?: boolean }): void {
+export async function connectXRayFromConfig(configString: string, dohResolverIp?: string | null, opts?: { proxyOnly?: boolean }): Promise<void> {
   const bin = resolveXRayBinary()
   if (bin === 'xray' && !binaryExists('xray')) {
     throw new Error('xray binary not found. The bundled binary is missing and no system xray is installed.')
@@ -854,6 +940,7 @@ export function connectXRayFromConfig(configString: string, dohResolverIp?: stri
   // Same untrusted-node-config treatment as v2ray: pin endpoints to IPs (no DNS
   // deadlock through the tunnel), force diagnostic logging to stderr, then validate
   // (reject log file-paths / non-loopback inbounds) before spawn.
+  await resolveAhead((resolve) => pinV2RayNodeAddresses(parsed, resolve))
   const cfg = pinV2RayNodeAddresses(withV2RayDiagnosticLog(parsed), resolveHostToIPv4)
   assertSafeV2RayConfig(cfg)
   const finalCfg = dohResolverIp ? withV2RayDoH(cfg, dohResolverIp) : cfg
@@ -910,7 +997,9 @@ export async function startProvisioningProxy(configString: string): Promise<Prov
   // Same untrusted-node-config treatment the real connect path applies: pin the entry
   // endpoint to an IP (this one MUST resolve locally — it is the hop we dial directly),
   // force diagnostics to stderr, then validate before spawning.
-  const cfg = pinV2RayNodeAddresses(withV2RayDiagnosticLog(JSON.parse(configString)), resolveHostToIPv4)
+  const parsed: unknown = JSON.parse(configString)
+  await resolveAhead((resolve) => pinV2RayNodeAddresses(parsed, resolve))
+  const cfg = pinV2RayNodeAddresses(withV2RayDiagnosticLog(parsed), resolveHostToIPv4)
   assertSafeV2RayConfig(cfg)
 
   const configFile = join(SECURE_TMPDIR, 'provision.json')
@@ -988,7 +1077,7 @@ function waitForListener(port: number, child: ChildProcess, timeoutMs: number): 
  * hysteria's viper loader parse the config as JSON. No DoH (hysteria2 has no in-config
  * DoH mechanism — DNS resolves plaintext-through-tunnel, like WireGuard).
  */
-export function connectHysteria2FromConfig(configString: string, opts?: { proxyOnly?: boolean }): void {
+export async function connectHysteria2FromConfig(configString: string, opts?: { proxyOnly?: boolean }): Promise<void> {
   const bin = resolveHysteria2Binary()
   if (bin === 'hysteria' && !binaryExists('hysteria')) {
     throw new Error('hysteria binary not found. The bundled binary is missing and no system hysteria is installed.')
@@ -1006,6 +1095,10 @@ export function connectHysteria2FromConfig(configString: string, opts?: { proxyO
 
   // Pin the server endpoint to an IP so hysteria never re-resolves it through the
   // tunnel and deadlocks (the DNS-deadlock fix, as pinV2RayNodeAddresses does for v2ray).
+  await resolveAhead((resolve) => {
+    const colon = typeof parsed.server === 'string' ? parsed.server.lastIndexOf(':') : -1
+    if (colon > 0) resolve(parsed.server.slice(0, colon))
+  })
   if (typeof parsed.server === 'string') {
     const colon = parsed.server.lastIndexOf(':')
     if (colon > 0) {
@@ -1238,13 +1331,29 @@ export function getWireGuardRemoteHost(): string | null {
   }
 }
 
+/**
+ * Absolute rx/tx counters of whichever tunnel interface is up, or null when none is.
+ * Linux reads the world-readable /proc/net/dev; Windows has none, so the service reads
+ * the adapter's counters. Async for that round trip; see traffic-stats for the speeds.
+ */
+export async function readTunnelBytes(): Promise<{ rx: number; tx: number } | null> {
+  if (IS_WINDOWS) {
+    const iface = isWindowsAdapterUp(WG_IFACE) ? WG_IFACE : isWindowsAdapterUp(TUN_IFACE) ? TUN_IFACE : null
+    return iface ? daemonTrafficCounters(iface) : null
+  }
+  return readProcNetDev(WG_IFACE) || readProcNetDev(TUN_IFACE) || readProcNetDev(OVPN_IFACE)
+}
+
 /** Register a callback for unexpected V2Ray disconnection */
 export function onV2RayUnexpectedExit(callback: () => void): void {
   v2rayExitCallback = callback
 }
 
 /** Detect other VPN connections that might conflict */
-export function detectOtherVpn(): { type: string; name: string; iface?: string }[] {
+export async function detectOtherVpn(): Promise<{ type: string; name: string; iface?: string }[]> {
+  // Windows: the service reads the adapter table (Node sees no adapter type).
+  if (IS_WINDOWS) return (await daemonOtherVpns()).map((name) => ({ type: 'tun', name, iface: name }))
+
   const found: { type: string; name: string; iface?: string }[] = []
 
   // Check for non-sntl0 WireGuard interfaces (Mullvad, IVPN, manual WG, etc.)

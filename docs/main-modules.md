@@ -38,6 +38,9 @@ CLAUDE.md; this is the per-module detail.
   `assertSystemReady` (called by the connect preflight) and the `SETUP_*` channels behind
   Settings, System. Nothing is asked at launch: see
   [docs/privileged-helper.md](privileged-helper.md).
+- `platform.ts`: `IS_WINDOWS`, the bundled binaries' resource directory and file names. Every
+  Linux/Windows difference branches on it ([docs/windows.md](windows.md)); tests swap in
+  `test/harness/platform-windows.ts` to reach the Windows branches.
 - `fs-utils.ts`: `writeFileAtomic(path, data, mode=0o600)` (temp + rename). Use it for all settings/wallet/session/cache writes — never `writeFileSync` directly for persisted state.
   Also `isOnPath(name, PATH)`, which `binaryExists` uses instead of exec'ing `which`:
   `which` is not in Arch's base install, and without it every binary read as missing.

@@ -571,6 +571,8 @@ export interface RpcAutoSelectReport {
  * ever lack any of it: the .deb depends on both packages and installs the helper.
  */
 export interface SetupStatus {
+  /** Windows needs only `helper`, which is the service the installer registered. */
+  platform: 'linux' | 'windows'
   /** 'outdated' = installed, but not the one this build bundles. */
   helper: 'ready' | 'missing' | 'outdated'
   wireguardTools: boolean

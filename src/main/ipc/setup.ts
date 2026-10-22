@@ -16,19 +16,24 @@ import {
   type PackageManager,
   type SetupPackage,
 } from '../helper/system-setup'
+import { daemonCapabilities } from '../helper/daemon-client'
+import { WINDOWS_SERVICE_UNREACHABLE } from '../helper/privileged'
+import { IS_WINDOWS } from '../platform'
 import type { Handle } from './handle'
 
 type SetupItem = 'helper' | 'wireguard-tools' | 'openvpn' | 'resolvconf'
 type Protocol = Parameters<typeof protocolRuntimeError>[0]
 
 const ITEM_LABEL: Record<SetupItem, string> = {
-  helper: 'the VPN helper',
+  helper: IS_WINDOWS ? 'the Katacomb VPN service' : 'the VPN helper',
   'wireguard-tools': 'WireGuard tools',
   openvpn: 'OpenVPN',
   resolvconf: "resolvconf (for the VPN's DNS)",
 }
 
 interface SetupStatus {
+  /** Windows needs one thing, the service the installer registered (`helper`); the rest is Linux's. */
+  platform: 'linux' | 'windows'
   helper: HelperState
   wireguardTools: boolean
   openvpn: boolean
@@ -66,9 +71,26 @@ function resolvConfTarget(): string | null {
 
 const hostResolvconfPackage = (): SetupPackage | null => resolvconfPackage(hostPackageManager(), resolvConfTarget())
 
+/**
+ * The privileged side's state. Windows: the service answering on its pipe, which is all
+ * "installed" can mean there; it cannot be outdated, since the installer replaces the
+ * service with the app, and an op it lacks is refused before payment ([PH-2]).
+ */
+async function helperState(): Promise<HelperState> {
+  if (IS_WINDOWS) return (await daemonCapabilities()) ? 'ready' : 'missing'
+  return helperInstallState(bundledHelperDir())
+}
+
 async function setupStatus(): Promise<SetupStatus> {
+  if (IS_WINDOWS) {
+    return {
+      platform: 'windows', helper: await helperState(),
+      wireguardTools: true, openvpn: false, resolvconf: true, packageManager: null, resolvconfPackage: null,
+    }
+  }
   return {
-    helper: await helperInstallState(bundledHelperDir()),
+    platform: 'linux',
+    helper: await helperState(),
     wireguardTools: wireguardToolsInstalled(),
     openvpn: openvpnInstalled(),
     resolvconf: resolvconfInstalled(),
@@ -96,16 +118,20 @@ async function setupStatus(): Promise<SetupStatus> {
 export async function assertSystemReady(protocol: Protocol | null, tunnel: boolean, paying: boolean, vpnDns = true): Promise<void> {
   const items: SetupItem[] = []
   const rootProtocol = protocol === 'wireguard' || protocol === 'amneziawg' || protocol === 'openvpn'
-  if ((tunnel || rootProtocol) && await helperInstallState(bundledHelperDir()) !== 'ready') items.push('helper')
-  if (protocol === 'wireguard' && !wireguardToolsInstalled()) items.push('wireguard-tools')
-  if (protocol === 'openvpn' && !openvpnInstalled()) items.push('openvpn')
-  // WireGuard and AmneziaWG hand the tunnel's DNS to resolvconf, and without one the
-  // bring-up fails AFTER the session is paid for. Refused here only when there is a
-  // one-click fix: elsewhere the paid-session "Retry without VPN DNS" is the only
-  // way such a machine can use those protocols at all, and refusing would take
-  // that away.
-  if ((protocol === 'wireguard' || protocol === 'amneziawg') && vpnDns && !resolvconfInstalled() && hostResolvconfPackage()) {
-    items.push('resolvconf')
+  if ((tunnel || rootProtocol) && await helperState() !== 'ready') items.push('helper')
+  // Windows has no packages to add: the service runs every protocol it offers, and
+  // OpenVPN, which it does not, is refused as unavailable (protocolRuntimeError).
+  if (!IS_WINDOWS) {
+    if (protocol === 'wireguard' && !wireguardToolsInstalled()) items.push('wireguard-tools')
+    if (protocol === 'openvpn' && !openvpnInstalled()) items.push('openvpn')
+    // WireGuard and AmneziaWG hand the tunnel's DNS to resolvconf, and without one the
+    // bring-up fails AFTER the session is paid for. Refused here only when there is a
+    // one-click fix: elsewhere the paid-session "Retry without VPN DNS" is the only
+    // way such a machine can use those protocols at all, and refusing would take
+    // that away.
+    if ((protocol === 'wireguard' || protocol === 'amneziawg') && vpnDns && !resolvconfInstalled() && hostResolvconfPackage()) {
+      items.push('resolvconf')
+    }
   }
   if (items.length === 0) return
 
@@ -126,6 +152,8 @@ export function registerSetupHandlers(handle: Handle, isConnectionLive: () => bo
   handle(IPC.SETUP_STATUS, async () => setupStatus())
 
   handle(IPC.SETUP_INSTALL_HELPER, async () => {
+    // Windows: the installer registers the service; the app cannot, and asks for nothing.
+    if (IS_WINDOWS) throw new Error(WINDOWS_SERVICE_UNREACHABLE)
     // An install or update ends in `systemctl try-restart` of the daemon, which
     // SIGTERMs its detached children: tun2socks, openvpn, the AmneziaWG device.
     if (isConnectionLive()) {
@@ -135,6 +163,7 @@ export function registerSetupHandlers(handle: Handle, isConnectionLive: () => bo
   })
 
   handle(IPC.SETUP_INSTALL_PACKAGES, async (_event, pkgs: unknown) => {
+    if (IS_WINDOWS) throw new Error('Windows needs no packages for Katacomb VPN.')
     // The package names reach a root command line: only the ones this app needs.
     // A resolvconf package only where it is this machine's answer: installing
     // systemd-resolved where it is NOT already in use switches the whole system's

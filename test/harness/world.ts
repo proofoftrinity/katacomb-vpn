@@ -27,6 +27,8 @@ export class World {
   readonly opened: string[] = []
   /** `calls` counts every safeStorage call: any of them can bring up the keyring's unlock prompt. */
   safeStorage = { available: true, backend: 'gnome_libsecret', keyId: 'this-install', calls: 0 }
+  /** Windows' start-at-login entry, as app.setLoginItemSettings last wrote it. */
+  loginItem: { openAtLogin: boolean; args?: string[] } | null = null
   private seq = 0
 
   constructor(userData: string) {

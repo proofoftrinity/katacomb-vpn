@@ -68,6 +68,38 @@ only; a folder found there with another owner was planted, and is replaced): `ro
   removes the kill switch and every recorded route, deletes the service, then the state
   directory.
 
+## The app
+
+The main process branches on `IS_WINDOWS` (`src/main/platform.ts`); a test reaches the
+Windows branches by bundling the module under test with `test/harness/platform-windows.ts`
+in its place. The renderer is sandboxed and reads the OS off Chromium's user agent
+(`utils/protocols.ts`), which it needs only for OpenVPN's copy and the welcome screen.
+
+| Concern | Linux | Windows |
+|---|---|---|
+| The door to root | the daemon socket, else pkexec | the service's pipe, and nothing else ([PH-12]) |
+| Is our interface up | `ip link show` | Node's `networkInterfaces()`, which lists an adapter by name once it is up and has an address; the service gives it one before its bring-up returns. No exec and no privilege, and synchronous like its callers |
+| Byte counters | `/proc/net/dev` | the service's `traffic_counters`; `readTunnelBytes` (vpn-manager) is async for that round trip |
+| Default route | `ip route show default` | the service's `default_route`. `tun_up` ignores the gateway the app sends; the app keeps it to notice a network change ([REL-45]) |
+| Other VPNs | `ip link show type wireguard`/`tun`, and the IPsec probe | the service's `other_vpns` |
+| Host lookups | `getent`, synchronous | Node's resolver, async, run ahead of the synchronous pinners (`resolveAhead`): a dry run of the pinner names the hosts, and the cache answers the real run, the last good answer included when the kill switch blocks DNS |
+| Bundled cores | `resources/linux/bin/<name>` | `resources/win/bin/<name>.exe`, pinned per file name ([PKG-1]) |
+| Setup gate | the helper, the packages, resolvconf | one row, the service answering; its fix is the installer |
+| Seeds | libsecret or KWallet, pinned per seed ([REL-41]) | DPAPI, under the user's account |
+| Tray | a StatusNotifier probe; the panel's shade | always drawn; the taskbar's shade ([REL-42]) |
+| Start at login | an XDG Autostart entry | the Run key ([PKG-2]) |
+| Logout, shutdown | D-Bus or XSMP ([REL-36]) | `query-session-end` on the window; the service's logoff teardown as the backstop |
+| Menu bar | as Electron draws it | none: Electron's default one offers nothing the app uses |
+| OpenVPN | yes | refused before payment by `protocolRuntimeError`, and by the service's op list ([PH-2]) |
+
+- **The dead-tunnel detectors work as on Linux.** `checkTunnelStalled` reads the service's
+  counters, and the dead-peer detector reads the handshake age for WireGuard and AmneziaWG
+  alike, since both run on the service's device ([REL-45]).
+- **Proxy cores die with the app.** Node on Windows puts every child it spawns into a job
+  object that kills them when the app's process ends, a crash included, so
+  `proxy-children.ts` has nothing to reap there, and records nothing (it identifies a core
+  by `/proc`). On Linux a core outlives a crashed app, which is why that module exists.
+
 ## Wintun adapters (incident log)
 
 Found while testing the service in the VM, 2026-10-22:
@@ -102,3 +134,11 @@ A stock kernel WireGuard server in docker on the host, and an xray SOCKS server 
 - A second standard user is refused by the pipe; logging off the session that connected
   tears down the tunnel and the kill switch; `service uninstall` with a tunnel and the kill
   switch up leaves no service, filter, adapter, route or state directory.
+
+And for the app (2026-10-22), with Electron 41.10.7 run as Node in the VM:
+
+- `networkInterfaces()` lists `sntl0` (10.99.0.2) while the service's WireGuard tunnel is up,
+  `sntl-tun` (198.18.0.1) while its tun2socks tunnel is up, and neither once each is down;
+  a lookup through the tunnel answers.
+- A child spawned as vpn-manager spawns a core (piped stdio, not detached) is gone 2 s after
+  its parent is killed with `Stop-Process -Force`.

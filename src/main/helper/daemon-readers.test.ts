@@ -16,7 +16,8 @@ import { read } from '../../../test/harness/source.ts'
 // refusal, which would block a connect over a daemon we simply cannot read.
 
 const corpus = JSON.parse(read('daemon/internal/protocol/testdata/corpus/protocol.json')) as {
-  results: Record<string, Record<string, unknown>>
+  results: Record<string, Record<string, unknown>> & { other_vpns: { names: string[] } }
+  windowsOps: string[]
 }
 
 const sock = join(mkdtempSync(join(tmpdir(), 'kv-daemon-')), 'd.sock')
@@ -26,6 +27,16 @@ const dc = (await bundle({
   fake: [],
   stubs: { 'src/main/helper/daemon-protocol': 'test/harness/daemon-protocol-at.ts' },
 })).load() as Record<string, (...a: unknown[]) => Promise<unknown>>
+// The same client as Windows builds it: the pipe path (served on the same socket here),
+// and the three readers for what Windows has no world-readable source for.
+const dcWin = (await bundle({
+  entries: ['src/main/helper/daemon-client.ts'],
+  fake: [],
+  stubs: {
+    'src/main/helper/daemon-protocol': 'test/harness/daemon-protocol-at.ts',
+    'src/main/platform': 'test/harness/platform-windows.ts',
+  },
+})).load() as Record<string, (...a: unknown[]) => unknown>
 
 type Answer = { ok: boolean; result?: unknown; error?: string }
 let answer: (op: string) => Answer = () => ({ ok: false, error: 'unset' })
@@ -78,6 +89,35 @@ for (const [name, results] of MALFORMED) {
   })
 }
 
+test('[PH-2] Windows: the service\'s read-only answers read as values, and its op list refuses OpenVPN', async () => {
+  replyWith(corpus.results)
+  assert.equal(dcWin.isDaemonAvailable(), true, 'the service is the only door: asked, never looked for')
+  const counters = corpus.results.traffic_counters as { rxBytes: number; txBytes: number }
+  assert.deepEqual(await dcWin.daemonTrafficCounters('sntl0'), { rx: counters.rxBytes, tx: counters.txBytes })
+  assert.deepEqual(await dcWin.daemonDefaultRoute(), corpus.results.default_route)
+  assert.deepEqual(await dcWin.daemonOtherVpns(), corpus.results.other_vpns.names)
+  replyWith({ ...corpus.results, protocol_version: { version: 1, ops: corpus.windowsOps } })
+  assert.equal(await dcWin.daemonMissingOp('openvpn_up'), true, 'an OpenVPN node is refused before paying')
+  assert.equal(await dcWin.daemonMissingOp('tun_up'), false)
+})
+
+const MALFORMED_WINDOWS: Array<[string, Record<string, unknown>]> = [
+  ['an adapter that is not up', { traffic_counters: { present: false, rxBytes: 0, txBytes: 0 } }],
+  ['counters that are not numbers', { traffic_counters: { present: true, rxBytes: '1', txBytes: 2 } }],
+  ['a route with no gateway', { default_route: { gateway: '', iface: '' } }],
+  ['a route that is not strings', { default_route: { gateway: 3232235777, iface: 12 } }],
+  ['names that are not a list', { other_vpns: { names: 'WireGuard' } }],
+  ['a service older than these ops', {}],
+]
+for (const [name, results] of MALFORMED_WINDOWS) {
+  test(`Windows: ${name} reads as "no tunnel", "no route" or "none", never as a value`, async () => {
+    replyWith(results)
+    if (!('default_route' in results) && !('other_vpns' in results)) assert.equal(await dcWin.daemonTrafficCounters('sntl-tun'), null)
+    if (!('traffic_counters' in results) && !('other_vpns' in results)) assert.equal(await dcWin.daemonDefaultRoute(), null)
+    if (!('traffic_counters' in results) && !('default_route' in results)) assert.deepEqual(await dcWin.daemonOtherVpns(), [])
+  })
+}
+
 test('the client writes one request per line, exactly the JSON the Go parser is pinned to', async () => {
   replyWith({ dns_set: null })
   lines.length = 0
@@ -96,4 +136,7 @@ test('[PH-2] with no daemon at all, every reader abstains', async () => {
   assert.equal(await dc.daemonMissingOp('openvpn_up'), false)
   assert.equal(await dc.daemonXfrmPolicyCount(), null)
   assert.equal(await dc.daemonWireguardHandshakeAge(), null)
+  assert.equal(await dcWin.daemonTrafficCounters('sntl0'), null)
+  assert.equal(await dcWin.daemonDefaultRoute(), null)
+  assert.deepEqual(await dcWin.daemonOtherVpns(), [])
 })

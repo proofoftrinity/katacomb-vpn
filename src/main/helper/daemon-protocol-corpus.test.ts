@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url'
 import {
   DAEMON_DIR,
   DAEMON_SOCKET_PATH,
+  DAEMON_PIPE_PATH,
   DAEMON_PROTOCOL_VERSION,
   DAEMON_OPS,
+  WINDOWS_DAEMON_OPS,
   type DaemonRequest,
   type DaemonResponse,
 } from './daemon-protocol.ts'
@@ -30,6 +32,8 @@ interface Corpus {
   maxMessageBytes: number
   ops: string[]
   lockFreeOps: string[]
+  pipePath: string
+  windowsOps: string[]
   requests: { name: string; line: string; outcome: string; id?: number; op?: string }[]
   responses: { name: string; response: DaemonResponse; encoded: string }[]
   unknownOpPrefix: string
@@ -48,6 +52,11 @@ test('the op list matches the shared corpus exactly', () => {
   // Order included: both sides list the ops in dispatch order, and keeping that
   // true is free while a diff here is the cheapest possible drift signal.
   assert.deepEqual([...DAEMON_OPS], corpus.ops)
+})
+
+test('[PH-10] the Windows pipe and op list match the shared corpus exactly', () => {
+  assert.equal(DAEMON_PIPE_PATH, corpus.pipePath)
+  assert.deepEqual([...WINDOWS_DAEMON_OPS], corpus.windowsOps)
 })
 
 test('every lock-free op is a real op', () => {

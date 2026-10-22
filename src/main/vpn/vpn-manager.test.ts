@@ -100,7 +100,7 @@ test('[REL-7] [NT-1] control: a clean config is pinned to IPv4 first, then writt
   assert.equal(statSync(file).mode & 0o777, 0o600)
 })
 
-test('[NT-1] a V2Ray config the guard rejects is never written or spawned', (t) => {
+test('[NT-1] a V2Ray config the guard rejects is never written or spawned', async (t) => {
   const h = fresh()
   t.after(() => h.dispose())
   // A SOCKS inbound on every interface would open the user's tunnel to the LAN.
@@ -108,17 +108,17 @@ test('[NT-1] a V2Ray config the guard rejects is never written or spawned', (t) 
     inbounds: [{ protocol: 'socks', listen: '0.0.0.0', port: 1080 }],
     outbounds: [{ protocol: 'vmess', settings: { vnext: [{ address: '203.0.113.7', port: 443 }] } }],
   })
-  assert.throws(() => (h.mod.connectV2RayFromConfig as Connect)(cfg))
+  await assert.rejects(async () => (h.mod.connectV2RayFromConfig as Connect)(cfg))
   assert.deepEqual(h.world.calls('child_process', 'spawn'), [])
 })
 
-test('[PKG-1] a bundled core that fails its pin is refused, never swapped for the one on PATH', (t) => {
+test('[PKG-1] a bundled core that fails its pin is refused, never swapped for the one on PATH', async (t) => {
   mkdirSync(join(resources, 'linux/bin'), { recursive: true })
   writeFileSync(join(resources, 'linux/bin/v2ray'), 'tampered')
   t.after(() => rmSync(join(resources, 'linux'), { recursive: true, force: true }))
   const h = fresh()
   t.after(() => h.dispose())
-  assert.throws(() => (h.mod.connectV2RayFromConfig as Connect)('{}'), /integrity/)
+  await assert.rejects(async () => (h.mod.connectV2RayFromConfig as Connect)('{}'), /integrity/)
   assert.deepEqual(h.world.calls('child_process', 'spawn'), [])
 })
 
@@ -185,34 +185,34 @@ test('[NT-1] control: a clean OpenVPN config is written 0600 and handed to root'
   assert.equal(statSync(file).mode & 0o777, 0o600)
 })
 
-test('[NT-1] an Xray config the guard rejects is never spawned', (t) => {
+test('[NT-1] an Xray config the guard rejects is never spawned', async (t) => {
   const h = fresh({ spawn: true })
   t.after(() => h.dispose())
   const evil = CLEAN_XRAY('203.0.113.7').replace('"listen":"127.0.0.1"', '"listen":"0.0.0.0"')
-  assert.throws(() => (h.mod.connectXRayFromConfig as Connect)(evil), /loopback|listen|not allowed/i)
+  await assert.rejects(async () => (h.mod.connectXRayFromConfig as Connect)(evil), /loopback|listen|not allowed/i)
   assert.deepEqual(h.world.calls('child_process', 'spawn'), [])
 })
 
-test('[REL-7] [NT-1] control: a clean Xray config is pinned to IPv4 before xray is spawned on it', (t) => {
+test('[REL-7] [NT-1] control: a clean Xray config is pinned to IPv4 before xray is spawned on it', async (t) => {
   const h = fresh({ spawn: true })
   t.after(() => h.dispose())
-  ;(h.mod.connectXRayFromConfig as Connect)(CLEAN_XRAY('wg.example'))
+  await (h.mod.connectXRayFromConfig as Connect)(CLEAN_XRAY('wg.example'))
   const cfg = JSON.parse(written(h)) as { outbounds: Array<{ settings?: { vnext?: Array<{ address: string }> } }> }
   assert.equal(cfg.outbounds[0].settings?.vnext?.[0].address, '198.51.100.5', 'xray never re-resolves the node through its own tunnel')
 })
 
-test('[NT-1] a Hysteria2 config the guard rejects is never spawned', (t) => {
+test('[NT-1] a Hysteria2 config the guard rejects is never spawned', async (t) => {
   const h = fresh({ spawn: true })
   t.after(() => h.dispose())
   const evil = CLEAN_HY2('203.0.113.7:34567').replace('127.0.0.1:1080', '0.0.0.0:1080')
-  assert.throws(() => (h.mod.connectHysteria2FromConfig as Connect)(evil), /loopback/)
+  await assert.rejects(async () => (h.mod.connectHysteria2FromConfig as Connect)(evil), /loopback/)
   assert.deepEqual(h.world.calls('child_process', 'spawn'), [])
 })
 
-test('[REL-7] [NT-1] control: a clean Hysteria2 config is pinned to IPv4 before hysteria is spawned on it', (t) => {
+test('[REL-7] [NT-1] control: a clean Hysteria2 config is pinned to IPv4 before hysteria is spawned on it', async (t) => {
   const h = fresh({ spawn: true })
   t.after(() => h.dispose())
-  ;(h.mod.connectHysteria2FromConfig as Connect)(CLEAN_HY2('wg.example:34567'))
+  await (h.mod.connectHysteria2FromConfig as Connect)(CLEAN_HY2('wg.example:34567'))
   assert.equal((JSON.parse(written(h)) as { server: string }).server, '198.51.100.5:34567')
 })
 
@@ -230,7 +230,7 @@ test('[NT-1] split-tunnel routes reach root only as the guard passes them: tun-u
   writeFileSync(join(h.world.userData, 'settings.json'), JSON.stringify({
     splitTunnelRoutes: ['192.168.50.0/24', '10.0.0.0/8 ; reboot', '$(id)', '1.2.3.4/33', '172.16.0.0/12,0.0.0.0/0'],
   }))
-  ;(h.mod.connectV2RayFromConfig as Connect)(CLEAN_XRAY('203.0.113.7'))
+  await (h.mod.connectV2RayFromConfig as Connect)(CLEAN_XRAY('203.0.113.7'))
   const up = (h.mod.bringUpV2RayTunnel as () => Promise<void>)()
   tun = true
   await up
@@ -240,7 +240,7 @@ test('[NT-1] split-tunnel routes reach root only as the guard passes them: tun-u
   assert.equal(argv[6], '192.168.50.0/24', 'only the well-formed CIDR crosses into root')
 })
 
-test('[REL-18] [PRO-7] a live core is not a tunnel: tunnel mode reads connected only once tun2socks is up, proxy mode at once', (t) => {
+test('[REL-18] [PRO-7] a live core is not a tunnel: tunnel mode reads connected only once tun2socks is up, proxy mode at once', async (t) => {
   let tun = false
   const exec = (cmd: string) => {
     if (cmd === 'ip link show sntl-tun' && tun) return Buffer.from('')
@@ -250,7 +250,7 @@ test('[REL-18] [PRO-7] a live core is not a tunnel: tunnel mode reads connected 
 
   const tunnel = fresh({ spawn: true, execSync: exec })
   t.after(() => tunnel.dispose())
-  ;(tunnel.mod.connectV2RayFromConfig as Connect)(CLEAN_XRAY('203.0.113.7'))
+  await (tunnel.mod.connectV2RayFromConfig as Connect)(CLEAN_XRAY('203.0.113.7'))
   assert.equal(tunnel.mod.isProxyChildAlive(), true, 'the core survived startup')
   assert.equal(status(tunnel).connected, false, 'but the polkit dialog for tun-up is still open: traffic leaves by the NIC')
   tun = true
@@ -259,7 +259,190 @@ test('[REL-18] [PRO-7] a live core is not a tunnel: tunnel mode reads connected 
   tun = false
   const proxy = fresh({ spawn: true, execSync: exec })
   t.after(() => proxy.dispose())
-  ;(proxy.mod.connectV2RayFromConfig as Connect)(CLEAN_XRAY('203.0.113.7'), null, { proxyOnly: true })
+  await (proxy.mod.connectV2RayFromConfig as Connect)(CLEAN_XRAY('203.0.113.7'), null, { proxyOnly: true })
   assert.deepEqual([status(proxy).connected, status(proxy).proxyMode], [true, true], 'in proxy mode the core is the whole connection')
   assert.equal(proxy.mod.isVpnActive(), false, 'but no system traffic is redirected, so chain reads must not fall back to the cache')
+})
+
+// Windows (docs/windows.md): the same sinks in the same order, with what Windows lacks
+// replaced. No `ip`, no getent and no wg-quick: anything exec'd here is a bug, so
+// child_process answers spawn alone. Adapter presence comes from Node's interface list,
+// lookups from Node's resolver, and the rest from the service, faked here as one that
+// adds and removes our adapters as its ops arrive.
+
+const vmWin = await loadModule({
+  entries: ['src/main/vpn/vpn-manager.ts'],
+  fake: ['src/main/helper/privileged', 'src/main/helper/daemon-client'],
+  stubs: {
+    child_process: 'test/harness/child-process.ts', fs: 'test/harness/fs.ts', os: 'test/harness/os.ts',
+    'dns/promises': 'test/harness/dns-promises.ts', 'src/main/platform': 'test/harness/platform-windows.ts',
+  },
+})
+
+type Route = { gateway: string; iface: string } | null
+
+/**
+ * Each Windows test brings its own cores on PATH and its own resources dir: registered
+ * after a top-level await, they cannot lean on the file's before/after hooks. `path` ''
+ * is a PATH with nothing on it, wg-quick included.
+ */
+function winMachine(t: test.TestContext, { path }: { path?: string } = {}): { resources: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'kv-winbin-'))
+  for (const name of ['v2ray', 'xray', 'hysteria']) {
+    writeFileSync(join(dir, name), '#!/bin/sh\n')
+    chmodSync(join(dir, name), 0o755)
+  }
+  const res = mkdtempSync(join(tmpdir(), 'kv-winres-'))
+  const saved = { path: process.env.PATH, resources: (process as { resourcesPath?: string }).resourcesPath }
+  process.env.PATH = path ?? `${dir}:${saved.path}`
+  ;(process as { resourcesPath?: string }).resourcesPath = res
+  t.after(() => {
+    process.env.PATH = saved.path
+    ;(process as { resourcesPath?: string }).resourcesPath = saved.resources
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(res, { recursive: true, force: true })
+  })
+  return { resources: res }
+}
+
+function freshWin(opts: { resolves?: boolean } = {}) {
+  const privileged: string[][] = []
+  const adapters = new Set<string>()
+  const state = { route: { gateway: '192.168.1.1', iface: '12' } as Route, resolves: opts.resolves ?? true }
+  const before = new Set(ourDirs())
+  const h = vmWin.fresh({
+    'helper/privileged': {
+      runPrivileged: async (a: string[]) => {
+        privileged.push(a)
+        if (a[0] === 'up' || a[0] === 'awg-up') adapters.add('sntl0')
+        if (a[0] === 'down' || a[0] === 'awg-down') adapters.delete('sntl0')
+        if (a[0] === 'tun-up') adapters.add('sntl-tun')
+        if (a[0] === 'tun-down') adapters.delete('sntl-tun')
+      },
+    },
+    'helper/daemon-client': {
+      daemonDefaultRoute: async () => state.route,
+      daemonTrafficCounters: async (iface: string) => (adapters.has(iface) ? { rx: 4096, tx: 512 } : null),
+      daemonOtherVpns: async () => ['Mullvad'],
+    },
+    child_process: { spawn: () => fakeChild() },
+    os: { networkInterfaces: () => Object.fromEntries([...adapters].map((name) => [name, []])) },
+    dns: {
+      lookup: async (host: string, o: { family: number }) => {
+        assert.equal(o.family, 4)
+        if (state.resolves && host === 'wg.example') return { address: '198.51.100.5', family: 4 }
+        throw new Error(`getaddrinfo ENOTFOUND ${host}`)
+      },
+    },
+  })
+  const [secureTmp] = ourDirs().filter((d) => !before.has(d))
+  return Object.assign(h, { privileged, adapters, state, secureTmp: join(tmpdir(), secureTmp) })
+}
+
+const execs = (h: ModuleHarness) => h.world.calls('child_process').filter((c) => c.fn !== 'spawn')
+
+test('[REL-7] [NT-1] Windows: a WireGuard endpoint is looked up ahead, pinned to IPv4, then written and handed to the service', async (t) => {
+  winMachine(t, { path: '' }) // no wg-quick anywhere: Windows does not need one
+  const h = freshWin()
+  t.after(() => h.dispose())
+  await (h.mod.connectWireGuardFromConfig as Connect)(CLEAN_WG('wg.example:51820'))
+  assert.deepEqual(h.world.calls('dns', 'lookup').map((c) => c.args[0]), ['wg.example'])
+  const [verb, file] = h.privileged[0]
+  assert.equal(verb, 'up')
+  assert.match(readFileSync(file, 'utf-8'), /^Endpoint = 198\.51\.100\.5:51820$/m, 'the service sees the pinned IP, never the hostname')
+  assert.deepEqual(execs(h), [])
+})
+
+test('[REL-7] Windows: with DNS blocked (the kill switch, before the tunnel), the last good answer still pins the endpoint', async (t) => {
+  winMachine(t)
+  const h = freshWin()
+  t.after(() => h.dispose())
+  await (h.mod.connectAmneziaWgFromConfig as Connect)(CLEAN_AWG('wg.example:51820'))
+  await (h.mod.disconnect as () => Promise<void>)()
+  h.state.resolves = false
+  await (h.mod.connectAmneziaWgFromConfig as Connect)(CLEAN_AWG('wg.example:51820'))
+  const last = h.privileged.filter((a) => a[0] === 'awg-up').at(-1)!
+  assert.match(readFileSync(last[1], 'utf-8'), /^Endpoint = 198\.51\.100\.5:51820$/m)
+})
+
+// The cores below are the PATH ones in the temp bin (no win/bin here), as in the Linux tests.
+test('[REL-7] [NT-1] Windows: Xray and Hysteria2 node hosts are looked up ahead and pinned before the core is spawned', async (t) => {
+  winMachine(t)
+  const h = freshWin()
+  t.after(() => h.dispose())
+  await (h.mod.connectXRayFromConfig as Connect)(CLEAN_XRAY('wg.example'))
+  const xray = JSON.parse(written(h, 0)) as { outbounds: Array<{ settings?: { vnext?: Array<{ address: string }> } }> }
+  assert.equal(xray.outbounds[0].settings?.vnext?.[0].address, '198.51.100.5')
+  await (h.mod.disconnect as () => Promise<void>)()
+  await (h.mod.connectHysteria2FromConfig as Connect)(CLEAN_HY2('wg.example:34567'))
+  assert.equal((JSON.parse(written(h, 1)) as { server: string }).server, '198.51.100.5:34567')
+  assert.deepEqual(h.world.calls('dns', 'lookup').map((c) => c.args[0]), ['wg.example', 'wg.example'])
+  assert.deepEqual(execs(h), [])
+})
+
+test('[PKG-1] Windows: a core is the .exe under win/bin, checked against its own pin, never the Linux one or PATH', async (t) => {
+  const { resources } = winMachine(t)
+  // The Linux core beside it must not stand in for the Windows one, nor the one on PATH.
+  mkdirSync(join(resources, 'linux/bin'), { recursive: true })
+  writeFileSync(join(resources, 'linux/bin/v2ray'), 'linux core')
+  mkdirSync(join(resources, 'win/bin'), { recursive: true })
+  writeFileSync(join(resources, 'win/bin/v2ray.exe'), 'MZ not pinned')
+  const h = freshWin()
+  t.after(() => h.dispose())
+  // v2ray.exe has no pin yet (the Windows cores come in Phase 3), so it is refused; the
+  // Linux core beside it, which passes no pin either here, is never looked at.
+  await assert.rejects(async () => (h.mod.connectV2RayFromConfig as Connect)(CLEAN_XRAY('203.0.113.7')), /Bundled binary v2ray failed SHA-256 integrity check/)
+  assert.deepEqual(h.world.calls('child_process', 'spawn'), [])
+})
+
+test('Windows: OpenVPN is refused before payment, and WireGuard needs no wg-quick', (t) => {
+  winMachine(t, { path: '' })
+  const h = freshWin()
+  t.after(() => h.dispose())
+  assert.match(String((h.mod.protocolRuntimeError as (p: string) => string | null)('openvpn')), /OpenVPN isn't available on Windows/)
+  assert.equal((h.mod.protocolRuntimeError as (p: string) => string | null)('wireguard'), null)
+  assert.equal((h.mod.protocolRuntimeError as (p: string) => string | null)('amneziawg'), null)
+})
+
+test('Windows: adapters come from the interface list, counters and other VPNs from the service, and nothing is exec\'d', async (t) => {
+  winMachine(t)
+  const h = freshWin()
+  t.after(() => h.dispose())
+  assert.equal(h.mod.isVpnActive(), false)
+  assert.equal(await (h.mod.readTunnelBytes as () => Promise<unknown>)(), null, 'no adapter: no tunnel, the service is not asked')
+  assert.deepEqual(h.world.calls('helper/daemon-client', 'daemonTrafficCounters'), [])
+  h.adapters.add('sntl-tun')
+  assert.equal(h.mod.isVpnActive(), true)
+  assert.deepEqual(await (h.mod.readTunnelBytes as () => Promise<unknown>)(), { rx: 4096, tx: 512 })
+  assert.deepEqual(h.world.calls('helper/daemon-client', 'daemonTrafficCounters').map((c) => c.args), [['sntl-tun']])
+  assert.deepEqual(await (h.mod.detectOtherVpn as () => Promise<unknown>)(), [{ type: 'tun', name: 'Mullvad', iface: 'Mullvad' }])
+  assert.deepEqual(execs(h), [])
+})
+
+test('[REL-45] Windows: a WireGuard bring-up records the uplink its endpoint is pinned to; a change is seen, a teardown forgets it', async (t) => {
+  winMachine(t)
+  const h = freshWin()
+  t.after(() => h.dispose())
+  const changed = () => (h.mod.hasDefaultRouteChanged as () => Promise<boolean>)()
+  await (h.mod.connectWireGuardFromConfig as Connect)(CLEAN_WG('203.0.113.7:51820'))
+  assert.equal(await changed(), false)
+  h.state.route = { gateway: '10.0.0.1', iface: '7' } // Wi-Fi to wired
+  assert.equal(await changed(), true)
+  h.state.route = null
+  assert.equal(await changed(), false, 'a route that cannot be read never tears a tunnel down')
+  h.state.route = { gateway: '10.0.0.1', iface: '7' }
+  await (h.mod.disconnect as () => Promise<void>)()
+  assert.equal(await changed(), false, 'no tunnel, nothing to compare')
+})
+
+test('Windows: tun-up carries the default route the service reported, and the tunnel is up once its adapter is', async (t) => {
+  winMachine(t)
+  const h = freshWin()
+  t.after(() => h.dispose())
+  await (h.mod.connectXRayFromConfig as Connect)(CLEAN_XRAY('203.0.113.7'))
+  assert.equal(h.mod.isVpnActive(), false, 'a core alone redirects nothing')
+  await (h.mod.bringUpV2RayTunnel as () => Promise<void>)()
+  assert.deepEqual(h.privileged[0].slice(0, 6), ['tun-up', '-', '127.0.0.1:1080', '203.0.113.7', '192.168.1.1', '12'])
+  assert.equal(h.mod.isVpnActive(), true)
+  assert.deepEqual(execs(h), [])
 })

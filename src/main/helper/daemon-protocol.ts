@@ -4,6 +4,9 @@
 
 export const DAEMON_DIR = '/run/katacomb-vpn'
 export const DAEMON_SOCKET_PATH = `${DAEMON_DIR}/daemon.sock`
+// The Windows service's pipe ([PH-10]): under ProtectedPrefix\Administrators, where
+// only an administrator can create a pipe, so no user process can answer in its place.
+export const DAEMON_PIPE_PATH = '\\\\.\\pipe\\ProtectedPrefix\\Administrators\\Katacomb VPN\\daemon'
 
 // Bump only on a breaking protocol change. `protocol_version` is asked once per
 // daemon connection attempt (daemon-client's cached probe) so an upgraded app
@@ -35,7 +38,29 @@ export const DAEMON_OPS = [
   'dns_restore',
 ] as const
 
-export type DaemonOp = (typeof DAEMON_OPS)[number]
+// What the Windows service serves (docs/windows.md): no OpenVPN and no IPsec probe,
+// plus three read-only ops for what the app reads for itself on Linux (/proc/net/dev,
+// `ip route`, `ip link`). Pinned to the corpus's `windowsOps` like the list above.
+export const WINDOWS_DAEMON_OPS = [
+  'protocol_version',
+  'status',
+  'wireguard_handshake',
+  'traffic_counters',
+  'default_route',
+  'other_vpns',
+  'wireguard_up',
+  'wireguard_down',
+  'amneziawg_up',
+  'amneziawg_down',
+  'tun_up',
+  'tun_down',
+  'killswitch_on',
+  'killswitch_off',
+  'dns_set',
+  'dns_restore',
+] as const
+
+export type DaemonOp = (typeof DAEMON_OPS)[number] | (typeof WINDOWS_DAEMON_OPS)[number]
 
 export interface DaemonRequest {
   id: number

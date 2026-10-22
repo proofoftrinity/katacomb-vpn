@@ -127,6 +127,13 @@ count.
   paths outside the test's temp dirs, such as the system openvpn), and the SDK root ->
   `test/harness/sentinel-sdk.ts` (the real SDK, but `fakes.sdk.connectWithSigner` answers
   the signing connection a module opens on its own, as `endSession` does).
+- **The Windows branches** run on Linux: bundle the module with
+  `stubs: { 'src/main/platform': 'test/harness/platform-windows.ts' }` (for the state
+  machine, `loadIpcHandlers({ windows: true })`), and stub what Windows reads instead of the
+  Linux tools: `os` -> `test/harness/os.ts` (`fakes.os.networkInterfaces`) and
+  `dns/promises` -> `test/harness/dns-promises.ts` (`fakes.dns.lookup`). A Windows test
+  registered after a top-level `await` cannot lean on the file's `before`/`after` hooks;
+  give it its own fixtures (`winMachine` in `vpn-manager.test.ts`).
 - **Scripts that run as root** (`test/static/privileged-install.test.ts`): the install
   steps are RUN in a temp sandbox, against a helper that is executing at the time, with
   only `chown`/`systemctl` stood in for. A string match would not show that `cp` onto a

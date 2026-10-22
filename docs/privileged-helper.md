@@ -204,3 +204,9 @@ the mapping of every Linux mechanism.
   manager, the hidden `_tun2socks` engine); every Linux one-shot verb prints the usage
   line. A command-line door would skip the pipe's DACL, and any process that can start
   the helper elevated could hand it a config.
+- **[PH-12] On Windows the app reaches root through the service and nothing else.**
+  `runPrivileged` sends every op to the pipe, whatever `isDaemonAvailable` would say about a
+  socket; an unreachable service is the "Reinstall Katacomb VPN" error, and nothing is run
+  in its place: there is no pkexec, and the app never asks for elevation. The setup gate's
+  one Windows row is that service answering `protocol_version`, and its fix is the
+  installer. A rejected op propagates as the service said it, as [PH-9] has it on Linux.

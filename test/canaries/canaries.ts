@@ -268,8 +268,8 @@ export const CANARIES: Canary[] = [
   {
     name: '[REL-30] the watchdog is stopped before the usage is remembered',
     file: IPC_TS,
-    find: '  return withConnectionLock(async () => {\n    rememberSessionUsage()\n\n    stopRootTunnelMonitor()\n    stopQuotaWatchdog()',
-    replace: '  return withConnectionLock(async () => {\n    stopQuotaWatchdog()\n    rememberSessionUsage()\n\n    stopRootTunnelMonitor()',
+    find: '  return withConnectionLock(async () => {\n    await rememberSessionUsage()\n\n    stopRootTunnelMonitor()\n    stopQuotaWatchdog()',
+    replace: '  return withConnectionLock(async () => {\n    stopQuotaWatchdog()\n    await rememberSessionUsage()\n\n    stopRootTunnelMonitor()',
     run: [TEARDOWN],
   },
   {
@@ -431,8 +431,8 @@ export const CANARIES: Canary[] = [
   {
     name: '[REL-7] the WireGuard sink hands root the hostname',
     file: 'src/main/vpn/vpn-manager.ts',
-    find: '  // by now the kill switch may be the thing blocking the lookup).\n  const configString = pinWireguardEndpoint(raw, resolveHostToIPv4)\n',
-    replace: '  // by now the kill switch may be the thing blocking the lookup).\n  const configString = raw\n',
+    find: '  // by now the kill switch may be the thing blocking the lookup).\n  await resolveAhead((resolve) => pinWireguardEndpoint(raw, resolve))\n  const configString = pinWireguardEndpoint(raw, resolveHostToIPv4)\n',
+    replace: '  // by now the kill switch may be the thing blocking the lookup).\n  await resolveAhead((resolve) => pinWireguardEndpoint(raw, resolve))\n  const configString = raw\n',
     run: [SINKS],
   },
 
@@ -706,8 +706,8 @@ export const CANARIES: Canary[] = [
   {
     name: '[REL-2] the monitor asks vpn-manager which protocol to watch, and loses it with the interface',
     file: IPC_TS,
-    find: '    if (isRootTunnelProtocol(desiredProtocol)) {',
-    replace: '    if (isRootTunnelProtocol(getConnectionStatus().protocol as typeof desiredProtocol)) {',
+    find: '  if (isRootTunnelProtocol(desiredProtocol)) {',
+    replace: '  if (isRootTunnelProtocol(getConnectionStatus().protocol as typeof desiredProtocol)) {',
     run: [PROTOCOLS],
   },
 
@@ -785,7 +785,7 @@ export const CANARIES: Canary[] = [
   {
     name: '[MH-12] the watchdog stops watching the exit hop\'s deadline',
     file: IPC_TS,
-    find: '    void checkChainExitDeadline()\n',
+    find: '  void checkChainExitDeadline()\n',
     replace: '',
     run: [CHAIN],
   },
@@ -948,5 +948,26 @@ export const CANARIES: Canary[] = [
     find: '(args[0] == "daemon" || args[0] == "_tun2socks")',
     replace: '(args[0] == "daemon" || args[0] == "_tun2socks" || args[0] == "up")',
     run: ['go:.'],
+  },
+  {
+    name: '[PH-12] an unreachable Windows service falls back to pkexec',
+    file: 'src/main/helper/privileged.ts',
+    find: '  if (IS_WINDOWS) {\n    try {\n      await runViaDaemon(args)',
+    replace: '  if (IS_WINDOWS && false) {\n    try {\n      await runViaDaemon(args)',
+    run: ['src/main/helper/privileged.test.ts'],
+  },
+  {
+    name: '[REL-45] a Windows WireGuard tunnel is not watched for an uplink change',
+    file: IPC_TS,
+    find: '    if (!IS_WINDOWS) return\n  }\n  if (desiredProtocol === null',
+    replace: '    return\n  }\n  if (desiredProtocol === null',
+    run: ['src/main/ipc-handlers.windows.test.ts'],
+  },
+  {
+    name: '[REL-45] a Windows AmneziaWG peer is never asked its handshake age',
+    file: IPC_TS,
+    find: "  const readable = desiredProtocol === 'wireguard' || (IS_WINDOWS && desiredProtocol === 'amneziawg')",
+    replace: "  const readable = desiredProtocol === 'wireguard'",
+    run: ['src/main/ipc-handlers.windows.test.ts'],
   },
 ]

@@ -16,8 +16,17 @@ import { existsSync, readFileSync } from 'fs'
 import { promisify } from 'util'
 import { isDaemonAvailable, daemonRequest, DaemonUnreachableError } from './daemon-client'
 import { LAN_SHARING_ARG } from '../config-guard'
+import { IS_WINDOWS } from '../platform'
 
 const HELPER_PATH = '/usr/local/bin/katacomb-vpn-helper'
+
+/**
+ * [PH-12] What an unreachable Windows service is told as. There is no elevation
+ * fallback on Windows: the installer registers the service, and only a reinstall
+ * restores it.
+ */
+export const WINDOWS_SERVICE_UNREACHABLE =
+  "The Katacomb VPN service isn't running. Reinstall Katacomb VPN to restore it, then try again."
 
 /**
  * ASYNC, and that is load-bearing. This used to be `execFileSync`, which blocks the
@@ -44,6 +53,20 @@ export function canEscalatePrivileges(): boolean {
 }
 
 export async function runPrivileged(args: string[]): Promise<void> {
+  // [PH-12] Windows: the service or nothing. A pkexec door does not exist there, and
+  // the helper accepts no tunnel verb on its command line ([PH-11]).
+  if (IS_WINDOWS) {
+    try {
+      await runViaDaemon(args)
+    } catch (err) {
+      if (err instanceof DaemonUnreachableError) {
+        console.warn(`[privileged] the Windows service is unreachable (${err.message})`)
+        throw new Error(WINDOWS_SERVICE_UNREACHABLE)
+      }
+      throw err
+    }
+    return
+  }
   if (isDaemonAvailable()) {
     try {
       await runViaDaemon(args)

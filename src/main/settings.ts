@@ -4,6 +4,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { WALLET_EXISTS } from '../shared/error-markers'
 import { writeFileAtomic } from './fs-utils'
+import { IS_WINDOWS } from './platform'
 
 // --- Pre-rename profile migration ---
 
@@ -116,8 +117,10 @@ function settingsPath(): string {
  */
 export function isSecureStorageAvailable(): boolean {
   if (!safeStorage.isEncryptionAvailable()) return false
-  // getSelectedStorageBackend is Linux-only (the app's only target); a non-Linux
-  // or 'unknown' backend is treated as acceptable — only the known-insecure
+  // Windows encrypts with DPAPI, under the user's own logon credentials: no keyring to
+  // pick, and nothing like basic_text. getSelectedStorageBackend is Linux-only.
+  if (IS_WINDOWS) return true
+  // An 'unknown' backend is treated as acceptable — only the known-insecure
   // basic_text is rejected.
   try {
     return safeStorage.getSelectedStorageBackend() !== 'basic_text'
@@ -160,6 +163,8 @@ function hasStoredSeed(): boolean {
  * environment only: it runs before `ready`, and a keyring call there would prompt.
  */
 export function keyringSwitch(env: NodeJS.ProcessEnv): string | null {
+  // Windows has one store, DPAPI under the user's account: nothing to choose.
+  if (IS_WINDOWS) return null
   const kde = isKdeSession(env)
   const recorded = hasStoredSeed() ? loadSettings().keyringBackend : null
   if (recorded && recorded in PASSWORD_STORES && !(kde && recorded.startsWith('kwallet'))) return PASSWORD_STORES[recorded]
@@ -171,7 +176,8 @@ let keyringRecorded = false
 
 /** [REL-41] Remember the keyring that just saved or opened a seed, for keyringSwitch. */
 function recordKeyring(): void {
-  if (keyringRecorded) return
+  // Windows has one store (DPAPI, the user's account), so there is no choice to pin.
+  if (IS_WINDOWS || keyringRecorded) return
   keyringRecorded = true
   const backend = safeStorage.getSelectedStorageBackend()
   if (backend in PASSWORD_STORES && loadSettings().keyringBackend !== backend) saveSettings({ keyringBackend: backend })
@@ -193,6 +199,12 @@ function noKeyringMessage(): string {
 /** [REL-41] Why a stored seed would not open, as far as this run can tell. */
 function unlockFailure(): string {
   const funds = 'Your funds are on-chain and unaffected.'
+  // DPAPI fails only for a seed saved under another Windows account or machine, or
+  // before this account's password was reset by an administrator.
+  if (IS_WINDOWS) {
+    return 'Windows can\'t unlock this wallet: it was saved under another Windows account, or before this ' +
+      `account's password was reset. Remove it and import the same seed phrase again. ${funds}`
+  }
   const recorded = loadSettings().keyringBackend
   if (safeStorage.getSelectedStorageBackend() === 'basic_text') return noKeyringMessage()
   if (!recorded) {
