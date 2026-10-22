@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package ops implements the twelve privileged verbs natively. It is THE trust
 // boundary of the helper: both entry modes (the daemon socket and the pkexec
 // one-shot) end here, and every argument is validated here regardless of which

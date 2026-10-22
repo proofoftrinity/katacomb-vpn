@@ -1,3 +1,5 @@
+//go:build linux
+
 package ops
 
 // StatusResult is the `status` op's reply, key for key what the app reads.

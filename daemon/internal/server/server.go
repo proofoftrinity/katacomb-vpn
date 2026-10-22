@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package server is daemon mode: the AF_UNIX listener at
 // /run/katacomb-vpn/daemon.sock, one goroutine per connection, protocol v1
 // framing, and one mutex that serialises every state-changing op (status and

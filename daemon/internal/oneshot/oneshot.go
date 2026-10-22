@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package oneshot is the pkexec entry: `katacomb-vpn-helper <verb> <args…>`, the
 // exact argv contract the bash helper had, mapped onto the ops package. Used by
 // the AppImage and `npm run dev` (no daemon), by postrm's teardown, and by the
