@@ -9,7 +9,8 @@ tunnel: WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY or Hysteria2, whichever that 
 speaks. No accounts, no subscriptions to a single provider: bandwidth is bought directly
 from independent node operators with a wallet you hold the keys to.
 
-Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
+Electron 41 + React 18 + TypeScript. **Linux x86_64, and Windows 10/11 x64 as a beta**
+(every protocol but OpenVPN; see [Windows](#windows-installer-beta)).
 
 > **Status:** release (1.17.1). Connecting spends real funds. See
 > [Money](#money-this-app-spends-real-funds).
@@ -45,8 +46,9 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
 
 **Connecting**
 
-- **Kill switch**: iptables rules that drop everything outside the tunnel, armed on
-  connect and torn down on disconnect (with a self-healing marker if the app dies mid-way).
+- **Kill switch**: iptables rules (on Windows, filtering-platform rules) that drop
+  everything outside the tunnel, armed on connect and torn down on disconnect (with a
+  self-healing marker if the app dies mid-way).
 - **DNS**: pick a resolver (Cloudflare, Quad9, NextDNS, …) applied on connect and on every
   automatic reconnect. On WireGuard and AmneziaWG your choice *replaces* the list the node
   pushed rather than joining it, so a node cannot install itself as your first resolver.
@@ -75,7 +77,8 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
   needs something this computer lacks (the VPN helper, WireGuard tools, OpenVPN, a
   `resolvconf`) stops before anything is paid and installs it in one click with apt, dnf
   or pacman. Settings > System shows the same checks. The .deb installs the helper,
-  WireGuard tools and OpenVPN with the package.
+  WireGuard tools and OpenVPN with the package. On Windows the installer sets up
+  everything, and the one check is that its VPN service is running.
 - **Tray**: the K in the icon is an outline when disconnected, fills while connecting,
   is solid when connected and has a slash through it while the kill switch blocks all
   traffic. Its menu names the node and the state, and offers Disconnect, Restore internet
@@ -93,7 +96,8 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
   keyring: KDE Wallet on Plasma, the Secret Service (GNOME Keyring) everywhere else. The
   app records which keyring saved the seeds and asks that one on every desktop, so a
   wallet saved under GNOME still opens from a Plasma session on the same account. If no
-  keyring is available, secrets are **not** written in plaintext instead.
+  keyring is available, secrets are **not** written in plaintext instead. On Windows the
+  key is protected by Windows' own data protection (DPAPI), under your account.
 - A copied recovery phrase is wiped from the clipboard 30 seconds later, even if the
   screen that copied it has closed.
 - The active wallet is locked while a session is running: nothing on disk records which
@@ -130,7 +134,10 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64 only.**
 | 5 | AmneziaWG | `sntl0` | root (device compiled into the helper) | WireGuard fork with DPI-evasion params; the userspace device is embedded in the privileged helper |
 | 6 | Hysteria2 | `sntl-tun` | userspace core + tun2socks | QUIC; refuses to connect without a TLS pin |
 
-Type 0 (unknown) is the only kind the client will not connect to.
+Type 0 (unknown) is the only kind the client will not connect to. On Windows, OpenVPN
+(type 3) is not available either: the node list says so and the app refuses it before
+paying. There every other protocol runs through the Katacomb VPN service, on Wintun
+adapters with the same names.
 
 Multi-hop chains only work on types 2 and 4: the mechanism is v2ray-core's
 `proxySettings.tag`, which the other protocols have no equivalent for. A chain always
@@ -146,11 +153,11 @@ nodes pin) are compiled into the privileged helper.
 
 ## Install
 
-Both artifacts land in `dist/` after a packaging build.
+All three packages land in `dist/` after a packaging build.
 
 ### Verifying a download
 
-Releases ship a `SHA256SUMS` file covering **both** artifacts. Put it next to the
+Releases ship a `SHA256SUMS` file covering **every** package. Put it next to the
 download and run:
 
 ```bash
@@ -252,6 +259,22 @@ install it (`sudo apt install libgbm1`) or use the `.deb`, which declares it pro
 > that makes the namespace probe succeed. Verify either build with
 > `sudo ./scripts/verify-deb-portability.sh appimage`.
 
+### Windows installer (beta)
+
+`katacomb-vpn-1.17.1-setup.exe` installs the app for Windows 10 and 11 on x64 (tested on
+Windows 11), with a Windows service that brings tunnels up for it. Run it and approve
+the administrator prompt; after that, connect and disconnect never ask. It is not
+code-signed yet, so SmartScreen warns first: check it against `SHA256SUMS` as above
+(`Get-FileHash` in PowerShell prints its hash), then choose **More info** and **Run
+anyway**.
+
+- Every protocol but OpenVPN, plus multi-hop, the kill switch and DNS protection.
+- Only the account that ran the installer can connect; the service refuses the others.
+- Settings > Apps removes it, the service included. Your wallets and settings stay in
+  `%APPDATA%\katacomb-vpn`.
+
+How each Linux mechanism maps onto Windows is in [docs/windows.md](docs/windows.md).
+
 ## Build from source
 
 Requires **Node 22 or newer** (the test runner relies on native TypeScript type
@@ -264,7 +287,8 @@ npm run typecheck      # tsc --noEmit on both projects, must pass clean
 npm test               # unit tests (Node's built-in runner, zero test deps)
 npm run dist:deb       # package the .deb
 npm run dist:appimage  # package the AppImage
-npm run dist           # both
+npm run dist:win       # package the Windows installer (needs docker, for wine)
+npm run dist           # all three
 ```
 
 ## How a connection is made
@@ -415,7 +439,7 @@ beside its polkit policy and systemd unit);
   runtime with `ERR_REQUIRE_ESM`.
 - **Dark theme only**, on purpose. Semantic tokens live in `tokens.css`; components read
   those and never a `dark:` variant.
-- App data lives in `~/.config/katacomb-vpn`.
+- App data lives in `~/.config/katacomb-vpn` (`%APPDATA%\katacomb-vpn` on Windows).
 
 ## Troubleshooting
 
@@ -463,7 +487,9 @@ GPL-3.0-or-later, see [LICENSE](LICENSE).
 
 The packages also ship three third-party executables (v2ray, xray, hysteria), each a
 separate program under its own license, with the full text alongside it in
-`resources/linux/bin/`, and the privileged helper statically links the tun2socks engine
+`resources/linux/bin/`; the Windows installer ships their Windows builds the same way in
+`resources/win/bin/`, and Wintun's `wintun.dll` with its license in
+`resources/win/privileged/`. The privileged helper statically links the tun2socks engine
 and the AmneziaWG userspace device with their dependencies (MIT, BSD-3-Clause,
 Apache-2.0), whose notices ship as `THIRD-PARTY-NOTICES.md`. The npm packages compiled
 into the app carry theirs in `THIRD-PARTY-NOTICES-npm.md`. Pinned versions and
