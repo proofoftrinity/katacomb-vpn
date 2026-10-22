@@ -100,6 +100,26 @@ in its place. The renderer is sandboxed and reads the OS off Chromium's user age
   `proxy-children.ts` has nothing to reap there, and records nothing (it identifies a core
   by `/proc`). On Linux a core outlives a crashed app, which is why that module exists.
 
+## The release check
+
+`scripts/verify-windows-vm.sh fullcycle [setup.exe]` is the Windows counterpart of
+`verify-deb-portability.sh fullcycle`, for every release whose Windows side changed. It
+reverts the test VM to its `clean` snapshot and installs the installer silently; checks
+the service (running, automatic, LocalSystem, restarted after a crash, the shipped helper
+for the installing user), the files, the state directory's ACL, Defender, and that another
+standard user is refused by the pipe ([PH-10]); starts the app in the desktop session and
+drives it over DevTools: the setup gate, start at login ([PKG-2]), a throwaway unfunded
+wallet the app generates itself, every tab, Settings' System row, with screenshots; then
+runs `integration`; installs again over the running app; uninstalls and checks that
+nothing is left ([PKG-3]); and installs once more and saves the VM as `katacomb-ready`,
+with no wallet in it, for the paid checks.
+
+`integration` alone drives real tunnels through the installed service's pipe, against
+servers the script runs in docker on the host: stock WireGuard, the AmneziaWG reference
+peer at the commits dvpnd pins, and an xray SOCKS server for tun2socks. Then the kill
+switch with the service killed under it ([REL-43]), DNS outside the tunnel ([REL-44]),
+and nothing left behind. It spends nothing: no funded wallet, no chain transaction.
+
 ## Wintun adapters (incident log)
 
 Found while testing the service in the VM, 2026-10-22:
@@ -157,3 +177,11 @@ And for the installer (2026-10-22), `npm run dist:win` built on this host and in
 - A silent uninstall with the app running closes it, removes the service, the install
   directory and `%ProgramData%\Katacomb VPN`, and keeps the user's data
   (`%APPDATA%\katacomb-vpn`).
+
+And the release check itself (2026-10-22): `verify-windows-vm.sh fullcycle` passed 124 of 124
+on this branch's installer, the kill switch section included (the service killed under it,
+the restart still blocking, `killswitch_off` restoring the network, no filter, adapter or
+route left), and saved `katacomb-ready`. Its first run found two defects, both fixed: the
+System tab and three other places still showed Linux-only copy on Windows ("The .deb
+package installs …", "allow the password prompt", "No admin password"), and the kill
+switch cut the check's own ssh session, which is why that section runs as a task in the VM.

@@ -10,6 +10,7 @@ import { parseSplitTunnelRoutes, MAX_SPLIT_TUNNEL_ROUTES } from '../../shared/sp
 import { STATE_DOT } from './RpcStatus'
 import WalletsTab from './settings/WalletsTab'
 import SystemSetup from './SystemSetup'
+import { IS_WINDOWS } from '../utils/protocols'
 
 interface Props {
   /** Which tab to land on — 'network' when something sent the user here to fix the RPC. */
@@ -347,7 +348,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                     <p className="text-text-tertiary text-xs mt-0.5">
                       {autostart?.available
                         ? 'Opens Katacomb VPN in the tray when you log in. It does not connect.'
-                        : 'Available in the installed app (AppImage or .deb).'}
+                        : IS_WINDOWS ? 'Available in the installed app.' : 'Available in the installed app (AppImage or .deb).'}
                     </p>
                     {autostartError && <p className="text-danger text-xs mt-1">{autostartError}</p>}
                   </div>
@@ -655,9 +656,14 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                 System Setup
               </label>
               <p className="text-text-tertiary text-xs">
-                What this computer needs to bring a connection up. The app asks for anything
-                missing when a connection needs it, so setting it up here first is optional.
-                The .deb package installs the helper, WireGuard tools and OpenVPN with the app.
+                {IS_WINDOWS ? (
+                  <>What this computer needs to bring a connection up: on Windows, the Katacomb VPN service,
+                  which the installer sets up.</>
+                ) : (
+                  <>What this computer needs to bring a connection up. The app asks for anything
+                  missing when a connection needs it, so setting it up here first is optional.
+                  The .deb package installs the helper, WireGuard tools and OpenVPN with the app.</>
+                )}
               </p>
               <SystemSetup connected={connected} />
             </div>

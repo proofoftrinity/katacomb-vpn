@@ -4,7 +4,7 @@ import type { FundsCheck } from '../../shared/funds'
 import { formatP2p, formatP2pCeil } from '../../shared/funds'
 import { SOCKS_DISPLAY_ADDR } from '../../shared/socks'
 import { v2rayEncryption } from '../utils/v2ray-connection'
-import { protocolMeta } from '../utils/protocols'
+import { IS_WINDOWS, protocolMeta } from '../utils/protocols'
 import { versionSignsReplies } from '../../shared/node-signing'
 import { switchFacts, type PreviousConnection } from '../utils/switch'
 import CountryFlag from './CountryFlag'
@@ -465,8 +465,11 @@ export function ModeField({ mode, onChange }: { mode: 'tunnel' | 'proxy'; onChan
       />
       <p className="text-text-tertiary text-xs">
         {mode === 'tunnel'
-          ? 'Routes your whole device. Needs admin rights.'
-          : `SOCKS5 on ${SOCKS_DISPLAY_ADDR}. No admin password, but only apps you point at it use the connection, and there is no kill switch.`}
+          // Windows: the service holds the admin rights, so the user is never asked.
+          ? IS_WINDOWS ? 'Routes your whole device, through the Katacomb VPN service.' : 'Routes your whole device. Needs admin rights.'
+          : IS_WINDOWS
+            ? `SOCKS5 on ${SOCKS_DISPLAY_ADDR}. Only apps you point at it use the connection, and there is no kill switch.`
+            : `SOCKS5 on ${SOCKS_DISPLAY_ADDR}. No admin password, but only apps you point at it use the connection, and there is no kill switch.`}
       </p>
     </div>
   )
@@ -592,7 +595,7 @@ export function dnsCheck(s: ReturnType<typeof useReviewSettings>, mode: 'tunnel'
       tone: 'warning',
       text: `Only apps you point at ${SOCKS_DISPLAY_ADDR} use ${through}`,
       tipLabel: 'More about local proxy mode',
-      tip: 'No admin password is needed, because nothing about your routing changes. Everything you do not point at the proxy leaves your device as normal, and there is no kill switch.',
+      tip: `${IS_WINDOWS ? 'Nothing' : 'No admin password is needed, because nothing'} about your routing changes. Everything you do not point at the proxy leaves your device as normal, and there is no kill switch.`,
     }
   }
   if (s.dnsResolver === 'system') {

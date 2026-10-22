@@ -28,6 +28,7 @@ import { NavigationProvider, useNavigation, type MainTab } from './contexts/Navi
 import Spinner from './components/Spinner'
 import { leaseStopsSoon } from './utils/lease-runway'
 import { formatDuration } from './utils/format'
+import { IS_WINDOWS } from './utils/protocols'
 import AppLogo from './components/AppLogo'
 
 /**
@@ -158,7 +159,7 @@ function KillSwitchStuckBanner() {
       <span aria-hidden>⚠</span>
       <span className="flex-1">
         The kill switch could not be turned off, so all traffic may still be blocked.
-        Try again, and allow the password prompt if one appears. If that fails, restart
+        {IS_WINDOWS ? ' Try again.' : ' Try again, and allow the password prompt if one appears.'} If that fails, restart
         Katacomb VPN to restore it.
       </span>
       <button
