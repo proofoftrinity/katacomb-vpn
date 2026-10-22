@@ -519,7 +519,7 @@ export const CANARIES: Canary[] = [
   // --- the socket contract (P6) -------------------------------------------------------
   {
     name: "[PH-4] the daemon's bypass-route cap drifts from the app's",
-    file: 'daemon/internal/ops/tun.go',
+    file: 'daemon/internal/ops/common.go',
     find: 'const MaxBypassRoutes = 64',
     replace: 'const MaxBypassRoutes = 65',
     run: ['go:./internal/server/'],
@@ -533,7 +533,7 @@ export const CANARIES: Canary[] = [
   },
   {
     name: '[PH-2] the daemon renames a result field the app reads',
-    file: 'daemon/internal/ops/handshake.go',
+    file: 'daemon/internal/ops/common.go',
     find: 'json:"ageSeconds"',
     replace: 'json:"age_seconds"',
     run: ['go:./internal/server/'],
@@ -918,5 +918,35 @@ export const CANARIES: Canary[] = [
     find: '        registry: CHAIN_REGISTRY,',
     replace: '',
     run: ['src/main/provider/provider-console.test.ts'],
+  },
+
+  // --- Windows (beta) -----------------------------------------------------------------
+  {
+    name: '[REL-43] the Windows kill switch permits the LAN with LAN sharing off',
+    file: 'daemon/internal/ops/wfp_plan.go',
+    find: '\tif lan {\n\t\tfor _, r := range lanRangesV4 {',
+    replace: '\tif true {\n\t\tfor _, r := range lanRangesV4 {',
+    run: ['go:./internal/ops/'],
+  },
+  {
+    name: '[REL-44] the Windows DNS guard lets port 53 out of any interface',
+    file: 'daemon/internal/ops/wfp_plan.go',
+    find: 'Interface: tunnel, Protocols: dns, RemotePort: 53},',
+    replace: 'Protocols: dns, RemotePort: 53},',
+    run: ['go:./internal/ops/'],
+  },
+  {
+    name: '[PH-10] the Windows pipe admits everyone',
+    file: 'daemon/internal/server/pipe.go',
+    find: '(A;;GRGW;;;%s)"',
+    replace: '(A;;GRGW;;;%s)(A;;GRGW;;;WD)"',
+    run: ['go:./internal/server/'],
+  },
+  {
+    name: '[PH-11] the Windows helper accepts a tunnel verb on its command line',
+    file: 'daemon/command.go',
+    find: '(args[0] == "daemon" || args[0] == "_tun2socks")',
+    replace: '(args[0] == "daemon" || args[0] == "_tun2socks" || args[0] == "up")',
+    run: ['go:.'],
   },
 ]

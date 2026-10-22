@@ -53,8 +53,8 @@ func ProxyArg(args []string) (string, error) {
 	return proxy, nil
 }
 
-// Run starts the engine on sntl-tun and blocks until SIGTERM/SIGINT, then stops
-// it. Returns the process exit code.
+// Run starts the engine on sntl-tun and blocks until SIGTERM/SIGINT (or, on
+// Windows, its stdin closing), then stops it. Returns the process exit code.
 func Run(args []string, stderr io.Writer) int {
 	proxy, err := ProxyArg(args)
 	if err != nil {
@@ -72,6 +72,9 @@ func Run(args []string, stderr io.Writer) int {
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	<-sigs
+	select {
+	case <-sigs:
+	case <-stopRequested():
+	}
 	return 0
 }

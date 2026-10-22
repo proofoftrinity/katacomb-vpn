@@ -724,3 +724,27 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   never blinks from one ink to the other, again on every `nativeTheme` change, and on
   Cinnamon and Xfce whenever their panel setting changes alone (`panelWatchCommand`):
   Mint's Mixed to Light changes only the panel.
+
+## Windows (beta)
+
+The Windows helper builds the kill switch and DNS protection from the Windows Filtering
+Platform instead of iptables and resolv.conf. The filters are planned as data in
+`daemon/internal/ops/wfp_plan.go`, so their rules are pinned by tests that run on Linux
+too, and installed by `daemon/internal/wfp` on Windows. [docs/windows.md](../windows.md)
+has the rest.
+
+- **[REL-43] The Windows kill switch lets out what the iptables chain lets out, and
+  nothing more:** loopback, the tunnel, the VPN server's /32, DHCP, and the LAN ranges only
+  when LAN sharing is on, from the same `lanRangesV4`/`lanRangesV6` the chain uses (CGNAT
+  stays out). Every layer, IPv4 and IPv6, in and out, ends in a block that every permit
+  outranks. iptables names the interface, so `-o sntl0` matches a tunnel created after the
+  chain; WFP matches the adapter's LUID, so the plan has no tunnel permit until the adapter
+  exists, and the helper re-plans the kill switch when it brings a tunnel up.
+- **[REL-44] While a Windows tunnel is up, no DNS query leaves outside it, kill switch or
+  not.** On Linux the resolver is one file and pointing it into the tunnel is the whole
+  job. Windows asks every adapter's resolvers, and a LAN resolver is on-link, so the
+  tunnel's /1 routes never catch the query. Port 53 is therefore blocked on every layer
+  except through the tunnel and on loopback, with the VPN server exempt so a node serving
+  on port 53 still works. These filters live in a dynamic WFP session, so they die with the
+  service, as the tunnel they protect does; the kill switch is what stays behind when the
+  user asked for it.

@@ -6,6 +6,7 @@ out/
 dist/
 # The privileged helper, built by scripts/build-daemon.sh (npm run build / build:daemon / predev)
 resources/linux/privileged/katacomb-vpn-helper
+resources/win/privileged/katacomb-vpn-helper.exe
 *.tsbuildinfo
 
 # Environment / secrets

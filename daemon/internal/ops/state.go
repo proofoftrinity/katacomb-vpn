@@ -28,15 +28,7 @@ const (
 	// Same filesystem as resolv.conf, so the final rename is atomic.
 	resolvTmp = "/etc/.resolv.conf.sntl-tmp"
 
-	wgIface   = "sntl0"
-	tunIface  = "sntl-tun"
 	ovpnIface = "sntl-ovpn"
-
-	// tun2socks terminates TCP in a userspace netstack and advertises MSS = MTU-40;
-	// 1400 keeps large TLS ClientHellos inside the proxy-wrapped path. Set at
-	// startup because the netstack caches it at creation.
-	tunMTU  = "1400"
-	tunAddr = "198.18.0.1/15"
 
 	wgConfName          = "sntl0.conf"
 	ovpnConfName        = "openvpn.conf"

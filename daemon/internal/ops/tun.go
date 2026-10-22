@@ -10,37 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
-
-	"katacomb.vpn/daemon/internal/guard"
-)
-
-// TunUpParams is `tun-up <bin> <socks> <remote> <gw> <if> [bypass…]`. The
-// `<bin>` slot is accepted and IGNORED: the tun2socks engine is compiled into
-// this helper (internal/tun2socks) and tun-up self-execs it, so root never runs
-// a binary it was handed. The slot stays so old and new apps share one argv
-// contract (the new app passes `-`).
-type TunUpParams struct {
-	SocksAddr  string
-	RemoteHost string
-	Gateway    string
-	Iface      string
-	// BypassRoutes are split-tunnel CIDRs, passed through RAW. Filtering happens
-	// in TunUp, which is the trust boundary: both doors reach it, and a caller's
-	// own filtering is never the one that counts.
-	BypassRoutes []string
-}
-
-// MaxBypassRoutes bounds the split-tunnel list. Each entry becomes an `ip route
-// add` as root, and the list was previously unbounded — a caller could make the
-// helper issue arbitrarily many. The app's own UI cannot produce anything near
-// this many, so exceeding it means a bug or a hostile caller, and refusing says
-// so rather than working slowly and silently.
-const MaxBypassRoutes = 64
-
-const (
-	tunPollTries    = 50
-	tunPollInterval = 100 * time.Millisecond
 )
 
 // selfExecutable is this helper's path, which tun-up execs as `_tun2socks`. If
@@ -62,40 +31,16 @@ func selfExecutable(e *Env) (string, error) {
 // routes. Returns the engine's pid, which is also recorded in tun.state for
 // TunDown.
 func TunUp(ctx context.Context, e *Env, p TunUpParams) (int, error) {
-	if !guard.IsValidSocksAddr(p.SocksAddr) {
-		return 0, fmt.Errorf("invalid SOCKS address: %s", p.SocksAddr)
-	}
-	if !guard.IsIPv4(p.RemoteHost) {
-		return 0, fmt.Errorf("invalid IPv4 address: %s", p.RemoteHost)
-	}
-	if !guard.IsIPv4(p.Gateway) {
-		return 0, fmt.Errorf("invalid IPv4 address: %s", p.Gateway)
-	}
-	if !guard.IsValidInterfaceName(p.Iface) {
-		return 0, fmt.Errorf("invalid interface name: %s", p.Iface)
+	if err := p.check(); err != nil {
+		return 0, err
 	}
 	self, err := selfExecutable(e)
 	if err != nil {
 		return 0, err
 	}
-	if len(p.BypassRoutes) > MaxBypassRoutes {
-		return 0, fmt.Errorf("too many bypass routes: %d, max %d", len(p.BypassRoutes), MaxBypassRoutes)
-	}
-	var bypass []string
-	var dropped int
-	for _, r := range p.BypassRoutes {
-		if guard.IsAllowedBypassCidr(r) {
-			bypass = append(bypass, strings.TrimSpace(r))
-		} else {
-			dropped++
-		}
-	}
-	// Report the COUNT, never the entries: these are caller-supplied strings and
-	// the guard's own rule is that a refusal names a reason, not content. Silently
-	// dropping them was the old behaviour and it made a half-applied split tunnel
-	// indistinguishable from a working one.
-	if dropped > 0 {
-		e.Warn(fmt.Sprintf("tun-up: ignored %d invalid bypass route(s) of %d", dropped, len(p.BypassRoutes)))
+	bypass, err := acceptedBypassRoutes(p.BypassRoutes, e.Warn)
+	if err != nil {
+		return 0, err
 	}
 
 	var pid int
