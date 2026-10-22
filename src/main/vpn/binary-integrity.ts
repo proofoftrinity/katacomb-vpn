@@ -2,7 +2,8 @@ import { createHash } from 'crypto'
 import { readFileSync } from 'fs'
 
 // SHA-256 hashes of the bundled binaries (vendored in-repo under
-// resources/linux/bin/ and shipped in the package): the three child-proxy cores,
+// resources/linux/bin/ and resources/win/bin/, and shipped in the packages): the
+// three child-proxy cores, keyed by file name, so each platform's build has its own pin,
 // which run as the USER. The app (vpn-manager) checks them before it spawns one.
 // Root runs no vendored binary at all since the tun2socks engine (1.9.0) and the
 // AmneziaWG device (Phase 3) were compiled into the privileged helper, so the
@@ -16,6 +17,13 @@ const BUNDLED_HASHES: Record<string, string> = {
   // Hysteria2 v2.10.0 (official apernet/hysteria app/v2.10.0 hysteria-linux-amd64,
   // non-AVX; SHA-256 verified against the release's hashes.txt).
   hysteria: '04f7804159ef1d798de12a817d73aab4b9040ebe45fc62e223000c5c59e987fe',
+  // Windows (beta), the same three releases. v2ray.exe is v5.47.0's v2ray-windows-64.zip
+  // (zip SHA2-256 96ea55e9…b1c6d), xray.exe v26.3.27's Xray-windows-64.zip (d004c392…e1ad),
+  // both verified against the release's .dgst; hysteria.exe is app/v2.10.0's
+  // hysteria-windows-amd64.exe, non-AVX like Linux's, verified against its hashes.txt.
+  'v2ray.exe': 'e77e133d07ecb2116f32dbb2d573a2759ded960d745ce29e1e98d276ae7a7eae',
+  'xray.exe': '15c2d007954ac53ba69b80ec91242786b3c0b71d52649165b4ca1d5cc96ef8f1',
+  'hysteria.exe': 'a0b4b1851919235b9424632b894b5232eec861c1c20e955e82e3dbc6698490d0',
 }
 
 /** Verify a bundled binary's SHA-256 hash matches the expected value. */

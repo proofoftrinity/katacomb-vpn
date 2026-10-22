@@ -142,3 +142,18 @@ And for the app (2026-10-22), with Electron 41.10.7 run as Node in the VM:
   a lookup through the tunnel answers.
 - A child spawned as vpn-manager spawns a core (piped stdio, not detached) is gone 2 s after
   its parent is killed with `Stop-Process -Force`.
+
+And for the installer (2026-10-22), `npm run dist:win` built on this host and installed in the VM:
+
+- A silent install (`/S`) exits 0 and leaves the service running, set to start
+  automatically, registered for the installing user's SID and running the helper from
+  `C:\Program Files\Katacomb VPN\resources\win\privileged\`; `resources\win` holds the
+  cores, the helper, `wintun.dll` and their licences, and no `resources\linux` ships. The
+  pipe answers `protocol_version` with the Windows op list.
+- The installed app starts in the desktop session with no menu bar, says "Five
+  protocols", loads the node list, and reports the setup gate's one row ready
+  (`platform: windows`, `helper: ready`). Start at login writes and removes its Run entry
+  (`"C:\Program Files\Katacomb VPN\Katacomb VPN.exe" --autostart`).
+- A silent uninstall with the app running closes it, removes the service, the install
+  directory and `%ProgramData%\Katacomb VPN`, and keeps the user's data
+  (`%APPDATA%\katacomb-vpn`).

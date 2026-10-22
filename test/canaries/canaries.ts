@@ -970,4 +970,11 @@ export const CANARIES: Canary[] = [
     replace: "  const readable = desiredProtocol === 'wireguard'",
     run: ['src/main/ipc-handlers.windows.test.ts'],
   },
+  {
+    name: '[PKG-3] the Windows uninstaller leaves the service behind',
+    file: 'build/installer.nsh',
+    find: "\\katacomb-vpn-helper.exe\" service uninstall'",
+    replace: "\\katacomb-vpn-helper.exe\" service teardown'",
+    run: ['test/static/windows-installer.test.ts'],
+  },
 ]

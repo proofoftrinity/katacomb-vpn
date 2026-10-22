@@ -620,6 +620,9 @@ function spawnV2Ray(
   const child = spawn(bin, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: coreEnv(bin),
+    // Windows: the cores are console programs, and a console program started by a GUI
+    // one gets a console window of its own unless asked not to. Ignored on Linux.
+    windowsHide: true,
   })
   // Record the pid so a crash that skips every teardown does not strand this core
   // holding the SOCKS port against the next connect.
@@ -1005,7 +1008,7 @@ export async function startProvisioningProxy(configString: string): Promise<Prov
   const configFile = join(SECURE_TMPDIR, 'provision.json')
   writeFileSync(configFile, JSON.stringify(cfg, null, 2), { mode: 0o600 })
 
-  const child = spawn(bin, ['run', '-c', configFile], { stdio: ['ignore', 'pipe', 'pipe'], env: coreEnv(bin) })
+  const child = spawn(bin, ['run', '-c', configFile], { stdio: ['ignore', 'pipe', 'pipe'], env: coreEnv(bin), windowsHide: true })
   // Tracked for the same reason the main core is. Narrower window (this only lives
   // for the length of a chain purchase) but the same consequence if it is stranded:
   // it holds PROVISION_SOCKS_PORT against the next chain purchase.

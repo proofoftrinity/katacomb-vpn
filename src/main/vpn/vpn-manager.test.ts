@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadModule, type ModuleHarness } from '../../../test/harness/module.ts'
@@ -389,10 +389,16 @@ test('[PKG-1] Windows: a core is the .exe under win/bin, checked against its own
   writeFileSync(join(resources, 'win/bin/v2ray.exe'), 'MZ not pinned')
   const h = freshWin()
   t.after(() => h.dispose())
-  // v2ray.exe has no pin yet (the Windows cores come in Phase 3), so it is refused; the
-  // Linux core beside it, which passes no pin either here, is never looked at.
+  // A v2ray.exe that is not the pinned one is refused; neither the Linux core beside it
+  // nor the v2ray on PATH is tried instead.
   await assert.rejects(async () => (h.mod.connectV2RayFromConfig as Connect)(CLEAN_XRAY('203.0.113.7')), /Bundled binary v2ray failed SHA-256 integrity check/)
   assert.deepEqual(h.world.calls('child_process', 'spawn'), [])
+  // Control: the vendored xray.exe passes its pin and is the one spawned, with no console window.
+  copyFileSync('resources/win/bin/xray.exe', join(resources, 'win/bin/xray.exe'))
+  await (h.mod.connectXRayFromConfig as Connect)(CLEAN_XRAY('203.0.113.7'))
+  const [spawned] = h.world.calls('child_process', 'spawn')
+  assert.equal(spawned.args[0], join(resources, 'win/bin/xray.exe'))
+  assert.equal((spawned.args[2] as { windowsHide?: boolean }).windowsHide, true)
 })
 
 test('Windows: OpenVPN is refused before payment, and WireGuard needs no wg-quick', (t) => {

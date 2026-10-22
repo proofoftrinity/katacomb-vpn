@@ -27,6 +27,7 @@
     "dist": "npm run build && electron-builder --linux",
     "dist:deb": "npm run build && electron-builder --linux deb",
     "dist:appimage": "npm run build && electron-builder --linux AppImage",
+    "dist:win": "npm run build && scripts/wine/wine --prepare && USE_SYSTEM_WINE=true PATH=\"$PWD/scripts/wine:$PATH\" electron-builder --win",
     "checksums": "cd dist && sha256sum katacomb-vpn_*_amd64.deb katacomb-vpn-*.AppImage > SHA256SUMS && sha256sum -c SHA256SUMS"
   },
   "dependencies": {
