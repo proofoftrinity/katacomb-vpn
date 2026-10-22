@@ -751,14 +751,20 @@ has the rest.
   outranks. iptables names the interface, so `-o sntl0` matches a tunnel created after the
   chain; WFP matches the adapter's LUID, so the plan has no tunnel permit until the adapter
   exists, and the helper re-plans the kill switch when it brings a tunnel up.
-- **[REL-44] While a Windows tunnel is up, no DNS query leaves outside it, kill switch or
-  not.** On Linux the resolver is one file and pointing it into the tunnel is the whole
-  job. Windows asks every adapter's resolvers, and a LAN resolver is on-link, so the
-  tunnel's /1 routes never catch the query. Port 53 is therefore blocked on every layer
-  except through the tunnel and on loopback, with the VPN server exempt so a node serving
-  on port 53 still works. These filters live in a dynamic WFP session, so they die with the
-  service, as the tunnel they protect does; the kill switch is what stays behind when the
-  user asked for it.
+- **[REL-44] While a Windows tunnel with a resolver of its own is up, no DNS query leaves
+  outside it, kill switch or not.** A resolver of its own is the DNS in a WireGuard or
+  AmneziaWG config, or the one the app sets on a tun2socks tunnel (`dns_set`). On Linux the
+  resolver is one file and pointing it into the tunnel is the whole job. Windows asks every
+  adapter's resolvers, and a LAN resolver is on-link, so the tunnel's /1 routes never catch
+  the query. Port 53 is therefore blocked on every layer except through the tunnel and on
+  loopback, with the VPN server exempt so a node serving on port 53 still works. These
+  filters live in a dynamic WFP session, so they die with the service, as the tunnel they
+  protect does; the kill switch is what stays behind when the user asked for it. With the
+  "system" resolver and the kill switch off, V2Ray, Xray and Hysteria2 set no resolver
+  (`effectiveV2RayResolverIp`), so queries go to the system's resolvers outside the tunnel,
+  as they do on Linux. The rule first claimed every tunnel; the paid check in the VM found
+  the gap, and the user chose the narrower wording over overriding "system" on Windows
+  (2026-10-22).
 - **[REL-45] On Windows a WireGuard or AmneziaWG tunnel is watched like tun2socks' is.**
   The service pins the endpoint's /32 to the uplink of the moment, as tun2socks pins the
   node's (wg-quick's policy routing on Linux follows the uplink by itself), so after Wi-Fi

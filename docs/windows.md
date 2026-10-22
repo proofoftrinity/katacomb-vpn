@@ -185,3 +185,31 @@ route left), and saved `katacomb-ready`. Its first run found two defects, both f
 System tab and three other places still showed Linux-only copy on Windows ("The .deb
 package installs …", "allow the password prompt", "No admin password"), and the kill
 switch cut the check's own ssh session, which is why that section runs as a task in the VM.
+
+## Verified on mainnet (2026-10-22, paid)
+
+The installed beta in the VM, from `katacomb-ready`, with a funded test wallet imported, on
+one operator's NRS-TEST nodes (the cheapest healthy set, one per protocol). Five purchases
+of 1 GB, about 0.72 P2P with fees:
+
+- WireGuard, AmneziaWG, V2Ray, Xray and Hysteria2: each bought and connected through the
+  app. The exit IP was the node's, traffic went through `sntl0` or `sntl-tun`, HTTPS
+  answered, the byte counters moved, and the handshake age was read for WireGuard and
+  AmneziaWG. For WireGuard and AmneziaWG a query to the LAN resolver was blocked. Each
+  disconnect left nothing behind, and each reconnected on the same session.
+- With the "system" resolver and the kill switch off, V2Ray, Xray and Hysteria2 leave the
+  LAN resolver reachable, as Linux does; [REL-44] was narrowed to say so.
+- The app killed with the kill switch armed (47 filters, LAN DNS blocked): the core went
+  with it and nothing got out. The relaunch healed within 16 s: the network back, no
+  adapter, no filter ([REL-31]).
+- Logoff while connected with the kill switch armed: afterwards the original IP, no
+  adapter, no filter and no kill-switch state, and the service logged a full teardown for
+  the session.
+- Reboot with the kill switch armed: the network was back before the app started (no
+  filter, no adapter, no kill-switch state), and the app started idle with no stuck-kill-switch
+  banner.
+
+Multi-hop was not bought on Windows, by the user's decision. The exit hop must be paid
+from a second wallet and the test had one, and the NRS-TEST nodes all sit in one country,
+which [MH-1] refuses. A chain runs the same `xray.exe` and `sntl-tun` path the paid Xray
+check passed, and its config comes from the same builder as on Linux.
