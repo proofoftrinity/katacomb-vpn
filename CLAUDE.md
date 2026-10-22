@@ -35,6 +35,7 @@ is an incident log, not a description, and the reasoning is the point.
 | [docs/renderer.md](docs/renderer.md) | `src/renderer/` - conventions, palette, the no-WebGL rule |
 | [docs/packaging.md](docs/packaging.md) | `electron-builder.yml`, maintainer scripts, the systemd unit, dependencies |
 | [docs/main-modules.md](docs/main-modules.md) | orientation: what each `src/main/` module is for |
+| [docs/windows.md](docs/windows.md) - **the Windows beta** | anything branching on `IS_WINDOWS`, the daemon's `_windows.go` files, `resources/win/`, `build/installer.nsh` |
 
 Two rules that outrank convenience, stated here so they are never missed:
 
@@ -96,7 +97,7 @@ written here binds both.
 
 ## Architecture
 
-Katacomb VPN desktop client. Connects to the Sentinel blockchain (Cosmos SDK) to subscribe to decentralized VPN nodes and establish WireGuard/V2Ray tunnels. Linux-only target.
+Katacomb VPN desktop client. Connects to the Sentinel blockchain (Cosmos SDK) to subscribe to decentralized VPN nodes and establish WireGuard/V2Ray tunnels. Targets Linux, and Windows as a beta: the same app and helper, with the platform differences mapped in [docs/windows.md](docs/windows.md).
 
 ### Naming: the product vs. the chain (do not "finish the job")
 

@@ -86,3 +86,29 @@ jobs:
       # SDK moves off it.
       - name: Security audit (full report, non-blocking)
         run: npm audit --omit=dev || true
+
+  # Windows (beta): the helper's Windows build, tested on Windows, where its pipe, its
+  # Windows ops and the shared planners run for real (a Linux run only type-checks them,
+  # GOOS=windows go vet). The runner is an administrator, which the pipe's
+  # ProtectedPrefix\Administrators name requires. What a runner cannot show (the service,
+  # Wintun adapters, the filtering platform on a desktop) is checked in the Windows VM
+  # (docs/windows.md).
+  windows-daemon:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The same pin as the Linux job, from the same line (see there).
+      - name: Read the pinned Go toolchain
+        id: gotoolchain
+        shell: bash
+        run: echo "version=$(sed -n 's/^toolchain go//p' daemon/go.mod)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ steps.gotoolchain.outputs.version }}
+          cache-dependency-path: daemon/go.sum
+
+      - name: Go tests (Windows)
+        working-directory: daemon
+        run: go test -shuffle=on ./...

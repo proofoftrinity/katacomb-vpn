@@ -17,7 +17,8 @@ CLAUDE.md; this is the per-module detail.
 - `ipc-handlers.ts`: all IPC channels (registered via a `handle()` wrapper that rejects calls from any frame that isn't our own renderer), pre-connect balance validation, node list fetch from `api.sentnodes.com/v2/nodes` via `net.fetch`, auto-reconnect + a WireGuard liveness monitor. Caches balance/sessions/nodes when VPN is active (RPC unreachable through tunnel).
 - `tray-view.ts`: what the tray shows for a connection state (icon, status rows, its one action, the Quit label), Electron-free and tested row by row; `index.ts` hands it to `Tray`/`Menu`. Also the shade of the panel the icon sits on ([REL-42]). The state itself is `getConnectionInfo()` in `ipc-handlers.ts` ([REL-35]).
 - `autostart.ts`: Start at login, as the XDG Autostart entry `~/.config/autostart/katacomb-vpn.desktop`
-  ([PKG-2]); the Settings toggle reads and writes that file through `AUTOSTART_GET`/`AUTOSTART_SET`.
+  ([PKG-2]), or on Windows the user's Run key; the Settings toggle reads and writes it through
+  `AUTOSTART_GET`/`AUTOSTART_SET`.
   The entry passes `--autostart`, and `index.ts` then keeps the window in the tray ([REL-40]).
 - `desktop-session.ts`: registers with the desktop's session manager
   (`org.gnome.SessionManager`, then `org.xfce.SessionManager`, over the session D-Bus) so a
@@ -37,7 +38,8 @@ CLAUDE.md; this is the per-module detail.
   async pkexec. The first is Electron-free and unit-tested; the second holds
   `assertSystemReady` (called by the connect preflight) and the `SETUP_*` channels behind
   Settings, System. Nothing is asked at launch: see
-  [docs/privileged-helper.md](privileged-helper.md).
+  [docs/privileged-helper.md](privileged-helper.md). On Windows the whole check is the
+  service answering on its pipe, and its only fix is the installer ([PH-12]).
 - `platform.ts`: `IS_WINDOWS`, the bundled binaries' resource directory and file names. Every
   Linux/Windows difference branches on it ([docs/windows.md](windows.md)); tests swap in
   `test/harness/platform-windows.ts` to reach the Windows branches.
