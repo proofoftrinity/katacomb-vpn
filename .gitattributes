@@ -1,0 +1,4 @@
+# Go sources check out with LF line endings on every platform. Windows (and GitHub's
+# windows-latest runner) defaults to core.autocrlf=true, which turns them CRLF, and the
+# helper's gofmt test (daemon/format_test.go) then fails on every file.
+*.go text eol=lf
