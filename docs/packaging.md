@@ -235,7 +235,8 @@ per-machine install), so there is nothing to follow, and a dev build writes none
 ## Windows installer (beta)
 
 `npm run dist:win` builds `katacomb-vpn-<version>-setup.exe`, one per-machine NSIS
-installer for x64, on this Linux host. It ships `resources/win/` to `<resourcesPath>/win/`:
+installer for x64, on this Linux host; `npm run dist` builds it after the deb and the
+AppImage, so a release cut (`release.sh`) ships all three under one `SHA256SUMS`. It ships `resources/win/` to `<resourcesPath>/win/`:
 the three cores and their licences in `bin/`, and in `privileged/` the helper's Windows
 build (from `scripts/build-daemon.sh`, gitignored like the Linux one), `wintun.dll` beside
 it, where the helper loads it from, and the DLL's licence. It is unsigned for the beta;

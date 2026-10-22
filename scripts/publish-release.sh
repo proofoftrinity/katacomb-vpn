@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Katacomb VPN — publish a cut release: push the branch, push the tag, create the
-# GitHub release with the four artifacts attached.
+# GitHub release with the five artifacts attached.
 #
 #     ./scripts/publish-release.sh 1.4.0 --dry-run   # check everything, send nothing
 #     ./scripts/publish-release.sh 1.4.0
@@ -27,9 +27,10 @@
 # the release not created. Each of the three actions is skipped when it is already
 # done, so re-running is always safe and never duplicates anything.
 #
-# The two artifact filenames differ, and that is correct, not a slip:
+# The artifact filenames differ, and that is correct, not a slip:
 #   katacomb-vpn_<version>_amd64.deb   Debian policy: <package>_<version>_<arch>
 #   katacomb-vpn-<version>.AppImage    AppImage convention, set in electron-builder.yml
+#   katacomb-vpn-<version>-setup.exe   the Windows installer, also set there
 # Do not "fix" one to match the other. The deb name is what apt and dpkg-scanpackages
 # expect, and it is electron-builder's default precisely because of that.
 # ---------------------------------------------------------------------------
@@ -72,6 +73,7 @@ done
 TAG="v$VERSION"
 DEB_NAME="katacomb-vpn_${VERSION}_amd64.deb"
 APPIMAGE_NAME="katacomb-vpn-${VERSION}.AppImage"
+SETUP_NAME="katacomb-vpn-${VERSION}-setup.exe"
 
 cd "$REPO_ROOT"
 
@@ -128,17 +130,24 @@ NOTES_TITLE="$(head -1 "$NOTES")"
         That file becomes the GitHub release body, so it must be this version's notes."
 ok "$NOTES titled for $VERSION"
 
-for f in "$DEB_NAME" "$APPIMAGE_NAME" SHA256SUMS SHA256SUMS.asc; do
+for f in "$DEB_NAME" "$APPIMAGE_NAME" "$SETUP_NAME" SHA256SUMS SHA256SUMS.asc; do
   [ -f "dist/$f" ] || die "dist/$f is missing. Re-run ./scripts/release.sh $VERSION;
         it wipes dist/ and rebuilds, so a partial dist/ is never worth patching by hand."
 done
-ok "all four artifacts present in dist/"
+ok "all five artifacts present in dist/"
 
 # The check this script exists for. dist/ is wiped and rebuilt by every cut, but
 # nothing until now proved that what is in it belongs to the tag being published.
 ( cd dist && sha256sum -c SHA256SUMS --ignore-missing >/dev/null 2>&1 ) ||
   die "dist/SHA256SUMS does not match the files next to it. The artifacts are not the
         ones that were checksummed, so do NOT publish them. Re-cut: ./scripts/release.sh $VERSION"
+# --ignore-missing passes a file the sums never named, so ask that the other way round:
+# every package uploaded below must be one a downloader can check.
+for f in "$DEB_NAME" "$APPIMAGE_NAME" "$SETUP_NAME"; do
+  awk -v f="$f" '$2 == f || $2 == "*" f { found = 1 } END { exit !found }' dist/SHA256SUMS ||
+    die "dist/SHA256SUMS does not list $f, so a downloader could not check it.
+        Re-cut: ./scripts/release.sh $VERSION"
+done
 ok "SHA256SUMS matches the artifacts"
 
 gpg --verify dist/SHA256SUMS.asc dist/SHA256SUMS >/dev/null 2>&1 ||
@@ -192,7 +201,7 @@ if [ "$RELEASE_EXISTS" = 1 ]; then
   fi
 else
   [ "$ASSETS_ONLY" = 0 ] || die "--assets-only given but no release $TAG exists yet"
-  info "will create release $TAG with 4 assets"
+  info "will create release $TAG with 5 assets"
 fi
 
 if [ "$BRANCH_PUSHED" = 1 ] && [ "$TAG_PUSHED" = 1 ] && [ "$RELEASE_EXISTS" = 1 ] && [ "$ASSETS_ONLY" = 0 ]; then
@@ -239,13 +248,15 @@ if [ "$RELEASE_EXISTS" = 0 ]; then
     --notes-file "$NOTES" \
     "dist/$DEB_NAME" \
     "dist/$APPIMAGE_NAME" \
+    "dist/$SETUP_NAME" \
     dist/SHA256SUMS \
     dist/SHA256SUMS.asc
-  ok "created release $TAG with 4 assets"
+  ok "created release $TAG with 5 assets"
 elif [ "$ASSETS_ONLY" = 1 ]; then
   gh release upload "$TAG" \
     "dist/$DEB_NAME" \
     "dist/$APPIMAGE_NAME" \
+    "dist/$SETUP_NAME" \
     dist/SHA256SUMS \
     dist/SHA256SUMS.asc \
     --clobber

@@ -103,7 +103,9 @@ in its place. The renderer is sandboxed and reads the OS off Chromium's user age
 ## The release check
 
 `scripts/verify-windows-vm.sh fullcycle [setup.exe]` is the Windows counterpart of
-`verify-deb-portability.sh fullcycle`, for every release whose Windows side changed. It
+`verify-deb-portability.sh fullcycle`, for every release whose Windows packaging changed:
+`release.sh` and `ship.sh` name those paths (`resources/win/`, `build/installer.nsh`,
+`electron-builder.yml`, the helper, the wine wrapper, Electron) and ship.sh asks for it. It
 reverts the test VM to its `clean` snapshot and installs the installer silently; checks
 the service (running, automatic, LocalSystem, restarted after a crash, the shipped helper
 for the installing user), the files, the state directory's ACL, Defender, and that another

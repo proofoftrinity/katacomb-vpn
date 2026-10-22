@@ -77,7 +77,8 @@ written here binds both.
   A commit that hangs is waiting on a passphrase dialog on the user's desktop: say so.
 - Never push, tag or run the real `./scripts/ship.sh`; the user runs it. The agent's part
   of a release is the merge, the notes (`./scripts/draft-release-notes.sh <version>`), the
-  portability `fullcycle` when packaging changed, and `./scripts/ship.sh <version> --dry-run`.
+  portability `fullcycle` when packaging changed, `verify-windows-vm.sh fullcycle` when the
+  Windows side of it changed, and `./scripts/ship.sh <version> --dry-run`.
 - Never spend real funds without the user's explicit go-ahead in the conversation: no
   connect, subscription or other mainnet transaction, and no use of a funded wallet's phrase.
 - Never start a second app instance while the user is connected: its startup heal closes
