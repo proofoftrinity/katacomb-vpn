@@ -20,6 +20,7 @@ helper. Only the app bundle is new.
 
 ## Fixes in 1.18.1
 
+- Let a failed release signature be tried again
 - Label the status bar's About button "About"
 - Check Go files out with LF on Windows
 
