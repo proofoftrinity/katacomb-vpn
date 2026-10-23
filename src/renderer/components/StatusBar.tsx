@@ -67,10 +67,10 @@ export default function StatusBar({ onShowAbout }: { onShowAbout: () => void }) 
 
         <button
           onClick={onShowAbout}
-          title="About Katacomb VPN"
+          title={`Katacomb VPN ${__APP_VERSION__}`}
           className="text-text-tertiary hover:text-accent transition-colors"
         >
-          v{__APP_VERSION__}
+          About
         </button>
       </div>
     </footer>

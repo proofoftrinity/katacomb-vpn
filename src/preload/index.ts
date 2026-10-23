@@ -139,7 +139,7 @@ contextBridge.exposeInMainWorld('api', {
     }
   },
 
-  // Tray "About" → open the same About modal the status bar's version chip opens.
+  // Tray "About" → open the same About modal the status bar's "About" button opens.
   onShowAbout: (callback: () => void) => {
     const handler = () => callback()
     ipcRenderer.on(IPC.ABOUT_SHOW, handler)

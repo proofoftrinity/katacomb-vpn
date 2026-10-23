@@ -3,7 +3,7 @@ import AppLogo from './AppLogo'
 const GITHUB_URL = 'https://github.com/proofoftrinity/katacomb-vpn'
 
 /**
- * The one About surface: opened by the status bar's version chip and by the
+ * The one About surface: opened by the status bar's "About" button and by the
  * tray's "About" item (via ABOUT_SHOW). The GitHub anchor opens in the system
  * browser through main's setWindowOpenHandler, like every external link here.
  */

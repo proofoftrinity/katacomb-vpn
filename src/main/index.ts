@@ -121,7 +121,7 @@ function triggerTrayConnect(sessionId: string): void {
 }
 
 /** Tray "About": show the window and open the renderer's About modal, the same
- *  one the status bar's version chip opens, so there is exactly one About
+ *  one the status bar's "About" button opens, so there is exactly one About
  *  surface (with the clickable GitHub link a native message box can't render). */
 function showAbout(): void {
   showWindow(() => mainWindow?.webContents.send(IPC.ABOUT_SHOW))
