@@ -419,6 +419,7 @@ describe('reconnecting a saved session', () => {
       const err = await h.settleError(h.invoke('CONNECTION_RECONNECT', { sessionId: '2002' }))
       assert.match(err.message, /no longer supports OpenVPN/)
       assert.match(err.message, /End it/, 'and says what still works')
+      assert.doesNotMatch(err.message, /refund|reclaim|deposit/i, 'without promising a refund End is not ([SL-1])')
       assert.deepEqual(after(bringUps(h), m), [], 'nothing is brought up, the V2Ray path included')
       assert.deepEqual(after(h.calls('chain/chain-service', 'performHandshake'), m), [], 'and the node is not asked')
     })
