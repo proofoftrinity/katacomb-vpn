@@ -504,6 +504,10 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+# Ctrl-C has to leave through `exit`: on a signal bash runs the EXIT trap with $?
+# still at the last finished command's 0, so cleanup read an interrupted cut as a
+# success and left the bump in place, and the re-run then refused the dirty tree.
+trap 'exit 130' INT
 
 printf '\033[1mKatacomb VPN release %s\033[0m%s\n' "$VERSION" \
   "$([ "$DRY_RUN" = 1 ] && echo '   (dry run, nothing is written)')"
@@ -689,9 +693,24 @@ fi
 
 # --- 7. sign ----------------------------------------------------------------
 # No --batch: the key is passphrase-protected and pinentry needs to be able to ask.
+#
+# A failed signature offers another try instead of failing the cut. By this step
+# the build is done, and the usual failure is a passphrase dialog nobody was at the
+# desktop to answer: 1.18.1's first cut died on "signing failed: Timeout" and threw
+# its finished build away. Ctrl-C still stops the run and rolls the bump back.
 step 7 "sign with $SIGNING_KEY"
-run gpg --yes --armor --local-user "$SIGNING_KEY" \
-        --detach-sign --output dist/SHA256SUMS.asc dist/SHA256SUMS
+if [ "$DRY_RUN" = 1 ]; then
+  run gpg --yes --armor --local-user "$SIGNING_KEY" \
+          --detach-sign --output dist/SHA256SUMS.asc dist/SHA256SUMS
+else
+  until gpg --yes --armor --local-user "$SIGNING_KEY" \
+            --detach-sign --output dist/SHA256SUMS.asc dist/SHA256SUMS; do
+    [ -t 0 ] || die "signing failed, and there is no terminal to ask whether to try again"
+    info "signing failed, usually a passphrase dialog that timed out unanswered"
+    printf '        Press Enter to try again, or Ctrl-C to stop (the bump is rolled back): '
+    read -r _ || die "signing failed"
+  done
+fi
 run gpg --verify dist/SHA256SUMS.asc dist/SHA256SUMS
 [ "$DRY_RUN" = 1 ] || ok "dist/SHA256SUMS.asc verifies"
 
