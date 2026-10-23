@@ -8,6 +8,10 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # About 5 minutes when healthy. On the v1.19.0 push a GitHub Actions incident froze
+    # this job in Unit tests and it never recovered; without a limit it would have held
+    # for GitHub's 6-hour default. A re-run passed every step.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
