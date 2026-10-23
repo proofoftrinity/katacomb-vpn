@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isProtocolSupported, isProxyCapable, unsupportedWhere } from './protocols.ts'
+import { isProxyCapable } from './protocols.ts'
 
 test('only the child-proxy protocols qualify for local proxy mode', () => {
   // v2ray (2), xray (4) and hysteria2 (6) expose a local SOCKS5 listener.
@@ -10,20 +10,28 @@ test('only the child-proxy protocols qualify for local proxy mode', () => {
 })
 
 test('the root-path protocols and unknown are not proxy capable', () => {
-  // WireGuard (1), OpenVPN (3) and AmneziaWG (5) route the whole device or
-  // nothing; unknown (0) is never connectable at all.
-  for (const type of [0, 1, 3, 5]) {
+  // WireGuard (1) and AmneziaWG (5) route the whole device or nothing;
+  // unknown (0) is never connectable at all.
+  for (const type of [0, 1, 5]) {
     assert.equal(isProxyCapable(type), false, `type ${type}`)
   }
 })
 
-test('OpenVPN is connectable on Linux; the reason it would not be, on Windows, is said only there', () => {
+// OpenVPN (3) was removed in 1.19.0: main drops its nodes from the feed, and anything
+// else that names type 3 (an old session's node) reads as Unknown, on either OS.
+function assertFiveProtocols(m: typeof import('./protocols.ts')): void {
+  for (const type of [1, 2, 4, 5, 6]) assert.equal(m.isProtocolSupported(type), true, `type ${type}`)
+  assert.equal(m.isProtocolSupported(3), false)
+  assert.equal(m.protocolMeta(3).label, 'Unknown')
+  assert.deepEqual(m.PROTOCOL_FILTER_OPTIONS.map((o) => o.value), [1, 2, 4, 5, 6])
+}
+
+test('[PRO-1] the five protocols connect; type 3 is Unknown and not a filter', async () => {
   // The test runner is not Windows: Node's user agent names Node.
-  assert.equal(isProtocolSupported(3), true)
-  assert.equal(unsupportedWhere(3), '')
+  assertFiveProtocols(await import('./protocols.ts'))
 })
 
-test('Windows: OpenVPN is listed but not connectable, the copy says why, and every other protocol connects', async () => {
+test('[PRO-1] Windows: the same five connect, and type 3 is Unknown there too', async () => {
   // A fresh copy of the module (the query string), loaded under Electron's Windows user agent.
   const real = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
   Object.defineProperty(globalThis, 'navigator', {
@@ -33,9 +41,7 @@ test('Windows: OpenVPN is listed but not connectable, the copy says why, and eve
   try {
     const win = await import(new URL('./protocols.ts?windows', import.meta.url).href) as typeof import('./protocols.ts')
     assert.equal(win.IS_WINDOWS, true)
-    assert.equal(win.isProtocolSupported(3), false)
-    assert.equal(win.unsupportedWhere(3), ' on Windows')
-    for (const type of [1, 2, 4, 5, 6]) assert.equal(win.isProtocolSupported(type), true, `type ${type}`)
+    assertFiveProtocols(win)
   } finally {
     if (real) Object.defineProperty(globalThis, 'navigator', real)
   }

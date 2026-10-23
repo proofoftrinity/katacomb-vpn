@@ -9,8 +9,8 @@
 // (resources/linux/privileged/katacomb-vpn-helper.sh, in git history) — except
 // awg-up/awg-down, since Phase 3 a behavioural reimplementation of wg-quick(8)
 // around the embedded AmneziaWG device (amneziawg.go, amneziawg_ops_test.go). The exact
-// external command lines — iptables rule order, tun2socks routes, openvpn's argv
-// after --config, cleanup_wg_rules' scoping — are pinned by
+// external command lines — iptables rule order, tun2socks routes,
+// cleanup_wg_rules' scoping — are pinned by
 // testdata/transcripts/, captured from the bash helper by
 // scripts/capture-helper-transcripts.sh and replayed by transcript_test.go.
 //
@@ -75,7 +75,7 @@ type Env struct {
 	// Sleep pauses between poll iterations.
 	Sleep func(d time.Duration)
 	// Root prefixes every absolute path the verbs touch (/run, /var/lib, /etc,
-	// /sys, /proc, the openvpn allow-list). "" in production; a temp dir in tests.
+	// /sys, /proc). "" in production; a temp dir in tests.
 	Root string
 	// LookPath resolves a tool name against ChildPath, never the caller's PATH.
 	LookPath func(name string) (string, error)
@@ -109,8 +109,7 @@ func childEnv(RunOpt) []string {
 
 // realRun: foreground, bounded by ctx. On cancel the child gets SIGTERM (what
 // execFileSync's timeout sent), and WaitDelay bounds the wait for a child that
-// daemonised and left the pipes open (openvpn --daemon closes them itself; this
-// is the belt to that brace).
+// daemonised and left the pipes open.
 func realRun(ctx context.Context, argv []string, opt RunOpt) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Env = childEnv(opt)

@@ -16,7 +16,7 @@ func TestWindowsRefusesEveryTunnelVerb(t *testing.T) {
 	for _, alt := range strings.Split(body, "|") {
 		verbs = append(verbs, strings.Fields(alt)[0])
 	}
-	if len(verbs) < 13 {
+	if len(verbs) < 11 {
 		t.Fatalf("read only %d verbs from the usage line", len(verbs))
 	}
 	for _, v := range verbs {

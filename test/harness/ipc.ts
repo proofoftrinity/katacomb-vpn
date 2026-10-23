@@ -68,13 +68,13 @@ export class Tunnel {
   down(): void { this.up = false; this.protocol = null }
 }
 
-export const PROTOCOL_BY_TYPE: Record<number, string> = { 1: 'wireguard', 2: 'v2ray', 3: 'openvpn', 4: 'xray', 5: 'amneziawg', 6: 'hysteria2' }
+export const PROTOCOL_BY_TYPE: Record<number, string> = { 1: 'wireguard', 2: 'v2ray', 4: 'xray', 5: 'amneziawg', 6: 'hysteria2' }
 
 export const WALLET_ADDRESS = 'sent1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5lzv7xu'
 
 function defaults(tunnel: Tunnel, state: { nextSession: number; chainSessions: unknown[] }): Fakes {
   const noop = () => undefined
-  const isRoot = (p: string | null) => p === 'wireguard' || p === 'amneziawg' || p === 'openvpn'
+  const isRoot = (p: string | null) => p === 'wireguard' || p === 'amneziawg'
   const bring = (protocol: string) => async () => { tunnel.bringUp(protocol) }
   const bringChild = (protocol: string) => (_cfg: string, ...rest: unknown[]) => {
     const opts = rest.find((r): r is { proxyOnly?: boolean } => typeof r === 'object' && r !== null)
@@ -123,7 +123,6 @@ function defaults(tunnel: Tunnel, state: { nextSession: number; chainSessions: u
     'vpn/vpn-manager': {
       connectWireGuardFromConfig: bring('wireguard'),
       connectAmneziaWgFromConfig: bring('amneziawg'),
-      connectOpenVpnFromConfig: bring('openvpn'),
       connectV2RayFromConfig: bringChild('v2ray'),
       connectXRayFromConfig: bringChild('xray'),
       connectHysteria2FromConfig: bringChild('hysteria2'),
@@ -137,9 +136,7 @@ function defaults(tunnel: Tunnel, state: { nextSession: number; chainSessions: u
       getV2RayError: () => '',
       getV2RayRemoteHost: () => tunnel.remoteHost,
       getWireGuardRemoteHost: () => tunnel.remoteHost,
-      getOpenVpnRemoteHost: () => tunnel.remoteHost,
       isWireGuardUp: () => tunnel.up && (tunnel.protocol === 'wireguard' || tunnel.protocol === 'amneziawg'),
-      isOpenVpnUp: () => tunnel.up && tunnel.protocol === 'openvpn',
       hasDefaultRouteChanged: async () => false,
       // Traffic flows both ways while the tunnel carries: each read sees more.
       readTunnelBytes: async () => {

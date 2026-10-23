@@ -14,14 +14,14 @@ import (
 // Version is the protocol version reported by the protocol_version op. Bump only
 // on a BREAKING change. It is deliberately not bumped when an op is added, which
 // is why it cannot, on its own, detect the skew that actually happens: a daemon
-// left running across an upgrade that lacks a newly added op (amneziawg_*,
-// openvpn_* were both additive). Ops below is what answers that question.
+// left running across an upgrade that lacks a newly added op (amneziawg_* was
+// additive). Ops below is what answers that question.
 const Version = 1
 
 // Ops is every op this daemon serves, reported alongside Version so an upgraded
 // app can find out what a running daemon can do BEFORE it acts. That ordering
 // matters: without it a stale daemon is discovered by `unknown op` from the
-// bring-up, which for OpenVPN and AmneziaWG is after the session has been paid
+// bring-up, which for AmneziaWG is after the session has been paid
 // for. It is LinuxOps or WindowsOps (ops_linux.go, ops_windows.go), both pinned
 // to testdata/corpus/protocol.json, which the TypeScript side reads too. Keep
 // each list in dispatch order.
@@ -36,8 +36,6 @@ var LinuxOps = []string{
 	"wireguard_down",
 	"amneziawg_up",
 	"amneziawg_down",
-	"openvpn_up",
-	"openvpn_down",
 	"tun_up",
 	"tun_down",
 	"killswitch_on",
@@ -46,8 +44,7 @@ var LinuxOps = []string{
 	"dns_restore",
 }
 
-// WindowsOps is the op list of the Windows service: no OpenVPN (so the app
-// refuses those nodes before payment) and no IPsec probe, plus the read-only
+// WindowsOps is the op list of the Windows service: no IPsec probe, plus the read-only
 // facts the app reads for itself on Linux (byte counters, the default route,
 // other VPNs' adapters).
 var WindowsOps = []string{

@@ -5,7 +5,7 @@
     "reject": ["256.0.0.1", "1.2.3", "1.2.3.4.5", "evil.example.com", "", "1.2.3.4 ", " 1.2.3.4", "::1", "1.2.3.4\n", "01.2.3.4.5", "1.2.3.-4"]
   },
   "iface": {
-    "accept": ["sntl0", "eth0", "sntl-tun", "sntl-ovpn", "wlp3s0", "a", "abcdefghijklmno", "with_underscore"],
+    "accept": ["sntl0", "eth0", "sntl-tun", "wlp3s0", "a", "abcdefghijklmno", "with_underscore"],
     "reject": ["", "abcdefghijklmnop", "sntl0;reboot", "eth 0", "../x", "sntl0\n", "lo/", "é"]
   },
   "socksAddr": {

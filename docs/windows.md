@@ -1,10 +1,9 @@
 # Windows (beta)
 
 Katacomb VPN 1.18.0 adds a Windows build: an unsigned per-machine installer for
-Windows 10 and 11 on x64, tested on Windows 11. It carries every protocol except
-OpenVPN (WireGuard, AmneziaWG, V2Ray, Xray, Hysteria2), multi-hop, the kill switch
-and DNS protection. OpenVPN nodes are refused before payment: the Windows helper does
-not list the OpenVPN ops, so `daemonMissingOp` refuses them ([PH-2]).
+Windows 10 and 11 on x64, tested on Windows 11. It carries every protocol the app runs
+(WireGuard, AmneziaWG, V2Ray, Xray, Hysteria2), multi-hop, the kill switch and DNS
+protection.
 
 The rules are the Linux ones. This file says how each Linux mechanism maps onto
 Windows, and why where the mapping is not obvious.
@@ -73,7 +72,8 @@ only; a folder found there with another owner was planted, and is replaced): `ro
 The main process branches on `IS_WINDOWS` (`src/main/platform.ts`); a test reaches the
 Windows branches by bundling the module under test with `test/harness/platform-windows.ts`
 in its place. The renderer is sandboxed and reads the OS off Chromium's user agent
-(`utils/protocols.ts`), which it needs only for OpenVPN's copy and the welcome screen.
+(`utils/protocols.ts`), which it needs only for the copy that names the service where
+Linux asks for an admin password.
 
 | Concern | Linux | Windows |
 |---|---|---|
@@ -90,7 +90,6 @@ in its place. The renderer is sandboxed and reads the OS off Chromium's user age
 | Start at login | an XDG Autostart entry | the Run key ([PKG-2]) |
 | Logout, shutdown | D-Bus or XSMP ([REL-36]) | `query-session-end` on the window; the service's logoff teardown as the backstop |
 | Menu bar | as Electron draws it | none: Electron's default one offers nothing the app uses |
-| OpenVPN | yes | refused before payment by `protocolRuntimeError`, and by the service's op list ([PH-2]) |
 
 - **The dead-tunnel detectors work as on Linux.** `checkTunnelStalled` reads the service's
   counters, and the dead-peer detector reads the handshake age for WireGuard and AmneziaWG

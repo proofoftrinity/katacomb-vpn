@@ -20,7 +20,7 @@ const ALLOWED: Record<string, { calls: number; why: string }> = {
   'vpn-manager.ts:resolveHostToIPv4': { calls: 1, why: '`getent ahostsv4`, bounded by a 5 s timeout' },
   'vpn-manager.ts:getDefaultRoute': { calls: 1, why: '`ip route show default`, read-only' },
   'vpn-manager.ts:probeV2RayVersion': { calls: 1, why: "the bundled core's version flag, run as the user" },
-  'vpn-manager.ts:isOpenVpnUp': { calls: 1, why: '`ip link show sntl-ovpn`, read-only' },
+
   'vpn-manager.ts:detectOtherVpn': { calls: 2, why: '`ip -o link show type wireguard|tun`, read-only' },
 }
 

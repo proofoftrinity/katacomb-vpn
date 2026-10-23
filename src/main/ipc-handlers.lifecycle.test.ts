@@ -403,6 +403,25 @@ describe('reconnecting a saved session', () => {
       await h.settle(h.invoke('WALLET_SWITCH', 'w2'))
       assert.equal(seen.at(-1)?.reconnectSessionId, undefined)
     })
+
+    test('[PRO-1] [ARCH-5] a session saved for an OpenVPN node before 1.19.0 loads, is passed over, and Reconnect refuses it', async (t) => {
+      const h = ipc.fresh({
+        chainSessions: [row('2001', '2026-10-01T00:00:00Z'), row('2002', '2026-10-02T00:00:00Z')],
+        fakes: { 'chain/chain-service': {
+          loadSessionConfig: (id: string) =>
+            id === '2002' ? SAVED(id, { protocol: 'openvpn', configString: 'client\ndev sntl-ovpn\nremote 203.0.113.10 1194\n' }) : SAVED(id),
+        } },
+      })
+      t.after(() => h.dispose())
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      assert.equal(offered(h), '2001', 'the newer OpenVPN session is not offered')
+      const m = mark(h)
+      const err = await h.settleError(h.invoke('CONNECTION_RECONNECT', { sessionId: '2002' }))
+      assert.match(err.message, /no longer supports OpenVPN/)
+      assert.match(err.message, /End it/, 'and says what still works')
+      assert.deepEqual(after(bringUps(h), m), [], 'nothing is brought up, the V2Ray path included')
+      assert.deepEqual(after(h.calls('chain/chain-service', 'performHandshake'), m), [], 'and the node is not asked')
+    })
   })
 
   // Found by this suite (2026-10-07), fixed with the user's approval. CONNECTION_CONNECT
@@ -473,7 +492,15 @@ describe('[MH-20] plan and subscription changes refuse while the tunnel is up', 
 })
 
 describe('what CONNECTION_CONNECT accepts', () => {
-  for (const protocol of ['wireguard', 'amneziawg', 'openvpn']) {
+  test('[PRO-1] openvpn is not a protocol it brings up any more', async (t) => {
+    const h = ipc.fresh({})
+    t.after(() => h.dispose())
+    const err = await h.settleError(h.invoke('CONNECTION_CONNECT', { protocol: 'openvpn', configString: 'client\n' }))
+    assert.match(err.message, /Invalid protocol/)
+    assert.equal(h.tunnel.bringUps, 0)
+  })
+
+  for (const protocol of ['wireguard', 'amneziawg']) {
     test(`[PRO-7] local-proxy mode is refused for ${protocol}, which routes the whole device`, async (t) => {
       const h = ipc.fresh({})
       t.after(() => h.dispose())
@@ -484,10 +511,10 @@ describe('what CONNECTION_CONNECT accepts', () => {
   }
 
   for (const key of ['CONNECTION_SUBSCRIBE', 'PLAN_SUBSCRIBE', 'PLAN_START_SESSION_FROM_SUB'] as const) {
-    test(`[PRO-1] ${key} refuses a nodeType outside 1..6 before anything else`, async (t) => {
+    test(`[PRO-1] ${key} refuses a nodeType this client does not run (0, 3 = OpenVPN, 7, …) before anything else`, async (t) => {
       const h = ipc.fresh({})
       t.after(() => h.dispose())
-      for (const nodeType of [0, 7, -1, 2.5]) {
+      for (const nodeType of [0, 3, 7, -1, 2.5]) {
         const err = await h.settleError(h.invoke(key, { ...REQUEST[key], nodeType }))
         assert.match(err.message, /nodeType/)
       }
@@ -530,5 +557,27 @@ describe('the node directory', () => {
     assert.match(err.message, /429/)
     fail = false
     assert.equal(((await h.invoke('NODES_FETCH')) as unknown[]).length, 2)
+  })
+
+  // OpenVPN (3) was removed in 1.19.0: its nodes are dropped where they enter, so no
+  // tab, filter or picker can offer one, whether the feed or an older cache holds it.
+  const ofType = (type: number) => ({ address: `sentnode1t${type}`, type, moniker: `t${type}`, country: 'DE', api: 'https://203.0.113.7:8585' })
+
+  test('[PRO-1] a fresh read drops OpenVPN nodes and keeps every other type', async (t) => {
+    const feed = async () => ({
+      ok: true, status: 200,
+      json: async () => ({ success: true, data: { nodes: [0, 1, 2, 3, 4, 5, 6].map(ofType), pagination: { lastPage: 1 } } }),
+    })
+    const h = ipc.fresh({ fakes: { electron: { 'net.fetch': feed } } })
+    t.after(() => h.dispose())
+    const nodes = (await h.invoke('NODES_FETCH')) as { type: number }[]
+    assert.deepEqual(nodes.map((n) => n.type), [0, 1, 2, 4, 5, 6])
+    assert.deepEqual(((await h.invoke('NODES_GET_CACHED')) as { nodes: { type: number }[] }).nodes.map((n) => n.type), [0, 1, 2, 4, 5, 6])
+  })
+
+  test('[PRO-1] a disk cache written before 1.19.0 loads without its OpenVPN nodes', async (t) => {
+    const h = ipc.fresh({ nodes: [1, 3, 2].map(ofType) })
+    t.after(() => h.dispose())
+    assert.deepEqual(((await h.invoke('NODES_GET_CACHED')) as { nodes: { type: number }[] }).nodes.map((n) => n.type), [1, 2])
   })
 })

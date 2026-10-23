@@ -32,8 +32,8 @@ import (
 	"katacomb.vpn/daemon/internal/protocol"
 )
 
-// Usage is the bash helper's line, verbatim: postrm and humans rely on it.
-const Usage = "Usage: katacomb-vpn-helper {up <config>|down|awg-up <config> <bindir>|awg-down|ovpn-up <config>|ovpn-down|tun-up <bin> <socks> <remote> <gw> <if>|tun-down|killswitch-on <iface> <host> [dns] [lan-sharing]|killswitch-off|dns-set <ip>|dns-restore}"
+// Usage is the bash helper's line, less the verbs since removed: postrm and humans rely on it.
+const Usage = "Usage: katacomb-vpn-helper {up <config>|down|awg-up <config> <bindir>|awg-down|tun-up <bin> <socks> <remote> <gw> <if>|tun-down|killswitch-on <iface> <host> [dns] [lan-sharing]|killswitch-off|dns-set <ip>|dns-restore}"
 
 // Run executes one verb and returns the process exit code. Failures print
 // `Error: <reason>` on stderr and return 1, as before.
@@ -64,13 +64,6 @@ func Run(args []string, e *ops.Env, stdout, stderr io.Writer) int {
 		}
 	case "awg-down":
 		err = ops.AmneziaWgDown(ctx, e)
-	case "ovpn-up":
-		var cfg []byte
-		if cfg, err = readConfig(arg(1), ""); err == nil {
-			err = ops.OpenVpnUp(ctx, e, cfg)
-		}
-	case "ovpn-down":
-		err = ops.OpenVpnDown(ctx, e)
 	case "tun-up":
 		// $2 used to be the tun2socks binary and is IGNORED (the engine is embedded;
 		// the slot stays so old and new apps share one argv contract), $3 = SOCKS

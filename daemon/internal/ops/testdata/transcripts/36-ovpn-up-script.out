@@ -1,4 +1,0 @@
-argv: ovpn-up /tmp/cfg/openvpn-up.conf
-exit: 1
-stdout: 
-stderr: Error: OpenVPN directive 'up' is not allowed

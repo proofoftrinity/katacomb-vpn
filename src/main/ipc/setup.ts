@@ -21,13 +21,12 @@ import { WINDOWS_SERVICE_UNREACHABLE } from '../helper/privileged'
 import { IS_WINDOWS } from '../platform'
 import type { Handle } from './handle'
 
-type SetupItem = 'helper' | 'wireguard-tools' | 'openvpn' | 'resolvconf'
+type SetupItem = 'helper' | 'wireguard-tools' | 'resolvconf'
 type Protocol = Parameters<typeof protocolRuntimeError>[0]
 
 const ITEM_LABEL: Record<SetupItem, string> = {
   helper: IS_WINDOWS ? 'the Katacomb VPN service' : 'the VPN helper',
   'wireguard-tools': 'WireGuard tools',
-  openvpn: 'OpenVPN',
   resolvconf: "resolvconf (for the VPN's DNS)",
 }
 
@@ -36,7 +35,6 @@ interface SetupStatus {
   platform: 'linux' | 'windows'
   helper: HelperState
   wireguardTools: boolean
-  openvpn: boolean
   resolvconf: boolean
   /** null = one-click package installs aren't available here; the user installs by hand. */
   packageManager: PackageManager | null
@@ -53,7 +51,6 @@ function bundledHelperDir(): string {
 }
 
 const wireguardToolsInstalled = (): boolean => binaryExists('wg-quick') && binaryExists('wg')
-const openvpnInstalled = (): boolean => protocolRuntimeError('openvpn') === null
 
 // The PATH the helper gives every child it runs as root (daemon/internal/ops), so
 // this asks what wg-quick and the AmneziaWG bring-up will: /usr/sbin, where Debian
@@ -85,14 +82,13 @@ async function setupStatus(): Promise<SetupStatus> {
   if (IS_WINDOWS) {
     return {
       platform: 'windows', helper: await helperState(),
-      wireguardTools: true, openvpn: false, resolvconf: true, packageManager: null, resolvconfPackage: null,
+      wireguardTools: true, resolvconf: true, packageManager: null, resolvconfPackage: null,
     }
   }
   return {
     platform: 'linux',
     helper: await helperState(),
     wireguardTools: wireguardToolsInstalled(),
-    openvpn: openvpnInstalled(),
     resolvconf: resolvconfInstalled(),
     packageManager: hostPackageManager(),
     resolvconfPackage: hostResolvconfPackage(),
@@ -105,7 +101,7 @@ async function setupStatus(): Promise<SetupStatus> {
  *
  * `tunnel` = the connect routes the device through root (full-tunnel mode). Every
  * protocol does then, the child-proxy ones through the helper's `tun-up`; only
- * local-proxy mode needs no root. WireGuard, AmneziaWG and OpenVPN are always
+ * local-proxy mode needs no root. WireGuard and AmneziaWG are always
  * root, whatever the caller says. `protocol` null = not known yet (smart connect
  * before it has picked a node), which checks the helper alone.
  *
@@ -117,13 +113,11 @@ async function setupStatus(): Promise<SetupStatus> {
  */
 export async function assertSystemReady(protocol: Protocol | null, tunnel: boolean, paying: boolean, vpnDns = true): Promise<void> {
   const items: SetupItem[] = []
-  const rootProtocol = protocol === 'wireguard' || protocol === 'amneziawg' || protocol === 'openvpn'
+  const rootProtocol = protocol === 'wireguard' || protocol === 'amneziawg'
   if ((tunnel || rootProtocol) && await helperState() !== 'ready') items.push('helper')
-  // Windows has no packages to add: the service runs every protocol it offers, and
-  // OpenVPN, which it does not, is refused as unavailable (protocolRuntimeError).
+  // Windows has no packages to add: the service runs every protocol.
   if (!IS_WINDOWS) {
     if (protocol === 'wireguard' && !wireguardToolsInstalled()) items.push('wireguard-tools')
-    if (protocol === 'openvpn' && !openvpnInstalled()) items.push('openvpn')
     // WireGuard and AmneziaWG hand the tunnel's DNS to resolvconf, and without one the
     // bring-up fails AFTER the session is paid for. Refused here only when there is a
     // one-click fix: elsewhere the paid-session "Retry without VPN DNS" is the only
@@ -155,7 +149,7 @@ export function registerSetupHandlers(handle: Handle, isConnectionLive: () => bo
     // Windows: the installer registers the service; the app cannot, and asks for nothing.
     if (IS_WINDOWS) throw new Error(WINDOWS_SERVICE_UNREACHABLE)
     // An install or update ends in `systemctl try-restart` of the daemon, which
-    // SIGTERMs its detached children: tun2socks, openvpn, the AmneziaWG device.
+    // SIGTERMs its detached children: tun2socks, the AmneziaWG device.
     if (isConnectionLive()) {
       throw new Error('Disconnect first. Updating the helper restarts the service that holds the tunnel up.')
     }
@@ -170,7 +164,7 @@ export function registerSetupHandlers(handle: Handle, isConnectionLive: () => bo
     // DNS over to it.
     const resolvconfPkg = hostResolvconfPackage()
     const allowed = (p: unknown): boolean =>
-      isSetupPackage(p) && (p === 'wireguard-tools' || p === 'openvpn' || p === resolvconfPkg)
+      isSetupPackage(p) && (p === 'wireguard-tools' || p === resolvconfPkg)
     if (!Array.isArray(pkgs) || pkgs.length === 0 || !pkgs.every(allowed)) {
       throw new Error('Invalid package list')
     }

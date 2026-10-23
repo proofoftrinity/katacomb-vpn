@@ -73,6 +73,34 @@ export const CANARIES: Canary[] = [
     replace: '  if (actualType !== nodeType && false) {',
     run: [MONEY],
   },
+  {
+    name: '[PRO-1] a connect guard accepts nodeType 3 (OpenVPN) again',
+    file: IPC_TS,
+    find: "if (params.nodeType !== 1 && params.nodeType !== 2 && params.nodeType !== 4 && params.nodeType !== 5 && params.nodeType !== 6) throw new Error('Unsupported nodeType: only",
+    replace: "if (params.nodeType !== 1 && params.nodeType !== 2 && params.nodeType !== 3 && params.nodeType !== 4 && params.nodeType !== 5 && params.nodeType !== 6) throw new Error('Unsupported nodeType: only",
+    run: [LIFE],
+  },
+  {
+    name: '[PRO-1] the node feed lets OpenVPN (3) nodes back in',
+    file: 'src/main/nodes/node-normalize.ts',
+    find: '    .filter((entry) => (entry as { type?: unknown } | null)?.type !== OPENVPN_TYPE)\n',
+    replace: '    .filter(() => true)\n',
+    run: [LIFE, 'src/main/nodes/node-normalize.test.ts'],
+  },
+  {
+    name: '[PRO-1] a type with no handshake branch falls through to V2Ray again',
+    file: 'src/main/chain/chain-service.ts',
+    find: '  } else if (nodeType === 2) {\n    // V2Ray.',
+    replace: '  } else {\n    // V2Ray.',
+    run: ['src/main/chain/chain-service.test.ts'],
+  },
+  {
+    name: '[PRO-1] a saved OpenVPN session is offered and replayed again',
+    file: IPC_TS,
+    find: '  if (!RECONNECTABLE_PROTOCOLS.has(saved.protocol)) {',
+    replace: '  if (false) {',
+    run: [LIFE],
+  },
 
   // --- one connection, the lock, the epoch ----------------------------------------
   {
@@ -588,13 +616,6 @@ export const CANARIES: Canary[] = [
     name: '[NT-1] the AmneziaWG sink stops guarding what it hands root',
     file: VPN_TS,
     find: '  assertSafeAmneziaWgConfig(configString)\n',
-    replace: '',
-    run: [SINKS],
-  },
-  {
-    name: '[NT-1] the OpenVPN sink stops guarding what it hands root',
-    file: VPN_TS,
-    find: '  assertSafeOpenVpnConfig(configString)\n',
     replace: '',
     run: [SINKS],
   },

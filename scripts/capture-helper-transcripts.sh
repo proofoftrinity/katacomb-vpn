@@ -13,12 +13,10 @@
 # tree; this script reads it back from git history (the commit that deleted it).
 #
 # WHY A CONTAINER, AS ROOT, WITH SHIMS
-# The helper resolves openvpn by ABSOLUTE path (/usr/sbin/openvpn), so PATH shims
-# alone cannot intercept it, and putting a shim at /usr/sbin/openvpn on the
-# maintainer's machine is not acceptable. It also writes
-# /etc/resolv.conf, /run/katacomb-vpn and /var/lib/katacomb-vpn, and chowns them.
+# The helper writes /etc/resolv.conf, /run/katacomb-vpn and /var/lib/katacomb-vpn,
+# and chowns them, which is not acceptable on the maintainer's machine.
 # So it runs as root in a throwaway debian:bookworm, where every external tool it
-# calls (ip, iptables, ip6tables, wg-quick, pkill, openvpn, tun2socks)
+# calls (ip, iptables, ip6tables, wg-quick, pkill, tun2socks)
 # is a shim that appends its basename + argv to a log and answers the way the real
 # tool would on a host where the verb succeeds. Query commands (`ip link show X`,
 # `ip -o link show type wireguard`, `ip rule show`, `ip6tables -S`) answer from a
@@ -137,32 +135,6 @@ case "${1:-}" in
 esac
 exit 0'
 
-# openvpn is resolved by absolute path. With --daemon the real one forks and the
-# parent exits 0 at once; the shim writes what the helper then polls for.
-mkdir -p /usr/sbin
-mkshim openvpn /usr/sbin '
-pidfile=""; logfile=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --writepid) pidfile="$2"; shift ;;
-    --log) logfile="$2"; shift ;;
-  esac
-  shift
-done
-echo 4242 > "$pidfile"
-if [[ -e /shim/ovpn-fail ]]; then
-  printf "%s\n" "TCP/UDP: Preserving recently used remote address: [AF_INET]203.0.113.10:1194" \
-    "UDP link local: (not bound)" "UDP link remote: [AF_INET]203.0.113.10:1194" \
-    "TLS Error: TLS key negotiation failed to occur within 10 seconds (check your network connectivity)" \
-    "TLS Error: TLS handshake failed" "SIGUSR1[soft,tls-error] received, process restarting" \
-    "Restart pause, 1 second(s)" > "$logfile"
-else
-  printf "%s\n" "TCP/UDP: Preserving recently used remote address: [AF_INET]203.0.113.10:1194" \
-    "TUN/TAP device sntl-ovpn opened" "Initialization Sequence Completed" > "$logfile"
-  touch /shim/links/sntl-ovpn
-fi
-exit 0'
-
 # tun2socks is spawned detached (nohup … &) and stays resident; its pid is what the
 # helper records in tun.state and what tun-down kills.
 mkshim tun2socks $SHIM/bin 'touch /shim/links/sntl-tun; exec sleep 300'
@@ -184,50 +156,7 @@ AllowedIPs = 0.0.0.0/0
 Endpoint = 203.0.113.7:51820
 PersistentKeepalive = 25
 EOF
-cat > /tmp/cfg/openvpn.conf <<'EOF'
-client
-dev sntl-ovpn
-dev-type tun
-proto udp
-remote 203.0.113.10 1194
-nobind
-auth-nocache
-auth SHA256
-data-ciphers AES-256-GCM:AES-128-GCM
-data-ciphers-fallback AES-256-GCM
-tls-cipher TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
-tls-client
-tls-version-min 1.2
-remote-cert-tls server
-redirect-gateway def1 ipv6 bypass-dhcp
-topology subnet
-explicit-exit-notify 1
-persist-key
-persist-tun
-
-<ca>
------BEGIN CERTIFICATE-----
-MIIBizCCATGgAwIBAgIUJRlanpHf774AH9U8QVutSO9eKu4wCgYIKoZIzj0EAwIw
------END CERTIFICATE-----
-</ca>
-<cert>
------BEGIN CERTIFICATE-----
-MIIBfjCCASOgAwIBAgIUFLHnWPS7pvYXkZ2qdzUfJJNPlAwwCgYIKoZIzj0EAwIw
------END CERTIFICATE-----
-</cert>
-<key>
------BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg0cApCgzxt44Fs/VV
------END PRIVATE KEY-----
-</key>
-<tls-crypt>
------BEGIN OpenVPN Static key V1-----
-8fb4e3efd49b79d59624c1ddc5b0669b
------END OpenVPN Static key V1-----
-</tls-crypt>
-EOF
 sed 's/^MTU = 1420$/PostUp = touch \/tmp\/pwned/' /tmp/cfg/wg.conf > /tmp/cfg/wg-postup.conf
-sed 's/^nobind$/up \/bin\/sh/' /tmp/cfg/openvpn.conf > /tmp/cfg/openvpn-up.conf
 
 # The helper derives the interface from the config's basename, so the WG/AWG
 # configs are handed over as sntl0.conf.
@@ -298,11 +227,8 @@ run 10-down                   down
 # awg-up / awg-down are no longer captured here: since Phase 3 the AmneziaWG device
 # is embedded and awg-up is a behavioural reimplementation of wg-quick(8), asserted by
 # daemon/internal/ops/amneziawg_ops_test.go rather than diffed against the bash helper.
-run 13-ovpn-up                ovpn-up /tmp/cfg/openvpn.conf
-run 14-ovpn-down              ovpn-down
-touch /shim/ovpn-fail
-run 15-ovpn-up-timeout        ovpn-up /tmp/cfg/openvpn.conf
-rm -f /shim/ovpn-fail /shim/links/sntl-ovpn
+# The bash helper's ovpn-up / ovpn-down (13-15, 36) are not captured: OpenVPN was
+# removed in 1.19.0.
 run 16-tun-up                 tun-up /shim/bin/tun2socks 127.0.0.1:1080 203.0.113.7 192.168.1.1 eth0
 run 17-tun-down               tun-down
 run 18-tun-up-bypass          tun-up /shim/bin/tun2socks 127.0.0.1:1080 203.0.113.7 192.168.1.1 eth0 10.0.0.0/8,192.168.0.0/16
@@ -322,7 +248,6 @@ run 26-dns-restore-absent     dns-restore
 use_wg_postup
 run 30-up-postup              up /tmp/cfg/sntl0.conf
 run 32-killswitch-on-zero     killswitch-on sntl0 0.0.0.0
-run 36-ovpn-up-script         ovpn-up /tmp/cfg/openvpn-up.conf
 run 37-killswitch-on-badiface killswitch-on 'sntl0;reboot' 203.0.113.7
 run 38-tun-up-badsocks        tun-up /shim/bin/tun2socks localhost:1080 203.0.113.7 192.168.1.1 eth0
 

@@ -32,7 +32,7 @@ import { buildWireguardConfig } from '../protocols/wireguard-config'
 import { buildV2RayConfig } from '../protocols/v2ray-config'
 import { generateWireguardKeypair, generateProxyUuid, uuidToBytes } from './chain-keys'
 import { searchEvent } from './chain-events'
-import { buildOpenVpnConfig } from '../protocols/openvpn-config'
+
 import { GAS_PRICE_STR, TX_TIMEOUT_HEIGHT_OFFSET } from './chain-constants'
 import { resolveRpcBase, TX_POLL_INTERVAL_MS } from './chain-clients'
 
@@ -69,8 +69,8 @@ const END_SESSION_TX_TIMEOUT_MESSAGE =
 
 interface SavedSessionConfig {
   sessionId: string
-  protocol: 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2' | 'openvpn'
-  configString: string // WG/AWG INI, V2Ray/Xray/Hysteria2 JSON, or OpenVPN .ovpn
+  protocol: 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2'
+  configString: string // WG/AWG INI or V2Ray/Xray/Hysteria2 JSON
   nodeAddress: string
   nodeMoniker?: string
   nodeCountry?: string
@@ -704,36 +704,7 @@ export async function performHandshake(params: {
     })
 
     return { protocol: 'amneziawg', configString, signer }
-  } else if (nodeType === 3) {
-    // OpenVPN. The bundled JS SDK has no OpenVPN class, so openvpn-config.ts builds
-    // the client .ovpn from the handshake response.
-    //
-    // The peer field is v2fly `uuid.UUID` ([16]byte) — go-sdk openvpn/requests.go —
-    // so this is the BYTE-ARRAY form, the opposite of hysteria2's string field
-    // above. Unlike every other protocol the peer material is not what authenticates
-    // us: the node's PKI issues a client certificate + key in the response, and the
-    // uuid is only the peer's identifier.
-    const uuid = randomUUID()
-    const { result, signer } = await withTimeout(
-      signedHandshake({ sessionId, nodeAddress, peerRequest: { uuid: Array.from(Buffer.from(uuid.replace(/-/g, ''), 'hex')) }, privKey, remoteUrl, requireSigned }),
-      HANDSHAKE_TIMEOUT_MS,
-      'node handshake',
-    )
-
-    const handshakeData = parseHandshakeData(result)
-    const configString = buildOpenVpnConfig(handshakeData, result.addrs)
-
-    saveSessionConfig({
-      sessionId,
-      protocol: 'openvpn',
-      configString,
-      nodeAddress,
-      nodeMoniker,
-      nodeCountry,
-    })
-
-    return { protocol: 'openvpn', configString, signer }
-  } else {
+  } else if (nodeType === 2) {
     // V2Ray. The peer field is v2fly `uuid.UUID`, so the node gets the 16-byte
     // array form (see uuidToBytes); the config carries the same uuid as a string.
     const v2rayUuid = generateProxyUuid()
@@ -780,6 +751,9 @@ export async function performHandshake(params: {
 
     return { protocol: 'v2ray', configString, v2raySummary, signer }
   }
+  // No branch, no handshake: a type this client does not run (0, 3) must never
+  // fall through to the V2Ray handshake above, as it once did by default.
+  throw new Error(`Unsupported nodeType ${nodeType}`)
 }
 
 /** One hop of a multihop chain. `nodeType` must be 2 (V2Ray) or 4 (XRAY). */

@@ -14,7 +14,7 @@ from `src/main/`; `src/shared/` is the only overlap.
   `Icons.tsx`, never Unicode glyphs (U+29C9 is missing from DejaVu Sans on a minimal
   Debian). The protocol marks in `ProtocolIcon.tsx` are ORIGINAL glyphs, not the
   projects' logos: WireGuard's trademark policy forbids its logo in third-party
-  application graphics without written permission and OpenVPN Inc. has a similar policy.
+  application graphics without written permission.
 - **The key glyph means two different things on purpose.** In the node rows
   (`NodeIdentityCell`) a grey key is `versionSignsReplies(node.version)`: the
   directory's version string, the same predicate the Signed filter chip uses, so a

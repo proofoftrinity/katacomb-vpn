@@ -39,7 +39,7 @@ func copyPreservingLink(src, dst string) error {
 // DnsSet points the system resolver at ip by replacing /etc/resolv.conf: resolver-
 // manager-agnostic (systemd-resolved / resolvconf / NetworkManager) and, unlike a
 // `resolvectl` call, guaranteed to route queries to ip rather than a LAN resolver
-// the kill switch drops. Used for the tun2socks protocols and OpenVPN; wg-quick
+// the kill switch drops. Used for the tun2socks protocols; wg-quick
 // owns resolv.conf for WireGuard/AmneziaWG.
 //
 // The prior resolv.conf is snapshotted ONCE per session for an exact restore: the

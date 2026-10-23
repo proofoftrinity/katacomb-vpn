@@ -28,14 +28,9 @@ const (
 	// Same filesystem as resolv.conf, so the final rename is atomic.
 	resolvTmp = "/etc/.resolv.conf.sntl-tmp"
 
-	ovpnIface = "sntl-ovpn"
-
 	wgConfName          = "sntl0.conf"
-	ovpnConfName        = "openvpn.conf"
 	tunStateName        = "tun.state"
 	awgStateName        = "awg.state" // the embedded AmneziaWG device's pid, for awg-down
-	ovpnPidName         = "openvpn.pid"
-	ovpnLogName         = "openvpn.log"
 	killswitchStateName = "killswitch.state"
 	lockName            = ".lock"
 )
@@ -112,7 +107,7 @@ func linkExists(e *Env, iface string) bool {
 // daemon's in-process mutex cannot see a one-shot invocation (postrm's teardown,
 // or a pkexec fallback racing a daemon op after a stale-socket ECONNREFUSED).
 // Bounded by ctx, so a stuck holder surfaces as an error, not a hang. The lock
-// fd is CLOEXEC, so a resident child (openvpn, tun2socks) never inherits it.
+// fd is CLOEXEC, so a resident child (tun2socks) never inherits it.
 func withLock(ctx context.Context, e *Env, fn func() error) error {
 	if err := ensureRunDir(e); err != nil {
 		return err

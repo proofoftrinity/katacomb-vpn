@@ -9,8 +9,7 @@ import (
 
 // dispatchPlatform serves the ops only the Windows service has: the read-only
 // facts the app reads for itself on Linux. ok is false for an op it does not
-// know, OpenVPN's and the IPsec probe's included, so the app refuses those
-// before payment.
+// know, the IPsec probe's included.
 func dispatchPlatform(ctx context.Context, req protocol.Request, args argMap, e *ops.Env) (protocol.Response, bool) {
 	reply := func(result any) (protocol.Response, bool) {
 		return protocol.Response{ID: req.ID, OK: true, Result: result}, true

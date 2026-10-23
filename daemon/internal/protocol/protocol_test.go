@@ -86,11 +86,10 @@ func TestResponseEncoding(t *testing.T) {
 		`{"id":2,"ok":true,"result":{"version":1}}`:      {ID: 2, OK: true, Result: map[string]int{"version": 1}},
 		`{"id":3,"ok":false,"error":"unknown op: frob"}`: {ID: 3, OK: false, Error: "unknown op: frob"},
 		`{"id":0,"ok":false,"error":"invalid JSON"}`:     {ID: 0, OK: false, Error: "invalid JSON"},
-		`{"id":4,"ok":true,"result":{"wgUp":true,"tunUp":false,"ovpnUp":false}}`: {ID: 4, OK: true, Result: struct {
-			WgUp   bool `json:"wgUp"`
-			TunUp  bool `json:"tunUp"`
-			OvpnUp bool `json:"ovpnUp"`
-		}{true, false, false}},
+		`{"id":4,"ok":true,"result":{"wgUp":true,"tunUp":false}}`: {ID: 4, OK: true, Result: struct {
+			WgUp  bool `json:"wgUp"`
+			TunUp bool `json:"tunUp"`
+		}{true, false}},
 	}
 	for want, r := range cases {
 		if got := string(r.Encode()); got != want {

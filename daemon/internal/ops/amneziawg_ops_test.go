@@ -188,9 +188,9 @@ func TestAmneziaWgDownWithoutStateReapsByIdentityOnly(t *testing.T) {
 		}
 	}
 	plant(900, self, "katacomb-vpn-helper", "_amneziawg", "/run/katacomb-vpn/sntl0.conf")              // ours: kill
-	plant(901, filepath.Join(f.root, "usr/sbin/openvpn"), "openvpn", "_amneziawg", "/x")               // wrong executable
+	plant(901, filepath.Join(f.root, "usr/bin/sleep"), "sleep", "_amneziawg", "/x")                    // wrong executable
 	plant(902, self, "katacomb-vpn-helper", "daemon")                                                  // our binary, not the sub-mode
-	plant(903, filepath.Join(f.root, "usr/sbin/openvpn"), "bash", "-c", "echo _amneziawg")             // a name match
+	plant(903, filepath.Join(f.root, "usr/bin/sleep"), "bash", "-c", "echo _amneziawg")                // a name match
 	plant(904, self+" (deleted)", "katacomb-vpn-helper", "_amneziawg", "/run/katacomb-vpn/sntl0.conf") // from before an upgrade
 
 	if err := AmneziaWgDown(ctx, f.Env); err != nil {

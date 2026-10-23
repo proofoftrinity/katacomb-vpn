@@ -34,7 +34,7 @@ CLAUDE.md; this is the per-module detail.
   `SESSION_MANAGER` it does nothing.
 - `config-guard.ts`: **pure validators for untrusted-node data** — `assertSafeWireguardConfig` (allow-list keys, reject `PostUp`/`PreUp`/… so a node config can't run shell as root via `wg-quick`), `assertSafeV2RayConfig`, `isAllowedBypassCidr`/`sanitizeBypassRoutes` (reject `0.0.0.0/x` split-tunnel routes), `extractWireguardEndpointHost`. Unit-tested; see [docs/invariants/node-trust.md](invariants/node-trust.md).
 - `helper/system-setup.ts` + `ipc/setup.ts`: what the machine needs before a connect (the
-  helper matching this build, wireguard-tools, openvpn) and the one-click installs, all
+  helper matching this build, wireguard-tools, a resolvconf) and the one-click installs, all
   async pkexec. The first is Electron-free and unit-tested; the second holds
   `assertSystemReady` (called by the connect preflight) and the `SETUP_*` channels behind
   Settings, System. Nothing is asked at launch: see

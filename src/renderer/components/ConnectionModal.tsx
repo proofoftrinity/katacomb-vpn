@@ -15,7 +15,7 @@ import {
 import { connectionRelation, previousConnection, switchFooterText } from '../utils/switch'
 import { useNavigation } from '../contexts/NavigationContext'
 import { useConnection } from '../hooks/useConnection'
-import { protocolMeta, isProtocolSupported, isProxyCapable, unsupportedWhere } from '../utils/protocols'
+import { protocolMeta, isProtocolSupported, isProxyCapable } from '../utils/protocols'
 import { nodeStatusMeta, isNodeConnectable, hasDirectoryDetails } from '../utils/node-status'
 import { versionSignsReplies } from '../../shared/node-signing'
 import { useBalance } from '../hooks/useBalance'
@@ -255,7 +255,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
   } : !isProtocolSupported(node.type) ? {
     id: 'health',
     tone: 'danger',
-    text: `This app can't connect to ${protocol.label} nodes${unsupportedWhere(node.type)} yet`,
+    text: `This app can't connect to ${protocol.label} nodes yet`,
     tip: 'The node is listed so you can filter and compare, nothing more.',
   } : nodeStatus.state === 'inactive' ? {
     id: 'health',
@@ -330,7 +330,7 @@ export default function ConnectionModal({ node, onClose }: Props) {
     !hasDirectoryDetails(node)
       ? { text: 'Connecting is disabled because the node directory has no details for this node.', tone: 'danger' }
       : !isProtocolSupported(node.type)
-        ? { text: `${protocol.label} isn't supported by this client${unsupportedWhere(node.type)} yet. This node is shown for filtering only.`, tone: 'danger' }
+        ? { text: `${protocol.label} isn't supported by this client yet. This node is shown for filtering only.`, tone: 'danger' }
         : nodeStatus.state === 'inactive'
           ? { text: 'Connecting is disabled because this node is not active on chain.', tone: 'danger' }
           : !connectable && !(canOverrideHealth && healthAcknowledged)

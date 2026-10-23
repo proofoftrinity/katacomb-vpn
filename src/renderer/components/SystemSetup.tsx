@@ -27,7 +27,6 @@ const ROWS: { item: SetupItem; label: string; detail: string }[] = [
     detail: 'Brings the tunnel and firewall up as root. Needed for full-tunnel connections; local proxy mode works without it.',
   },
   { item: 'wireguard-tools', label: 'WireGuard tools', detail: 'Needed for WireGuard nodes.' },
-  { item: 'openvpn', label: 'OpenVPN', detail: 'Needed for OpenVPN nodes.' },
   {
     item: 'resolvconf',
     label: 'VPN DNS (resolvconf)',
@@ -46,8 +45,7 @@ const WINDOWS_ROW = {
 function isReady(item: SetupItem, status: SetupStatus): boolean {
   if (item === 'helper') return status.helper === 'ready'
   if (item === 'wireguard-tools') return status.wireguardTools
-  if (item === 'resolvconf') return status.resolvconf
-  return status.openvpn
+  return status.resolvconf
 }
 
 /**

@@ -126,7 +126,7 @@ foreach ($f in 'win\bin\v2ray.exe', 'win\bin\xray.exe', 'win\bin\hysteria.exe', 
 Check 'ships no Linux binaries' { -not (Test-Path "$res\linux") }
 $pv = Kv 'protocol_version'
 Check 'the pipe answers protocol_version 1' { $pv.ok -and $pv.result.version -eq 1 }
-Check 'with the Windows op list: tun_up, no openvpn_up' { ($pv.result.ops -contains 'tun_up') -and -not ($pv.result.ops -contains 'openvpn_up') }
+Check 'with the Windows op list: tun_up, no xfrm_policies' { ($pv.result.ops -contains 'tun_up') -and -not ($pv.result.ops -contains 'xfrm_policies') }
 Check 'the state directory is SYSTEM and Administrators only' {
   $who = (Get-Acl 'C:\ProgramData\Katacomb VPN').Access | ForEach-Object { $_.IdentityReference.Value }
   -not ($who | Where-Object { $_ -notin @('NT AUTHORITY\SYSTEM', 'BUILTIN\Administrators') }) }

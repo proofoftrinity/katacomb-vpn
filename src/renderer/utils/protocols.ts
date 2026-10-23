@@ -8,17 +8,16 @@
 // used to be duplicated across every component and assumed a two-protocol world.
 //
 // `supported` marks whether THIS client can actually establish a tunnel. WireGuard,
-// V2Ray, XRAY, AmneziaWG and Hysteria2 are connectable; OpenVPN is identify/filter-only
-// (it would need its own bundled binary + config-guard validator, and — being a
-// root protocol — a privileged daemon op). The connect UI disables unsupported
+// V2Ray, XRAY, AmneziaWG and Hysteria2 are, on Linux and Windows alike. Type 3 never
+// reaches the renderer (main drops it from the node feed, node-normalize.ts) and
+// reads as Unknown if anything else names it. The connect UI disables unsupported
 // types; the main-process IPC guards (nodeType not in {1,2,4,5,6} → throw) are the
 // actual enforcement.
 
-export type ProtocolType = 0 | 1 | 2 | 3 | 4 | 5 | 6
+export type ProtocolType = 0 | 1 | 2 | 4 | 5 | 6
 
-// Windows (beta) runs every protocol but OpenVPN: its service has no OpenVPN op
-// (docs/windows.md). The renderer is sandboxed, with no `process`; Chromium's user
-// agent names the real OS.
+// The renderer is sandboxed, with no `process`; Chromium's user agent names the
+// real OS (docs/windows.md).
 export const IS_WINDOWS = typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows')
 
 export interface ProtocolMeta {
@@ -34,7 +33,6 @@ const PROTOCOLS: Record<number, ProtocolMeta> = {
   0: { label: 'Unknown', short: '—', color: 'text-text-tertiary', supported: false },
   1: { label: 'WireGuard', short: 'WG', color: 'text-info', supported: true },
   2: { label: 'V2Ray', short: 'V2Ray', color: 'text-warning', supported: true },
-  3: { label: 'OpenVPN', short: 'OVPN', color: 'text-accent', supported: !IS_WINDOWS },
   4: { label: 'XRAY', short: 'XRAY', color: 'text-warning', supported: true },
   5: { label: 'AmneziaWG', short: 'AWG', color: 'text-info', supported: true },
   6: { label: 'Hysteria2', short: 'HY2', color: 'text-success', supported: true },
@@ -50,10 +48,6 @@ export function isProtocolSupported(type: number): boolean {
   return protocolMeta(type).supported
 }
 
-/** ` on Windows` where that is why `type` can't be connected to, else nothing: for the copy that says so. */
-export function unsupportedWhere(type: number): string {
-  return IS_WINDOWS && type === 3 ? ' on Windows' : ''
-}
 
 // The child-proxy protocols (local SOCKS5 listener): the only ones local
 // proxy mode can run. Mirrors main's isChildProxy branch set.
@@ -65,7 +59,6 @@ export function isProxyCapable(type: number): boolean {
 export const PROTOCOL_FILTER_OPTIONS: { value: ProtocolType; label: string }[] = [
   { value: 1, label: 'WireGuard' },
   { value: 2, label: 'V2Ray' },
-  { value: 3, label: 'OpenVPN' },
   { value: 4, label: 'XRAY' },
   { value: 5, label: 'AmneziaWG' },
   { value: 6, label: 'Hysteria2' },

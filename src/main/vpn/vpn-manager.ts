@@ -17,8 +17,6 @@ import {
   pinWireguardEndpoint,
   sanitizeBypassRoutes,
   extractWireguardEndpointHost,
-  assertSafeOpenVpnConfig,
-  extractOpenVpnRemoteHost,
 } from '../config-guard'
 import { verifyBinaryIntegrity } from './binary-integrity'
 import { isOnPath } from '../fs-utils'
@@ -36,9 +34,6 @@ import { SOCKS_PORT } from '../../shared/socks'
 import { withTimeout } from '../async-utils'
 
 const WG_IFACE = 'sntl0'
-
-/** OpenVPN nodes are refused on Windows before any payment (docs/windows.md). */
-const OPENVPN_NOT_ON_WINDOWS = "OpenVPN isn't available on Windows yet. Pick a node with another protocol."
 
 /** What a privileged service left running across an upgrade is told as, per platform. */
 const STALE_SERVICE = IS_WINDOWS
@@ -101,15 +96,10 @@ function resolveHysteria2Binary(): string {
 }
 
 const TUN_IFACE = 'sntl-tun'
-// OpenVPN gets its own interface rather than reusing sntl0: a userspace AmneziaWG
-// sntl0 is already `type tun`, so a third tun on that name would make adoption and
-// teardown ambiguous (awg-down and ovpn-down are not interchangeable).
-const OVPN_IFACE = 'sntl-ovpn'
-const OVPN_CONFIG_NAME = 'openvpn.conf'
 const SOCKS_ADDR = `127.0.0.1:${SOCKS_PORT}`
 
 let activeChild: ChildProcess | null = null
-let activeProtocol: 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2' | 'openvpn' | null = null
+let activeProtocol: 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2' | null = null
 /**
  * 'tunnel' = the usual full-device VPN (tun2socks/wg routes everything).
  * 'proxy'  = child-proxy protocols only: the core's local SOCKS5 listener is the
@@ -156,7 +146,7 @@ function isBinaryAvailable(name: string): boolean {
  * spawning anything. Returns null when the runtime is fine, otherwise the
  * reason — the connect preflight uses it to fail BEFORE any funds move.
  */
-export function protocolRuntimeError(protocol: 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2' | 'openvpn'): string | null {
+export function protocolRuntimeError(protocol: 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2'): string | null {
   try {
     if (protocol === 'wireguard') {
       // Windows: the service runs WireGuard on its own embedded device; no wg-quick.
@@ -167,12 +157,6 @@ export function protocolRuntimeError(protocol: 'wireguard' | 'amneziawg' | 'v2ra
       // The device is compiled into the privileged helper (Phase 3): nothing on the
       // user side to resolve or verify. A missing resolvconf surfaces at connect as
       // DNS_PROVISION_FAILED, which has its own retry.
-      return null
-    }
-    if (protocol === 'openvpn') {
-      // The Windows service serves no OpenVPN op: refused here, before any payment.
-      if (IS_WINDOWS) return OPENVPN_NOT_ON_WINDOWS
-      resolveOpenVpnBinary()
       return null
     }
     const bin = protocol === 'v2ray' ? 'v2ray' : protocol === 'xray' ? 'xray' : 'hysteria'
@@ -281,15 +265,6 @@ async function ensureSntl0Down(): Promise<void> {
   }
 }
 
-/**
- * Tear down a stale OpenVPN tunnel. Separate from ensureSntl0Down because the two
- * live on different interfaces — one tunnel at a time is enforced by the connect
- * lock in ipc-handlers, this just clears a leftover from a crash or a protocol switch.
- */
-async function ensureOpenVpnDown(): Promise<void> {
-  if (!isOpenVpnUp()) return
-  await bringDownOpenVpn()
-}
 
 /** Bring up WireGuard from a config file path (must be named sntl0.conf) */
 async function bringUpWireGuard(configFile: string): Promise<void> {
@@ -682,9 +657,6 @@ export function detectExistingConnection(): void {
     // right protocol so disconnect uses the matching teardown verb.
     activeProtocol = sntl0IsKernelWireGuard() ? 'wireguard' : 'amneziawg'
     activeConfigFile = join(SECURE_TMPDIR, `${WG_IFACE}.conf`)
-  } else if (isOpenVpnUp()) {
-    activeProtocol = 'openvpn'
-    activeConfigFile = join(SECURE_TMPDIR, OVPN_CONFIG_NAME)
   }
 
   // Check for stale tun2socks from a previous crash
@@ -784,106 +756,6 @@ export async function connectAmneziaWgFromConfig(raw: string): Promise<void> {
   activeProtocol = 'amneziawg'
   activeMode = 'tunnel'
   activeConfigFile = configFile
-}
-
-/**
- * Resolve the system openvpn binary from an absolute-path allow-list. Unlike the
- * child proxies there is deliberately no bundled copy: openvpn is a TLS client, so
- * distro packaging (which ships OpenSSL security updates) is a better supply chain
- * than a binary we vendor and would have to re-cut on every CVE. Same shape as
- * plain WireGuard depending on the system wg-quick. `which` is not used — the
- * binary runs as root, so the lookup must not depend on $PATH.
- */
-function resolveOpenVpnBinary(): string {
-  for (const candidate of ['/usr/sbin/openvpn', '/sbin/openvpn', '/usr/bin/openvpn']) {
-    if (existsSync(candidate)) return candidate
-  }
-  throw new Error('openvpn is not installed. Install the openvpn package.')
-}
-
-/** Check if our OpenVPN interface (sntl-ovpn) is currently up */
-export function isOpenVpnUp(): boolean {
-  if (IS_WINDOWS) return false // no OpenVPN on Windows
-  try {
-    execSync(`ip link show ${OVPN_IFACE}`, { stdio: 'pipe' })
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** Bring down our OpenVPN tunnel and clean its config (which holds the client key) */
-async function bringDownOpenVpn(): Promise<void> {
-  try {
-    await runPrivileged(['ovpn-down'])
-  } catch {
-    // Best-effort
-  }
-
-  const ourConfig = join(SECURE_TMPDIR, OVPN_CONFIG_NAME)
-  if (existsSync(ourConfig)) {
-    try { unlinkSync(ourConfig) } catch { /* ignore */ }
-  }
-}
-
-/** Bring up OpenVPN from a config file via the helper (which daemonizes it) */
-async function bringUpOpenVpn(configFile: string): Promise<void> {
-  try {
-    await runPrivileged(['ovpn-up', configFile])
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    if (msg.includes('dismissed') || msg.includes('cancelled') || msg.includes('Not authorized')) {
-      throw new Error('Admin authentication was cancelled. OpenVPN requires root privileges.')
-    }
-    if (msg.includes('unknown op')) {
-      // A pre-OpenVPN daemon is still running (deb upgraded but the unit restart failed).
-      throw new Error(STALE_SERVICE)
-    }
-    throw new Error(`Failed to bring up OpenVPN interface: ${msg}`)
-  }
-}
-
-export async function connectOpenVpnFromConfig(configString: string): Promise<void> {
-  // Fail fast before any tunnel state changes. In the daemon path root resolves its
-  // own binary; this still catches the missing-package case up front.
-  resolveOpenVpnBinary()
-
-  await ensureOpenVpnDown()
-
-  // Node operators are untrusted: an .ovpn can carry up/down/plugin directives that
-  // openvpn executes as root, so the allow-list runs before the helper does. The
-  // daemon re-validates (its socket is the real trust boundary) and the helper
-  // passes --script-security 0 on the command line as a third line of defense.
-  assertSafeOpenVpnConfig(configString)
-
-  const configFile = join(SECURE_TMPDIR, OVPN_CONFIG_NAME)
-  writeFileSync(configFile, configString, { mode: 0o600 })
-
-  try {
-    await bringUpOpenVpn(configFile)
-  } catch (err) {
-    if (existsSync(configFile)) unlinkSync(configFile)
-    throw err
-  }
-
-  activeProtocol = 'openvpn'
-  activeMode = 'tunnel'
-  activeConfigFile = configFile
-}
-
-/**
- * Read the OpenVPN endpoint host from the active config, for the kill-switch
- * whitelist. IPv4 only — the same constraint getWireGuardRemoteHost applies,
- * since the kill switch's `-d host` rule needs an address.
- */
-export function getOpenVpnRemoteHost(): string | null {
-  try {
-    const configPath = activeConfigFile || join(SECURE_TMPDIR, OVPN_CONFIG_NAME)
-    if (!existsSync(configPath)) return null
-    const host = extractOpenVpnRemoteHost(readFileSync(configPath, 'utf-8'))
-    if (host && /^\d+\.\d+\.\d+\.\d+$/.test(host)) return host
-  } catch { /* ignore */ }
-  return null
 }
 
 export async function connectV2RayFromConfig(configString: string, dohResolverIp?: string | null, opts?: { proxyOnly?: boolean }): Promise<void> {
@@ -1149,10 +1021,6 @@ export async function disconnect(): Promise<void> {
     await bringDownAllWireGuard()
   }
 
-  // Bring down OpenVPN (its own interface, its own resident root process)
-  if (activeProtocol === 'openvpn' || isOpenVpnUp()) {
-    await bringDownOpenVpn()
-  }
 
   // Clean up V2Ray config
   if (existsSync(V2RAY_CONFIG)) {
@@ -1258,14 +1126,8 @@ export function getConnectionStatus(): {
     return { connected: true, protocol: activeProtocol, proxyMode: false }
   }
 
-  // OpenVPN lives on its own interface — same presence check, works after restart.
-  if (isOpenVpnUp()) {
-    if (!activeProtocol) activeProtocol = 'openvpn'
-    return { connected: true, protocol: activeProtocol, proxyMode: false }
-  }
-
-  // WG/AWG/OpenVPN was supposed to be active but the interface is gone
-  if (activeProtocol === 'wireguard' || activeProtocol === 'amneziawg' || activeProtocol === 'openvpn') {
+  // WG/AWG was supposed to be active but the interface is gone
+  if (activeProtocol === 'wireguard' || activeProtocol === 'amneziawg') {
     activeProtocol = null
     activeConfigFile = null
   }
@@ -1277,7 +1139,6 @@ export function getConnectionStatus(): {
 export function isVpnActive(): boolean {
   if (isWireGuardUp()) return true
   if (isTunUp()) return true
-  if (isOpenVpnUp()) return true
   // Nothing else redirects system traffic, which is all this function means.
   // Local-proxy mode deliberately leaves routing alone, so the RPC endpoint stays
   // reachable — callers use this to decide whether to fall back to cached chain
@@ -1292,7 +1153,7 @@ export function isVpnActive(): boolean {
  *
  * This exists for one caller: the multihop picker's grading probe. In TUNNEL mode
  * nobody needs it, because the OS already carries our probes through the tunnel
- * (wg/awg/openvpn replace the default route; tun2socks owns 0.0.0.0/1 + 128.0.0.0/1,
+ * (wg/awg replace the default route; tun2socks owns 0.0.0.0/1 + 128.0.0.0/1,
  * and only the connected node's own /32 bypasses it). Proxy mode is the one state
  * where a tunnel exists and our own traffic does NOT use it, so it's the only place
  * a caller has to route itself.
@@ -1344,7 +1205,7 @@ export async function readTunnelBytes(): Promise<{ rx: number; tx: number } | nu
     const iface = isWindowsAdapterUp(WG_IFACE) ? WG_IFACE : isWindowsAdapterUp(TUN_IFACE) ? TUN_IFACE : null
     return iface ? daemonTrafficCounters(iface) : null
   }
-  return readProcNetDev(WG_IFACE) || readProcNetDev(TUN_IFACE) || readProcNetDev(OVPN_IFACE)
+  return readProcNetDev(WG_IFACE) || readProcNetDev(TUN_IFACE)
 }
 
 /** Register a callback for unexpected V2Ray disconnection */
@@ -1372,14 +1233,14 @@ export async function detectOtherVpn(): Promise<{ type: string; name: string; if
     }
   } catch { /* ignore */ }
 
-  // Check for third-party TUN interfaces — exclude our own sntl-tun, sntl-ovpn AND
-  // sntl0 (a userspace AmneziaWG sntl0 is a plain tun device, not `type wireguard`).
+  // Check for third-party TUN interfaces — exclude our own sntl-tun AND sntl0
+  // (a userspace AmneziaWG sntl0 is a plain tun device, not `type wireguard`).
   try {
     const output = execSync('ip -o link show type tun', { stdio: 'pipe' }).toString().trim()
     if (output) {
       for (const line of output.split('\n')) {
         const match = line.match(/^\d+:\s+(\S+):/)
-        if (match && match[1] !== TUN_IFACE && match[1] !== WG_IFACE && match[1] !== OVPN_IFACE) {
+        if (match && match[1] !== TUN_IFACE && match[1] !== WG_IFACE) {
           found.push({ type: 'tun', name: `Tunnel (${match[1]})`, iface: match[1] })
         }
       }
@@ -1400,7 +1261,6 @@ export async function killAllTunnels(): Promise<void> {
   }
 
   await ensureSntl0Down()
-  await ensureOpenVpnDown()
 
   if (existsSync(V2RAY_CONFIG)) {
     try { unlinkSync(V2RAY_CONFIG) } catch { /* ignore */ }

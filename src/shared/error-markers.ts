@@ -29,7 +29,7 @@ export const RPC_UNREACHABLE = 'RPC_UNREACHABLE'
 
 /**
  * This machine is missing something the connect needs: the privileged helper
- * (absent or older than this build), wireguard-tools or openvpn. Like
+ * (absent or older than this build), wireguard-tools or a resolvconf. Like
  * WALLET_EXISTS it carries a payload naming what, as
  * `SYSTEM_SETUP_REQUIRED:helper,wireguard-tools: …`, so the renderer can offer
  * exactly those installs. On the purchase paths it is thrown BEFORE any payment.

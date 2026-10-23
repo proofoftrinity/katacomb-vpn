@@ -16,7 +16,7 @@ const ipc = await loadIpcHandlers()
 
 const TYPE_OF: Record<string, number> = Object.fromEntries(Object.entries(PROTOCOL_BY_TYPE).map(([t, p]) => [p, Number(t)]))
 const BRING_UP: Record<string, string> = {
-  wireguard: 'connectWireGuardFromConfig', amneziawg: 'connectAmneziaWgFromConfig', openvpn: 'connectOpenVpnFromConfig',
+  wireguard: 'connectWireGuardFromConfig', amneziawg: 'connectAmneziaWgFromConfig',
   v2ray: 'connectV2RayFromConfig', xray: 'connectXRayFromConfig', hysteria2: 'connectHysteria2FromConfig',
 }
 
@@ -144,7 +144,7 @@ describe('[REL-9] the chosen resolver replaces a WireGuard node\'s DNS list, on 
     assert.match(h.calls('vpn/vpn-manager', BRING_UP.wireguard)[1].args[0] as string, /^DNS = 10\.8\.0\.1, 1\.0\.0\.1$/m)
   })
 
-  for (const protocol of ['v2ray', 'openvpn']) {
+  for (const protocol of ['v2ray', 'hysteria2']) {
     test(`[REL-9] ${protocol} is not rewritten: its DNS is not wg-quick's to hand to resolvconf`, async (t) => {
       const h = ipc.fresh(merge(nodeRunning(protocol), { settings: { dnsResolver: '1.1.1.1' } }))
       t.after(() => h.dispose())
@@ -193,7 +193,7 @@ describe('[PRO-7] local-proxy mode is runtime only', () => {
 })
 
 describe('[REL-2] the monitor rebuilds the protocol the user connected with, not the one vpn-manager last saw', () => {
-  for (const protocol of ['wireguard', 'amneziawg', 'openvpn']) {
+  for (const protocol of ['wireguard', 'amneziawg']) {
     test(`[REL-2] ${protocol}: the interface drops, vpn-manager forgets its protocol, and the reconnect still brings back ${protocol}`, async (t) => {
       const h = ipc.fresh(merge(nodeRunning(protocol), { settings: { autoReconnect: true } }))
       t.after(() => h.dispose())

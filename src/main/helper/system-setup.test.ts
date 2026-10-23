@@ -51,10 +51,10 @@ test('apt runs non-interactively through env, since pkexec scrubs the environmen
 })
 
 test('dnf and pacman are told not to ask', () => {
-  assert.deepEqual(packageInstallArgv('dnf', ['openvpn']), ['/usr/bin/dnf', 'install', '-y', 'openvpn'])
+  assert.deepEqual(packageInstallArgv('dnf', ['wireguard-tools']), ['/usr/bin/dnf', 'install', '-y', 'wireguard-tools'])
   assert.deepEqual(
-    packageInstallArgv('pacman', ['wireguard-tools', 'openvpn']),
-    ['/usr/bin/pacman', '-S', '--noconfirm', '--needed', 'wireguard-tools', 'openvpn'],
+    packageInstallArgv('pacman', ['wireguard-tools', 'systemd-resolvconf']),
+    ['/usr/bin/pacman', '-S', '--noconfirm', '--needed', 'wireguard-tools', 'systemd-resolvconf'],
   )
 })
 
@@ -135,6 +135,7 @@ test('without systemd-resolved there is no one-click resolvconf (openresolv woul
 })
 
 test('only the packages the app installs pass the allow-list', () => {
-  for (const p of ['wireguard-tools', 'openvpn', 'systemd-resolved', 'systemd-resolvconf']) assert.ok(isSetupPackage(p), p)
-  for (const p of ['openresolv', 'wireguard-tools; rm -rf /', '', 42, null]) assert.equal(isSetupPackage(p), false, String(p))
+  for (const p of ['wireguard-tools', 'systemd-resolved', 'systemd-resolvconf']) assert.ok(isSetupPackage(p), p)
+  // openvpn: OpenVPN was removed in 1.19.0, so the app installs it for nothing any more.
+  for (const p of ['openresolv', 'openvpn', 'wireguard-tools; rm -rf /', '', 42, null]) assert.equal(isSetupPackage(p), false, String(p))
 })

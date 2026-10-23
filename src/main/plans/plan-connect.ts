@@ -10,7 +10,7 @@ export interface PlanNodeCandidate {
   address: string
   moniker: string
   country: string
-  /** SentNode protocol tag, 0=unknown 1=WG 2=V2Ray 3=OpenVPN 4=XRAY 5=AWG 6=Hysteria2. */
+  /** SentNode protocol tag, 0=unknown 1=WG 2=V2Ray 4=XRAY 5=AWG 6=Hysteria2 (3 is not run). */
   type: number
   /** The aggregator's API base for the node; '' when the directory has no row. */
   api: string
@@ -26,10 +26,9 @@ export interface PlanNodeCandidate {
 
 /**
  * Tie-break order inside one latency bucket. The WireGuard family first: it is
- * the kernel path and the most exercised in this app; OpenVPN last, two nodes
- * network-wide and a distro-binary dependency.
+ * the kernel path and the most exercised in this app.
  */
-export const PROTOCOL_PREFERENCE = [1, 5, 4, 2, 6, 3]
+export const PROTOCOL_PREFERENCE = [1, 5, 4, 2, 6]
 
 /** Latencies inside one bucket are treated as equal so jitter can't reorder. */
 export const LATENCY_BUCKET_MS = 25
@@ -40,7 +39,7 @@ export const MAX_TX_ATTEMPTS = 3
 /** Protocols with a local SOCKS5 listener, the only ones proxy mode can run. */
 const PROXY_CAPABLE_TYPES = new Set([2, 4, 6])
 
-const CONNECTABLE_TYPES = new Set([1, 2, 3, 4, 5, 6])
+const CONNECTABLE_TYPES = new Set([1, 2, 4, 5, 6])
 
 /** The exclusion reason for a candidate the auto-pick must not buy, or null. */
 function exclusionReason(c: PlanNodeCandidate, requireProxyCapable: boolean): string | null {

@@ -14,8 +14,8 @@ import (
 )
 
 // Every op the Windows service lists dispatches to something, and the ones it
-// does not list (OpenVPN's, the IPsec probe) are refused as unknown, which is
-// what makes the app refuse those nodes before payment ([PH-2]).
+// does not list (the IPsec probe, and the OpenVPN ops removed in 1.19.0) are
+// refused as unknown ([PH-2]).
 func TestWindowsOpsDispatch(t *testing.T) {
 	e := ops.NewEnv(t.TempDir())
 	for _, op := range protocol.WindowsOps {

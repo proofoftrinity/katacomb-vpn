@@ -65,9 +65,8 @@ const (
 
 // StatusResult is the `status` op's reply, key for key what the app reads.
 type StatusResult struct {
-	WgUp   bool `json:"wgUp"`
-	TunUp  bool `json:"tunUp"`
-	OvpnUp bool `json:"ovpnUp"`
+	WgUp  bool `json:"wgUp"`
+	TunUp bool `json:"tunUp"`
 }
 
 // WgHandshakeResult is the `wireguard_handshake` op's reply, key for key what the

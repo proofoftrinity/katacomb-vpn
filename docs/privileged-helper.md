@@ -26,8 +26,8 @@ inside the package):
   `awg-up` self-execs detached; it reads the root-owned `/run/katacomb-vpn/sntl0.conf`,
   translates the wg(8) INI to the WireGuard UAPI itself and never opens a UAPI socket).
   An unknown verb prints the usage line and exits 1.
-- Helper verbs: `up <config>`, `down`, `awg-up <config> <bindir>` (`<bindir>` is accepted and IGNORED since the AmneziaWG device is embedded — the same convention as `tun-up`'s `<bin>`; the app passes `-`), `awg-down`, `ovpn-up <config>`, `ovpn-down`, `tun-up <bin> <socks> <remote> <gw> <iface> [bypass]` (`<bin>` is accepted and IGNORED since the engine is embedded; the slot stays so old and new apps share one argv contract, and the app passes `-`), `tun-down`, `killswitch-on <iface> <host> [dns] [lan-sharing]`, `killswitch-off`, `dns-set <ip>`, `dns-restore`
-- WireGuard/AmneziaWG interface: `sntl0`. tun2socks: `sntl-tun`. OpenVPN: `sntl-ovpn`.
+- Helper verbs: `up <config>`, `down`, `awg-up <config> <bindir>` (`<bindir>` is accepted and IGNORED since the AmneziaWG device is embedded — the same convention as `tun-up`'s `<bin>`; the app passes `-`), `awg-down`, `tun-up <bin> <socks> <remote> <gw> <iface> [bypass]` (`<bin>` is accepted and IGNORED since the engine is embedded; the slot stays so old and new apps share one argv contract, and the app passes `-`), `tun-down`, `killswitch-on <iface> <host> [dns] [lan-sharing]`, `killswitch-off`, `dns-set <ip>`, `dns-restore`
+- WireGuard/AmneziaWG interface: `sntl0`. tun2socks: `sntl-tun`.
 
 ### Privileged daemon (deb) vs. pkexec fallback (AppImage/dev)
 
@@ -77,10 +77,10 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   `src/main/helper/daemon-protocol-corpus.test.ts`) — the same arrangement the guard corpus
   has always had, which the "byte for byte" claim previously lacked.
   **[PH-2] `protocol_version` now reports `{version, ops}` and IS called.** The version
-  integer alone could never detect the skew that actually happens, because adding an
-  op is deliberately not a version bump (`amneziawg_*` and `openvpn_*` were both
-  additive) — so a daemon left running across an upgrade was found by `unknown op`
-  from the bring-up, which for those two protocols is AFTER the session is paid for.
+  integer alone could never detect the skew that actually happens, because adding or
+  removing an op is deliberately not a version bump (`amneziawg_*` was additive) — so a
+  daemon left running across an upgrade was found by `unknown op` from the bring-up,
+  which for AmneziaWG is AFTER the session is paid for.
   `daemonMissingOp()` asks the op list in `preflightConnect` instead, and returns
   false whenever the answer is uncertain (no daemon, old daemon, failed probe), so it
   can only ever add a refusal we are sure of. `ops` is additive on the wire and the
@@ -89,8 +89,8 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   (`daemon/internal/ops/testdata/transcripts/`), captured from the ORIGINAL bash helper
   by `scripts/capture-helper-transcripts.sh` in a `debian:bookworm` container with every
   tool shimmed, and replayed by `transcript_test.go` against a recording Env that answers
-  the queries the same way. Kill-switch rule order, tun2socks routes, openvpn's argv
-  after `--config`, `cleanup_wg_rules`' scoping, every state file's bytes: a diff there
+  the queries the same way. Kill-switch rule order, tun2socks routes,
+  `cleanup_wg_rules`' scoping, every state file's bytes: a diff there
   is a bug or one of the deviations below. Regenerate only by hand, like the wire corpus
   `node-handshake.test.ts` keeps; the script reads the bash helper back from git history.
 - **[PH-4] Deliberate deviations from the bash helper**, each small and each tested: daemon
@@ -106,7 +106,7 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   table, for the user-run cores);
   **[PH-5] one-shot configs are read ONCE**, via `O_NOFOLLOW` + `fstat` (regular file, owned by
   `PKEXEC_UID` when set, ≤ 256 KiB), and the tool is handed the root-owned
-  `/run/katacomb-vpn/{sntl0,openvpn}.conf` copy, never the caller's path (the bash
+  `/run/katacomb-vpn/sntl0.conf` copy, never the caller's path (the bash
   helper validated the caller's path and let wg-quick re-open it — a TOCTOU, and with a
   validator that echoed the line, a symlink to `/etc/shadow` was a root file-read
   oracle); **guard errors carry a line number and a reason word, never content**;
@@ -128,10 +128,10 @@ refused connect raises) installs it. Daemon mode by hand: `sudo /usr/local/bin/k
   saw a rejected entry and so could not report one.
 - **[PH-6] The unit keeps `/run/katacomb-vpn` across restarts** (`RuntimeDirectoryPreserve=restart`).
   postinstall runs `systemctl restart` on every upgrade, and without it every upgrade
-  wiped `tun.state`/`openvpn.pid`, so the next `tun-down` found no pid and no remote
+  wiped `tun.state`, so the next `tun-down` found no pid and no remote
   host and left the `/32` and bypass routes behind. `KillMode` is untouched: an upgrade
   while connected still SIGTERMs the daemon's detached children (tun2socks,
-  `openvpn --daemon`, the embedded AmneziaWG device), so only kernel WireGuard survives one —
+  the embedded AmneziaWG device), so only kernel WireGuard survives one —
   pre-existing, and a separate decision.
 - **[PH-7] Install the helper through a temp name + `mv -f`** (postinstall and
   `installHelper`'s pkexec script): the daemon now runs FROM
@@ -185,7 +185,7 @@ an unreachable service is an error, never an elevation prompt. The installer run
 `katacomb-vpn-helper service install|uninstall`; `service teardown` is the full teardown
 for support. The service serves the same protocol v1 on a named pipe, from the same
 `Dispatch` and the same `ops` trust boundary; `protocol_version` reports `WindowsOps`
-(no OpenVPN, no IPsec probe, plus `traffic_counters`, `default_route` and `other_vpns`,
+(no IPsec probe, plus `traffic_counters`, `default_route` and `other_vpns`,
 which answer what the app reads for itself on Linux). [docs/windows.md](windows.md) has
 the mapping of every Linux mechanism.
 

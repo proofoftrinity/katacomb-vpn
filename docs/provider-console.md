@@ -253,6 +253,4 @@ taken from the renderer, the same rule `cachedPlanCost` follows.
 v9.0.0 nodes expose a `service_metadata` array on `/info` (Xray Reality keys,
 Hysteria2 obfs, transport variants) that the SDK's `NodeInfo` type lacks — the xray
 and hysteria2 paths read the equivalent from the handshake response, not `/info`.
-The amneziawg and openvpn paths likewise read everything from the handshake response.
-(The only two OpenVPN nodes on the network are v8.3.1 and don't expose it at all; one
-reports `service_type: "openvpn"` at its ROOT path, which is what the preflight needs.)
+The amneziawg path likewise reads everything from the handshake response.

@@ -171,7 +171,7 @@ describe('[REL-11] nothing is bought until the preflight passes', () => {
     { name: 'the machine is not set up', applies: () => true, fakes: { 'ipc/setup': { assertSystemReady: async () => { throw new Error('SYSTEM_SETUP_REQUIRED:helper:') } } } },
     { name: 'the protocol runtime is missing', applies: (k) => k !== 'PLAN_SMART_CONNECT', fakes: { 'vpn/vpn-manager': { protocolRuntimeError: () => 'wg-quick is not installed' } } },
     { name: 'the privileged service is out of date', applies: (k) => k !== 'CONNECTION_SUBSCRIBE_CHAIN', fakes: { 'helper/daemon-client': { daemonMissingOp: async () => true } } },
-    { name: 'the node reports another protocol', applies: () => true, fakes: { 'nodes/node-tester': { fetchNodeServiceType: async () => 'openvpn' } } },
+    { name: 'the node reports another protocol', applies: () => true, fakes: { 'nodes/node-tester': { fetchNodeServiceType: async () => 'hysteria2' } } },
     { name: 'the node does not answer', applies: () => true, fakes: { 'nodes/node-tester': { fetchNodeServiceType: async () => { throw new Error('ETIMEDOUT') } } } },
   ]
   for (const key of SPEND) {

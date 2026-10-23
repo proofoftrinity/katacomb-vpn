@@ -7,8 +7,8 @@ export interface SentNode {
   moniker: string
   version: string
   // Numeric protocol tag from the node-list API. 0=unknown, 1=WireGuard,
-  // 2=V2Ray, 3=OpenVPN, 4=XRAY, 5=AmneziaWG, 6=Hysteria2 (see utils/protocols.ts).
-  // All of 1-6 are connectable (0=unknown is not).
+  // 2=V2Ray, 4=XRAY, 5=AmneziaWG, 6=Hysteria2 (see utils/protocols.ts); 3 never
+  // arrives, main drops it. All but 0 are connectable.
   type: number
   // V2Ray proxy/transport/security advertised by the node list API. null for
   // WireGuard and for V2Ray nodes that don't advertise it. Operator-supplied —
@@ -109,7 +109,7 @@ export interface SubscribeChainParams {
   proxyMode?: boolean
 }
 
-export type TunnelProtocol = 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2' | 'openvpn'
+export type TunnelProtocol = 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2'
 
 /** A subscription as listed by the Subscriptions manager. */
 export interface SubscriptionSummary {
@@ -568,7 +568,7 @@ export interface RpcAutoSelectReport {
 
 /**
  * What this machine has of what a connect can need. Only AppImage and dev installs
- * ever lack any of it: the .deb depends on both packages and installs the helper.
+ * ever lack any of it: the .deb depends on wireguard-tools and installs the helper.
  */
 export interface SetupStatus {
   /** Windows needs only `helper`, which is the service the installer registered. */
@@ -576,7 +576,6 @@ export interface SetupStatus {
   /** 'outdated' = installed, but not the one this build bundles. */
   helper: 'ready' | 'missing' | 'outdated'
   wireguardTools: boolean
-  openvpn: boolean
   /** A `resolvconf` on root's PATH: WireGuard and AmneziaWG hand the tunnel's DNS to it. */
   resolvconf: boolean
   /** null = no one-click package installs here; the user installs by hand. */
@@ -585,7 +584,7 @@ export interface SetupStatus {
   resolvconfPackage: SetupPackage | null
 }
 
-export type SetupPackage = 'wireguard-tools' | 'openvpn' | 'systemd-resolved' | 'systemd-resolvconf'
+export type SetupPackage = 'wireguard-tools' | 'systemd-resolved' | 'systemd-resolvconf'
 
 export interface NodeProbeResult {
   nodeAddress: string

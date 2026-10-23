@@ -116,8 +116,8 @@ function reset(daemonUp = true) {
 }
 
 describe('verb to daemon op mapping', () => {
-  test('the four config-carrying verbs send CONTENT, never the caller path', async () => {
-    for (const [verb, op] of [['up', 'wireguard_up'], ['awg-up', 'amneziawg_up'], ['ovpn-up', 'openvpn_up']] as const) {
+  test('the config-carrying verbs send CONTENT, never the caller path', async () => {
+    for (const [verb, op] of [['up', 'wireguard_up'], ['awg-up', 'amneziawg_up']] as const) {
       reset()
       // awg-up carries an extra, deliberately ignored bindir slot.
       await H.runPrivileged(verb === 'awg-up' ? [verb, '/tmp/c.conf', '-'] : [verb, '/tmp/c.conf'])
@@ -128,8 +128,7 @@ describe('verb to daemon op mapping', () => {
 
   test('the teardown verbs carry no payload', async () => {
     for (const [verb, op] of [
-      ['down', 'wireguard_down'], ['awg-down', 'amneziawg_down'],
-      ['ovpn-down', 'openvpn_down'], ['tun-down', 'tun_down'],
+      ['down', 'wireguard_down'], ['awg-down', 'amneziawg_down'], ['tun-down', 'tun_down'],
       ['killswitch-off', 'killswitch_off'], ['dns-restore', 'dns_restore'],
     ] as const) {
       reset()

@@ -5,12 +5,12 @@
 </div>
 
 Pick a node anywhere in the world, pay for a session on-chain, and Katacomb brings up the
-tunnel: WireGuard, AmneziaWG, OpenVPN, V2Ray, XRAY or Hysteria2, whichever that node
+tunnel: WireGuard, AmneziaWG, V2Ray, XRAY or Hysteria2, whichever that node
 speaks. No accounts, no subscriptions to a single provider: bandwidth is bought directly
 from independent node operators with a wallet you hold the keys to.
 
 Electron 41 + React 18 + TypeScript. **Linux x86_64, and Windows 10/11 x64 as a beta**
-(every protocol but OpenVPN; see [Windows](#windows-installer-beta)).
+(see [Windows](#windows-installer-beta)).
 
 > **Status:** release (1.18.1). Connecting spends real funds. See
 > [Money](#money-this-app-spends-real-funds).
@@ -74,10 +74,10 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64, and Windows 10/11 x64 as a 
   on different networks, and the exit is paid from a second wallet so neither node can
   find the other on chain. Read the honest limits below.
 - **Setup when a connection needs it**: nothing is asked at launch. A connection that
-  needs something this computer lacks (the VPN helper, WireGuard tools, OpenVPN, a
-  `resolvconf`) stops before anything is paid and installs it in one click with apt, dnf
-  or pacman. Settings > System shows the same checks. The .deb installs the helper,
-  WireGuard tools and OpenVPN with the package. On Windows the installer sets up
+  needs something this computer lacks (the VPN helper, WireGuard tools, a `resolvconf`)
+  stops before anything is paid and installs it in one click with apt, dnf or pacman.
+  Settings > System shows the same checks. The .deb installs the helper and WireGuard
+  tools with the package. On Windows the installer sets up
   everything, and the one check is that its VPN service is running.
 - **Tray**: the K in the icon is an outline when disconnected, fills while connecting,
   is solid when connected and has a slash through it while the kill switch blocks all
@@ -129,15 +129,13 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64, and Windows 10/11 x64 as a 
 |---|----------|-----------|-------------|-------|
 | 1 | WireGuard | `sntl0` | root (`wg-quick`) | Uses the distro `wireguard-tools` |
 | 2 | V2Ray | `sntl-tun` | userspace core + tun2socks | Bundled `v2ray`; encrypted DNS via DoH |
-| 3 | OpenVPN | `sntl-ovpn` | root (`openvpn`) | Distro client; the node's PKI issues the client cert |
 | 4 | XRAY | `sntl-tun` | userspace core + tun2socks | VLESS + Reality; bundled `xray` |
 | 5 | AmneziaWG | `sntl0` | root (device compiled into the helper) | WireGuard fork with DPI-evasion params; the userspace device is embedded in the privileged helper |
 | 6 | Hysteria2 | `sntl-tun` | userspace core + tun2socks | QUIC; refuses to connect without a TLS pin |
 
-Type 0 (unknown) is the only kind the client will not connect to. On Windows, OpenVPN
-(type 3) is not available either: the node list says so and the app refuses it before
-paying. There every other protocol runs through the Katacomb VPN service, on Wintun
-adapters with the same names.
+Type 0 (unknown) is not connectable. Type 3 is OpenVPN, which the client dropped in
+1.19.0: those nodes are not listed. On Windows every protocol runs through the Katacomb
+VPN service, on Wintun adapters with the same names.
 
 Multi-hop chains only work on types 2 and 4: the mechanism is v2ray-core's
 `proxySettings.tag`, which the other protocols have no equivalent for. A chain always
@@ -183,7 +181,7 @@ sudo apt install ./dist/katacomb-vpn_1.18.1_amd64.deb
 ```
 
 Pulls in Electron's GUI libraries (GTK, NSS, libsecret and friends) plus
-`wireguard-tools`, `openvpn`, `iptables` and polkit (`pkexec`, or `policykit-1` on older
+`wireguard-tools`, `iptables` and polkit (`pkexec`, or `policykit-1` on older
 releases). The postinstall also installs and enables
 a small root daemon (systemd unit `katacomb-vpn-daemon`), so **connect and disconnect
 never prompt for a password**. The GUI talks to it over a Unix socket at
@@ -209,8 +207,8 @@ chmod +x dist/katacomb-vpn-1.18.1.AppImage
 ```
 
 No daemon here, so each privileged operation goes through `pkexec` (one prompt, cached
-for a while). Nothing is asked at launch: when a connection needs the polkit helper,
-`wireguard-tools` or `openvpn`, the app says so before anything is paid and installs it
+for a while). Nothing is asked at launch: when a connection needs the polkit helper or
+`wireguard-tools`, the app says so before anything is paid and installs it
 with one password prompt (apt, dnf or pacman), and the same for a missing `resolvconf`
 where systemd-resolved manages DNS. Settings > System does it ahead of time.
 
@@ -268,7 +266,7 @@ code-signed yet, so SmartScreen warns first: check it against `SHA256SUMS` as ab
 (`Get-FileHash` in PowerShell prints its hash), then choose **More info** and **Run
 anyway**.
 
-- Every protocol but OpenVPN, plus multi-hop, the kill switch and DNS protection.
+- Every protocol, plus multi-hop, the kill switch and DNS protection.
 - Only the account that ran the installer can connect; the service refuses the others.
 - Settings > Apps removes it, the service included. Your wallets and settings stay in
   `%APPDATA%\katacomb-vpn`.
@@ -300,7 +298,7 @@ The order matters, because step 2 costs money:
    Nothing has been spent yet, so a mismatch here is free.
 2. **Pay**: a session transaction on-chain, priced per GB or per hour in `udvpn`.
 3. **Handshake**: exchange key material with the node's API; its answer becomes a
-   WireGuard/OpenVPN config or a proxy-core JSON config. If the node signed its answer,
+   WireGuard config or a proxy-core JSON config. If the node signed its answer,
    the signature is checked against the node's key on chain.
 4. **Validate**: everything the node sent goes through `config-guard` before a byte of
    it is written to disk or handed to root.
@@ -314,13 +312,13 @@ rather than making you buy a second session.
 ## Security model
 
 The design assumption worth stating plainly: **node operators are adversaries.** Their
-handshake data turns into configs that `wg-quick`, `openvpn` and `iptables` execute as
+handshake data turns into configs that `wg-quick` and `iptables` execute as
 root, and a single `PostUp = …` line in a WireGuard config is a root shell. So:
 
 - Every node-supplied config passes through [config-guard.ts](src/main/config-guard.ts)
   first: **allow-lists**, not blocklists. Anything not explicitly permitted is rejected,
-  including every OpenVPN directive that can run a script (`up`, `down`, `route-up`,
-  `plugin`, `tls-verify`, …).
+  including every `wg-quick` hook that runs a command (`PreUp`, `PostUp`, `PreDown`,
+  `PostDown`).
 - The privileged helper re-validates on the root side, independently, because its
   socket is the real trust boundary: [daemon/internal/guard](daemon/internal/guard) is a
   Go port of the same allow-lists, and one shared fixture corpus keeps the two accepting
@@ -402,7 +400,7 @@ Notable modules:
 |------|------|
 | [wallet.ts](src/main/chain/wallet.ts) | BIP-39 import, key derivation, `safeStorage` encryption |
 | [chain-service.ts](src/main/chain/chain-service.ts) | On-chain sessions, node handshakes per protocol |
-| [vpn-manager.ts](src/main/vpn/vpn-manager.ts) | Tunnel lifecycle for all six protocols |
+| [vpn-manager.ts](src/main/vpn/vpn-manager.ts) | Tunnel lifecycle for all five protocols |
 | [config-guard.ts](src/main/config-guard.ts) | Validators for untrusted node data |
 | [daemon/](daemon/) | The privileged helper (Go): root daemon behind the socket, and the `pkexec` one-shot |
 | [privileged.ts](src/main/helper/privileged.ts) | Routes privileged ops to the daemon, else `pkexec` |
@@ -411,7 +409,6 @@ Notable modules:
 | [provider-console.ts](src/main/provider/provider-console.ts) | Provider side: registration, plans, leases, node links |
 
 Per-protocol config builders are pure, Electron-free and unit-tested:
-[openvpn-config.ts](src/main/protocols/openvpn-config.ts),
 [amneziawg-config.ts](src/main/protocols/amneziawg-config.ts),
 [xray-config.ts](src/main/protocols/xray-config.ts),
 [hysteria-config.ts](src/main/protocols/hysteria-config.ts).

@@ -123,8 +123,7 @@ count.
   `src/main/ipc/provider.test.ts` loads `ipc/provider.ts`, passes its
   `registerProviderHandlers` a recording `handle`, and invokes the handlers directly. `stubs` swaps an import for a harness file:
   `child_process` -> `test/harness/child-process.ts` (answered by `fakes.child_process`),
-  `fs` -> `test/harness/fs.ts` (the real filesystem, but `fakes.fs.existsSync` decides
-  paths outside the test's temp dirs, such as the system openvpn), and the SDK root ->
+  and the SDK root ->
   `test/harness/sentinel-sdk.ts` (the real SDK, but `fakes.sdk.connectWithSigner` answers
   the signing connection a module opens on its own, as `endSession` does).
 - **The Windows branches** run on Linux: bundle the module with
