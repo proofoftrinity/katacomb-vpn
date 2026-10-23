@@ -1189,10 +1189,11 @@ function reconnectRefusal(saved: NonNullable<ReturnType<typeof loadSessionConfig
   }
   // A record saved before 1.19.0 for an OpenVPN node, which this client no longer
   // runs. The replay below has no branch for it and would fall through to V2Ray's.
-  // Ending the session (and reclaiming its deposit) needs no protocol, so it still works.
+  // Ending the session needs no protocol, so it still works. The copy promises no
+  // refund: End is not one ([SL-1]).
   if (!RECONNECTABLE_PROTOCOLS.has(saved.protocol)) {
     return 'This session is on an OpenVPN node, and Katacomb VPN no longer supports OpenVPN, ' +
-      'so it cannot be reconnected. End it to reclaim its unused deposit, then pick a node with another protocol.'
+      'so it cannot be reconnected. End it in the Sessions tab, then pick a node with another protocol.'
   }
   // MULTIHOP: a chain that has lost a hop cannot carry traffic, and replaying it
   // rebuilds a tunnel through a hop that no longer exists, which then fails telling
