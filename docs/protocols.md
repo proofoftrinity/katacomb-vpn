@@ -155,11 +155,12 @@ SOCKS5 listener (`isChildProxy()` narrows v2ray+xray+hysteria2 together). What d
   no `dns-set`, no DoH — and a missing `resolvconf` still fails the bring-up with the
   `/resolvconf/i` text that drives `DNS_PROVISION_FAILED`.
 
-**OpenVPN** (type 3) was removed in 1.19.0. About two nodes on the network ran it, and
-it was the one protocol that needed a distro package (`openvpn`), an interface of its own
-(`sntl-ovpn`) and daemon ops the Windows service never had. Its nodes are dropped where
-the feed enters the app ([PRO-1]). [PRO-6], its directive allow-list, was retired with
-it; the number is not reused.
+**OpenVPN** (type 3) was removed in 1.19.0. Three of the 4,348 nodes the directory listed
+ran it on 2026-10-23, one of them active, and it was the one protocol that needed a
+distro package (`openvpn`), an interface of its own (`sntl-ovpn`) and daemon ops the
+Windows service never had. Its nodes are dropped where the feed enters the app
+([PRO-1]); a plan that links one shows it as an unknown node, never pickable. [PRO-6],
+its directive allow-list, was retired with it; the number is not reused.
 
 **[PRO-7] Connection modes.** `ConnectParams.mode` is `'tunnel'` (default, routes the whole
 device) or `'proxy'`. Local-proxy mode applies ONLY to the child-proxy protocols
