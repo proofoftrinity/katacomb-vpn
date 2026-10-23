@@ -198,7 +198,7 @@ daemon inherits this: copy it out first. `tun-up` no longer does: the tun2socks 
 compiled into the helper, which self-execs from `/usr/local/bin`, so AppImage
 V2Ray/XRAY/Hysteria2 tunnel mode works there. `awg-up` no longer does either: since
 Phase 3 the AmneziaWG device is compiled into the helper (`_amneziawg`, self-exec'd from
-`/usr/local/bin`), so all six protocols work on the AppImage. The preflight guard that
+`/usr/local/bin`), so all five protocols work on the AppImage. The preflight guard that
 refused AmneziaWG there (added 2026-09-14 after session 61449769 paid for a tunnel root
 could never bring up — the trio lived on the mount, and only the preflight, running as
 the user, could see it) is gone with the trio. The lesson stands for anything future:

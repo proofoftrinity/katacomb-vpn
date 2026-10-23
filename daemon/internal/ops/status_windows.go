@@ -8,7 +8,7 @@ import (
 )
 
 // Status reports which of our adapters exist, as the Linux one reads
-// /sys/class/net. There is no OpenVPN on Windows.
+// /sys/class/net.
 func Status(e *Env) StatusResult {
 	_, wg := adapter(wgIface)
 	_, tun := adapter(tunIface)

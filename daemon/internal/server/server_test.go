@@ -85,7 +85,7 @@ func TestPipelinedRequestsInOneWrite(t *testing.T) {
 	// every added op and is pinned by corpus_test.go instead.
 	want := []string{
 		`{"id":1,"ok":true,`,
-		`{"id":2,"ok":true,"result":{"wgUp":false,"tunUp":false,"ovpnUp":false}}`,
+		`{"id":2,"ok":true,"result":{"wgUp":false,"tunUp":false}}`,
 		`{"id":3,"ok":false,"error":"unknown op: frob"}`,
 	}
 	for _, w := range want {

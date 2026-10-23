@@ -65,7 +65,7 @@ test('[PH-2] the corpus result shapes read as values', async () => {
   replyWith(corpus.results)
   assert.deepEqual(await dc.daemonCapabilities(), corpus.results.protocol_version)
   assert.equal(await dc.daemonMissingOp('status'), false)
-  assert.equal(await dc.daemonMissingOp('openvpn_up'), true, 'a daemon that lists its ops and lacks one is refused before paying')
+  assert.equal(await dc.daemonMissingOp('amneziawg_up'), true, 'a daemon that lists its ops and lacks one is refused before paying')
   assert.equal(await dc.daemonXfrmPolicyCount(), corpus.results.xfrm_policies.count)
   assert.equal(await dc.daemonWireguardHandshakeAge(), corpus.results.wireguard_handshake.ageSeconds)
 })
@@ -83,13 +83,13 @@ const MALFORMED: Array<[string, Record<string, unknown>]> = [
 for (const [name, results] of MALFORMED) {
   test(`[PH-2] ${name} reads as "cannot know", never as a refusal`, async () => {
     replyWith(results)
-    assert.equal(await dc.daemonMissingOp('openvpn_up'), false)
+    assert.equal(await dc.daemonMissingOp('amneziawg_up'), false)
     if ('xfrm_policies' in results) assert.equal(await dc.daemonXfrmPolicyCount(), null)
     if ('wireguard_handshake' in results) assert.equal(await dc.daemonWireguardHandshakeAge(), null)
   })
 }
 
-test('[PH-2] Windows: the service\'s read-only answers read as values, and its op list refuses OpenVPN', async () => {
+test('[PH-2] Windows: the service\'s read-only answers read as values, and its op list refuses what it does not serve', async () => {
   replyWith(corpus.results)
   assert.equal(dcWin.isDaemonAvailable(), true, 'the service is the only door: asked, never looked for')
   const counters = corpus.results.traffic_counters as { rxBytes: number; txBytes: number }
@@ -97,7 +97,7 @@ test('[PH-2] Windows: the service\'s read-only answers read as values, and its o
   assert.deepEqual(await dcWin.daemonDefaultRoute(), corpus.results.default_route)
   assert.deepEqual(await dcWin.daemonOtherVpns(), corpus.results.other_vpns.names)
   replyWith({ ...corpus.results, protocol_version: { version: 1, ops: corpus.windowsOps } })
-  assert.equal(await dcWin.daemonMissingOp('openvpn_up'), true, 'an OpenVPN node is refused before paying')
+  assert.equal(await dcWin.daemonMissingOp('xfrm_policies'), true, 'the IPsec probe is Linux-only')
   assert.equal(await dcWin.daemonMissingOp('tun_up'), false)
 })
 
@@ -133,7 +133,7 @@ test('the client writes one request per line, exactly the JSON the Go parser is 
 test('[PH-2] with no daemon at all, every reader abstains', async () => {
   await new Promise<void>((r) => server.close(() => r()))
   assert.equal(await dc.daemonCapabilities(), null)
-  assert.equal(await dc.daemonMissingOp('openvpn_up'), false)
+  assert.equal(await dc.daemonMissingOp('amneziawg_up'), false)
   assert.equal(await dc.daemonXfrmPolicyCount(), null)
   assert.equal(await dc.daemonWireguardHandshakeAge(), null)
   assert.equal(await dcWin.daemonTrafficCounters('sntl0'), null)

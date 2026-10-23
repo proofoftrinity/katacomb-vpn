@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadModule, type ModuleHarness } from '../../../test/harness/module.ts'
@@ -16,7 +16,7 @@ import { read } from '../../../test/harness/source.ts'
 const vm = await loadModule({
   entries: ['src/main/vpn/vpn-manager.ts'],
   fake: ['src/main/helper/privileged'],
-  stubs: { child_process: 'test/harness/child-process.ts', fs: 'test/harness/fs.ts' },
+  stubs: { child_process: 'test/harness/child-process.ts' },
 })
 
 // wg-quick and v2ray "installed": executables in a temp dir put first on PATH.
@@ -70,8 +70,6 @@ function fresh(opts: { spawn?: boolean; execSync?: (cmd: string) => unknown } = 
         return fakeChild()
       },
     },
-    // openvpn is a system package: "installed" here whatever the machine has.
-    fs: { existsSync: (p: string) => p === '/usr/sbin/openvpn' || existsSync(p) },
   })
   // The private dir this instance made at import: where its configs would be written.
   const [secureTmp] = ourDirs().filter((d) => !before.has(d))
@@ -122,12 +120,11 @@ test('[PKG-1] a bundled core that fails its pin is refused, never swapped for th
   assert.deepEqual(h.world.calls('child_process', 'spawn'), [])
 })
 
-// The other four sinks: AmneziaWG and OpenVPN are handed to root, Xray and Hysteria2
-// are spawned as the user. The same order holds at each: pin, guard, then write.
+// The other three sinks: AmneziaWG is handed to root, Xray and Hysteria2 are
+// spawned as the user. The same order holds at each: pin, guard, then write.
 
 const corpus = (name: string) => read(`daemon/internal/guard/testdata/corpus/${name}`)
 const CLEAN_AWG = (endpoint: string) => corpus('amneziawg/clean.conf').replace('Endpoint = 203.0.113.10:51820', `Endpoint = ${endpoint}`)
-const CLEAN_OVPN = corpus('openvpn/clean.conf')
 const CLEAN_XRAY = (address: string) => JSON.stringify({
   inbounds: [{ protocol: 'socks', listen: '127.0.0.1', port: 1080 }],
   outbounds: [{ protocol: 'vless', settings: { vnext: [{ address, port: 443 }] } }, { protocol: 'freedom' }],
@@ -161,27 +158,6 @@ test('[REL-7] [NT-1] control: a clean AmneziaWG config is pinned to IPv4, then w
   const [verb, file] = h.privileged[0]
   assert.equal(verb, 'awg-up')
   assert.match(readFileSync(file, 'utf-8'), /^Endpoint = 198\.51\.100\.5:51820$/m)
-  assert.equal(statSync(file).mode & 0o777, 0o600)
-})
-
-test('[NT-1] an OpenVPN config the guard rejects never reaches root or the disk', async (t) => {
-  const h = fresh()
-  t.after(() => h.dispose())
-  // openvpn runs `up` as root: the directive the guard exists for.
-  const evil = CLEAN_OVPN.replace('\nclient\n', '\nclient\nup /tmp/evil.sh\n')
-  await assert.rejects(async () => (h.mod.connectOpenVpnFromConfig as Connect)(evil))
-  assert.deepEqual(h.privileged, [])
-  assert.deepEqual(readdirSync(h.secureTmp), [])
-})
-
-test('[NT-1] control: a clean OpenVPN config is written 0600 and handed to root', async (t) => {
-  const h = fresh()
-  t.after(() => h.dispose())
-  await (h.mod.connectOpenVpnFromConfig as Connect)(CLEAN_OVPN)
-  assert.equal(h.privileged.length, 1)
-  const [verb, file] = h.privileged[0]
-  assert.equal(verb, 'ovpn-up')
-  assert.equal(readFileSync(file, 'utf-8'), CLEAN_OVPN)
   assert.equal(statSync(file).mode & 0o777, 0o600)
 })
 
@@ -274,7 +250,7 @@ const vmWin = await loadModule({
   entries: ['src/main/vpn/vpn-manager.ts'],
   fake: ['src/main/helper/privileged', 'src/main/helper/daemon-client'],
   stubs: {
-    child_process: 'test/harness/child-process.ts', fs: 'test/harness/fs.ts', os: 'test/harness/os.ts',
+    child_process: 'test/harness/child-process.ts', os: 'test/harness/os.ts',
     'dns/promises': 'test/harness/dns-promises.ts', 'src/main/platform': 'test/harness/platform-windows.ts',
   },
 })
@@ -401,11 +377,10 @@ test('[PKG-1] Windows: a core is the .exe under win/bin, checked against its own
   assert.equal((spawned.args[2] as { windowsHide?: boolean }).windowsHide, true)
 })
 
-test('Windows: OpenVPN is refused before payment, and WireGuard needs no wg-quick', (t) => {
+test('Windows: WireGuard needs no wg-quick, and AmneziaWG nothing on the user side', (t) => {
   winMachine(t, { path: '' })
   const h = freshWin()
   t.after(() => h.dispose())
-  assert.match(String((h.mod.protocolRuntimeError as (p: string) => string | null)('openvpn')), /OpenVPN isn't available on Windows/)
   assert.equal((h.mod.protocolRuntimeError as (p: string) => string | null)('wireguard'), null)
   assert.equal((h.mod.protocolRuntimeError as (p: string) => string | null)('amneziawg'), null)
 })

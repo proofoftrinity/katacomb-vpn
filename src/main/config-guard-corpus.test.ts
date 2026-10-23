@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import {
   assertSafeWireguardConfig,
   assertSafeAmneziaWgConfig,
-  assertSafeOpenVpnConfig,
   isIPv4,
   isValidInterfaceName,
   isValidSocksAddr,
@@ -71,7 +70,6 @@ function runCorpus(proto: string, validate: (config: string) => void): void {
 
 runCorpus('wireguard', assertSafeWireguardConfig)
 runCorpus('amneziawg', assertSafeAmneziaWgConfig)
-runCorpus('openvpn', assertSafeOpenVpnConfig)
 
 test('corpus scalars.json agrees with the scalar validators', () => {
   const doc = JSON.parse(readFileSync(join(CORPUS, 'scalars.json'), 'utf-8')) as Record<string, unknown>

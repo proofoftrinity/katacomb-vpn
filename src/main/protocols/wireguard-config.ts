@@ -4,8 +4,8 @@
 // Why replace it: the class is a connection manager, not a builder. Constructing
 // one pulls in child_process, qrcode and find-free-ports; parseConfig awaited a
 // free-port lookup for a ListenPort that buildConfigString does not even emit.
-// This is the same shape as amneziawg-config.ts, xray-config.ts,
-// hysteria-config.ts and openvpn-config.ts: pure, unit-tested, no imports.
+// This is the same shape as amneziawg-config.ts, xray-config.ts and
+// hysteria-config.ts: pure, unit-tested, no imports.
 //
 // Output is byte-identical to the SDK's buildConfigString() — pinned by
 // wireguard-config.test.ts, which diffs the two for real handshake shapes. The

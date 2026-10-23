@@ -1,8 +1,8 @@
 // What this machine needs before the app can bring a tunnel up, and the one-click
-// installs for it: the privileged helper (+ its polkit policy), and the two distro
-// packages the root protocols run (wireguard-tools for WireGuard, openvpn for
-// OpenVPN, a resolvconf for the tunnel's DNS). A .deb install never needs the
-// first three: the package depends on both packages and its postinst installs the helper.
+// installs for it: the privileged helper (+ its polkit policy), and the distro
+// packages the root protocols run (wireguard-tools for WireGuard, a resolvconf for
+// the tunnel's DNS). A .deb install never needs the first two: the package depends
+// on wireguard-tools and its postinst installs the helper.
 //
 // Asked for when a connect needs it, never at launch. It used to be two blocking
 // native dialogs before the window existed, each wanting an admin password, at a
@@ -37,11 +37,11 @@ const HELPER_INSTALL_TIMEOUT_MS = 60_000
 const PACKAGE_INSTALL_TIMEOUT_MS = 300_000
 
 export type HelperState = 'ready' | 'missing' | 'outdated'
-export type SetupPackage = 'wireguard-tools' | 'openvpn' | 'systemd-resolved' | 'systemd-resolvconf'
+export type SetupPackage = 'wireguard-tools' | 'systemd-resolved' | 'systemd-resolvconf'
 export type PackageManager = 'apt' | 'dnf' | 'pacman'
 
 export function isSetupPackage(value: unknown): value is SetupPackage {
-  return value === 'wireguard-tools' || value === 'openvpn' || value === 'systemd-resolved' || value === 'systemd-resolvconf'
+  return value === 'wireguard-tools' || value === 'systemd-resolved' || value === 'systemd-resolvconf'
 }
 
 /**
@@ -111,8 +111,8 @@ export async function helperInstallState(
 /**
  * Install or update the helper and its polkit policy, and restart the daemon's
  * unit when there is one. The caller must refuse while a tunnel is up: the
- * restart SIGTERMs the daemon's detached children (tun2socks, openvpn, the
- * AmneziaWG device).
+ * restart SIGTERMs the daemon's detached children (tun2socks, the AmneziaWG
+ * device).
  */
 export async function installHelper(bundledDir: string): Promise<void> {
   const helperSrc = join(bundledDir, HELPER_NAME)

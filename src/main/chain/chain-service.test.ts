@@ -17,7 +17,7 @@ const cs = await loadModule({
     'src/main/protocols/node-handshake', 'src/main/chain/authz-query', 'src/main/nodes/node-tester',
     'src/main/chain/chain-clients', 'src/main/chain/chain-events',
     'src/main/protocols/wireguard-config', 'src/main/protocols/xray-config', 'src/main/protocols/hysteria-config',
-    'src/main/protocols/amneziawg-config', 'src/main/protocols/openvpn-config', 'src/main/protocols/v2ray-config',
+    'src/main/protocols/amneziawg-config', 'src/main/protocols/v2ray-config',
     'src/main/protocols/multihop-config',
   ],
   allowPackages: ['@cosmjs/stargate', '@cosmjs/proto-signing', '@cosmjs/crypto', '@cosmjs/amino', '@cosmjs/encoding', 'long', '@sentinel-official/sentinel-js-sdk'],
@@ -231,5 +231,27 @@ describe('[MH-9] ending a chain hop leaves a tombstone: credentials cleared, pai
     await pair(h)
     await assert.rejects(end(h, '3002'))
     assert.notEqual(load(h, '3002')?.configString, '')
+  })
+})
+
+describe('[PRO-1] only the five protocols this client runs are ever handshaked', () => {
+  // The V2Ray branch used to be the final `else`, so any other type, OpenVPN (3) once
+  // its branch was removed included, would have been handshaked and saved as V2Ray.
+  for (const nodeType of [0, 3, 7]) {
+    test(`[PRO-1] nodeType ${nodeType} is refused before the node is asked anything, and nothing is saved`, async (t) => {
+      const h = cs.fresh(node())
+      t.after(() => h.dispose())
+      await assert.rejects(handshake(h, nodeType, false), /Unsupported nodeType/)
+      assert.deepEqual(h.world.calls('protocols/node-handshake', 'buildHandshakeBody'), [])
+      assert.deepEqual(h.world.calls('protocols/node-handshake', 'postHandshake'), [])
+      assert.equal(existsSync(sessionFile(h, '1001')), false)
+    })
+  }
+
+  test('[PRO-1] control: V2Ray (2) is still handshaked through its own branch', async (t) => {
+    const h = cs.fresh(node())
+    t.after(() => h.dispose())
+    await handshake(h, 2, false).catch(() => { /* the faked reply is WireGuard-shaped; asking is what counts */ })
+    assert.equal(h.world.calls('protocols/node-handshake', 'postHandshake').length, 1)
   })
 })

@@ -48,7 +48,7 @@ export const PROVIDER_WRITES = [
 // What makes a handler one of the above: reaching any of these calls.
 export const PURCHASE_CALLS = ['subscribeToNode', 'subscribeToPlan', 'startSessionWithExistingSubscription']
 export const BRING_UP_CALLS = [
-  'connectWireGuardFromConfig', 'connectAmneziaWgFromConfig', 'connectOpenVpnFromConfig',
+  'connectWireGuardFromConfig', 'connectAmneziaWgFromConfig',
   'connectV2RayFromConfig', 'connectXRayFromConfig', 'connectHysteria2FromConfig', 'bringUpV2RayTunnel',
 ]
 export const ACTIVE_WALLET_CALLS = ['importWallet', 'switchWallet', 'deleteWalletEntry', 'logout']

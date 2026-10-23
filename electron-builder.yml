@@ -176,11 +176,6 @@ deb:
     # kill-switch.ts shells out to iptables. Debian 12+ defaults to the nftables
     # backend and does not guarantee the iptables package is installed.
     - iptables
-    # OpenVPN (node type 3) runs the distro client rather than a bundled build:
-    # it's a TLS client, so distro OpenSSL security updates are a better supply
-    # chain than a binary we'd have to re-cut on every CVE. Same model as
-    # wireguard-tools above. AppImage/dev users install it themselves.
-    - openvpn
   recommends:
     # NOTE: setting this key REPLACES electron-builder's default recommends
     # rather than adding to it (FpmTarget: options.recommends ? asArray(it) :

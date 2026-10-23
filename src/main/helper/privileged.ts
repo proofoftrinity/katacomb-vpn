@@ -123,16 +123,6 @@ async function runViaDaemon(args: string[]): Promise<void> {
     case 'awg-down':
       await daemonRequest('amneziawg_down')
       return
-    case 'ovpn-up': {
-      // rest = [configPath] — content only; the daemon writes its own root-owned
-      // copy and resolves its own openvpn binary.
-      const configString = readFileSync(rest[0], 'utf-8')
-      await daemonRequest('openvpn_up', { configString })
-      return
-    }
-    case 'ovpn-down':
-      await daemonRequest('openvpn_down')
-      return
     case 'tun-up': {
       // rest = ['-', socksAddr, remoteHost, gateway, iface, bypassCsv?]
       // The first slot used to name the tun2socks binary. The engine is compiled

@@ -14,8 +14,6 @@
     "wireguard_down",
     "amneziawg_up",
     "amneziawg_down",
-    "openvpn_up",
-    "openvpn_down",
     "tun_up",
     "tun_down",
     "killswitch_on",
@@ -30,7 +28,7 @@
     "xfrm_policies",
     "wireguard_handshake"
   ],
-  "_windows": "The Windows service's contract: the same framing over a named pipe, without OpenVPN or the IPsec probe, plus three read-only ops for facts the app reads for itself on Linux. Pinned by daemon/internal/protocol/corpus_test.go and daemon/internal/server's Windows tests.",
+  "_windows": "The Windows service's contract: the same framing over a named pipe, without the IPsec probe, plus three read-only ops for facts the app reads for itself on Linux. Pinned by daemon/internal/protocol/corpus_test.go and daemon/internal/server's Windows tests.",
   "pipePath": "\\\\.\\pipe\\ProtectedPrefix\\Administrators\\Katacomb VPN\\daemon",
   "windowsOps": [
     "protocol_version",

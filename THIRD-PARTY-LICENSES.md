@@ -25,7 +25,7 @@ the app checks each before it spawns it. Root runs none of them — nor any othe
 binary: the tun2socks engine and the AmneziaWG device are compiled into the privileged
 helper (below), so the daemon has no pin table of its own.
 
-`openvpn`, `wireguard-tools` and `pkexec` are **not** bundled — they are declared as
+`wireguard-tools` and `pkexec` are **not** bundled — they are declared as
 `.deb` dependencies and come from your distribution under its own packaging.
 
 ## Bundled shared library (AppImage)

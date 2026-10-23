@@ -278,7 +278,7 @@ func TestAwgUpIgnoresTheBindirAndSelfExecsTheDevice(t *testing.T) {
 
 func TestDownVerbsRun(t *testing.T) {
 	r := newRec(t)
-	for _, v := range []string{"down", "awg-down", "ovpn-down", "tun-down", "killswitch-off", "dns-restore"} {
+	for _, v := range []string{"down", "awg-down", "tun-down", "killswitch-off", "dns-restore"} {
 		if code, _, errs := runVerb(t, r, v); code != 0 {
 			t.Fatalf("%s: %s", v, errs)
 		}

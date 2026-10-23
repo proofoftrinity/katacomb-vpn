@@ -4,12 +4,11 @@ import { protocolMeta } from '../utils/protocols'
 /**
  * A 16px mark per node protocol, drawn here rather than vendored. The obvious source,
  * each project's own logo, is not ours to ship: WireGuard's trademark policy forbids
- * its logo in third-party application graphics without written permission, OpenVPN
- * Inc. has a similar policy, and the other projects' code licences say nothing about
- * their artwork. So every glyph below is an original stroke drawing that EVOKES the
- * protocol (a tunnel, a V, a padlock, an X, a masked tunnel, a bolt) in the same idiom
- * as Icons.tsx, and never a copy. If official marks are ever cleared, this is the one
- * place to swap them.
+ * its logo in third-party application graphics without written permission, and the
+ * other projects' code licences say nothing about their artwork. So every glyph below
+ * is an original stroke drawing that EVOKES the protocol (a tunnel, a V, an X, a
+ * masked tunnel, a bolt) in the same idiom as Icons.tsx, and never a copy. If
+ * official marks are ever cleared, this is the one place to swap them.
  */
 const MARKS: Record<number, ReactElement> = {
   // WireGuard: a tunnel mouth, two arches.
@@ -21,13 +20,6 @@ const MARKS: Record<number, ReactElement> = {
   ),
   // V2Ray: a V.
   2: <path d="M2.5 3L8 13.5 13.5 3" />,
-  // OpenVPN: a padlock.
-  3: (
-    <>
-      <rect x="3" y="7" width="10" height="7" rx="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
-    </>
-  ),
   // XRAY: an X in a ring.
   4: (
     <>

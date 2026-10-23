@@ -87,7 +87,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   themselves by hostname on chain (`remoteAddrs: ["helen.busur.cc:63115"]`), and two
   separate things break on that: the tunnel re-resolves it *through itself* (the v2ray
   DNS deadlock), and the kill switch has no IP to whitelist. v2ray/xray go through
-  `pinV2RayNodeAddresses`, hysteria2/openvpn pin inline, and WireGuard/AmneziaWG go
+  `pinV2RayNodeAddresses`, hysteria2 pins inline, and WireGuard/AmneziaWG go
   through `pinWireguardEndpoint` (pure, unit-tested) in all three connect paths —
   pin BEFORE the config-guard assert, so what is validated is what gets written.
   **[REL-8] The kill switch is never armed without a real endpoint IP**: `-d 0.0.0.0/32 -j ACCEPT`
@@ -151,7 +151,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   (`proxyMode`, absent = full tunnel, so a caller that forgets it only gets the stricter
   check). In full-tunnel mode EVERY protocol needs the helper, not just the three root
   ones: v2ray/xray/hysteria2 route through the helper's `tun-up`. The old check only
-  covered WG/AWG/OpenVPN, so a V2Ray tunnel-mode connect without the helper paid first
+  covered WG/AWG, so a V2Ray tunnel-mode connect without the helper paid first
   and failed at the bring-up. And "the helper" means the one THIS build bundles
   (`helperInstallState`), not merely a file at the path: a stale one refuses configs as
   root after the session is bought. Refusals carry `SYSTEM_SETUP_REQUIRED:<items>` and
@@ -215,7 +215,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   INTERFACE exists, and a node that has stopped forwarding leaves it up, so an exhausted
   session used to sit on a dead tunnel. Every successful bring-up funnels through
   `finalizeTunnelConnect()` (ipc-handlers.ts), which calls `startQuotaWatchdog()` — all
-  six protocols, proxy mode and the reconnect success path end there; it scores
+  five protocols, proxy mode and the reconnect success path end there; it scores
   `evaluateQuota` (pure, in `connect-decisions.ts`) every 15 s and hands expiry to
   `standDownSession`, which repeats `performDisconnect`'s epoch-bump-before-the-lock
   stand-down so the reconnect timer can't resurrect a session the chain has closed.
@@ -231,7 +231,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   well-formed WireGuard initiation with its own saved keys and getting silence, hours
   after the node stopped reporting usage — while the app said "Connected" and the
   watchdog billed the paid hour against it. Two enforcement points, both required:
-  - `assertTunnelCarriesTraffic()` after **every** bring-up (the WG/AWG/OpenVPN
+  - `assertTunnelCarriesTraffic()` after **every** bring-up (the WG/AWG
     branches, `finishChildProxyConnect` for the three child-proxy protocols, and the
     auto-reconnect body; skipped in proxy mode, which changes no routing). It runs
     AFTER `applyPostConnectSettings` on purpose — the kill switch is one of the things
@@ -248,7 +248,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     cannot reach the exit hop it fails each relay locally and tun2socks writes the
     resets back into the tun, so rx climbs while nothing works (~92 KB out / ~28 KB
     back over two minutes, none of it real).
-  - `checkTunnelStalled()` on the quota loop (all six protocols, unlike the root-only
+  - `checkTunnelStalled()` on the quota loop (all five protocols, unlike the root-only
     interface monitor), via the pure `isTunnelOneWay`. **Both** a tx floor and a
     silence window are required: an idle tunnel also receives nothing, and that is
     not a fault. It stands down through `standDownSession('stalled')` rather than
@@ -415,10 +415,10 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   password prompt for a tunnel `startQuotaWatchdog` stands down at its next 15 s tick.
   **End** stays enabled there; it is the action that fits.
 - **[REL-25] Local network sharing is a firewall exception, not a routing one.** No protocol's
-  routing captures the LAN (wg-quick/awg-quick use `suppress_prefixlength 0`, OpenVPN
-  emits `redirect-gateway def1`, tun2socks uses the `/1` halves — a LAN route is more
-  specific than all of them), so the only thing that blocks it is the kill switch's
-  DROP-all chain. `lanSharing` therefore adds ACCEPT rules and nothing else. **The
+  routing captures the LAN (wg-quick/awg-quick use `suppress_prefixlength 0`, tun2socks
+  uses the `/1` halves — a LAN route is more specific than all of them), so the only
+  thing that blocks it is the kill switch's DROP-all chain. `lanSharing` therefore adds
+  ACCEPT rules and nothing else. **The
   ranges are hardcoded in the bash helper** (`LAN_RANGES_V4`/`_V6`) and only a boolean
   crosses the boundary — never accept a range from the app, and never wire
   `splitTunnelRoutes` (which is tun2socks-only routing, and accepts public CIDRs) into
@@ -448,7 +448,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   Log per-link `resolvectl status` on every state change alongside it.
 - **[REL-27] `ConnectionStatus.state === 'connected'` means "traffic is redirected", and it flips
   on INTERFACE PRESENCE — deliberately. Do not add an intermediate "verifying" state.**
-  For WG/AWG/OpenVPN the status is true from the moment the interface exists, which is
+  For WG/AWG the status is true from the moment the interface exists, which is
   BEFORE `applyPostConnectSettings` arms the kill switch and before
   `assertTunnelCarriesTraffic` finishes (that probe alone can run 18s: 3 attempts of 6s,
   each racing its 2 URLs). That reads like a bug and is not one, because the tunnel
@@ -478,7 +478,7 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   the same host on both sides of a tunnel transition inherits this hazard.
 
 - **[REL-29] The tunnel never outlives the app, and NOTHING outside the app will end it.** A crash
-  leaves everything running by construction: WG/AWG/OpenVPN interfaces are kernel-resident
+  leaves everything running by construction: WG/AWG interfaces are kernel-resident
   and root-created, tun2socks is spawned detached by the helper, and the daemon has no
   notion of whether a GUI is alive (the daemon's socket close carries no meaning, since
   `daemon-client` opens one connection per request by design, and the unit has no

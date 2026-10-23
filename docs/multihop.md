@@ -259,7 +259,7 @@ xray-core is a strict superset of what the builder emits, so it lands in
   residual.** It carries no wallet and no session and goes to hundreds of nodes, so what a
   node learns is "an address looked at me" with nothing to attach it to. The modal says so.
   In TUNNEL mode nothing was ever needed: the OS puts these probes in the tunnel already
-  (wg/awg/openvpn replace the default route; tun2socks owns `0.0.0.0/1` + `128.0.0.0/1`,
+  (wg/awg replace the default route; tun2socks owns `0.0.0.0/1` + `128.0.0.0/1`,
   and only the connected node's `/32` bypasses). **Local-proxy mode was the one state
   where a tunnel existed and our own traffic did not use it**, so grading now goes through
   its SOCKS listener via `getActiveProxyPort()` + `SocksHttpsAgent`. That accessor is for

@@ -21,6 +21,11 @@ const NULL_HEAVY = {
   errorMessage: null,
 }
 
+test('[PRO-1] OpenVPN nodes (type 3) are dropped; every other type, unknown (0) included, is kept', () => {
+  const out = normalizeNodes([0, 1, 2, 3, 4, 5, 6].map((type) => ({ ...NULL_HEAVY, type }))) as { type: number }[]
+  assert.deepEqual(out.map((n) => n.type), [0, 1, 2, 4, 5, 6])
+})
+
 test('null text fields become empty strings', () => {
   const [node] = normalizeNodes([NULL_HEAVY]) as Record<string, unknown>[]
   for (const field of ['moniker', 'version', 'api', 'asn', 'country', 'city']) {

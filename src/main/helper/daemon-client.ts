@@ -144,10 +144,10 @@ export async function daemonCapabilities(): Promise<DaemonCapabilities | null> {
  * daemon, failed probe), so this can only ever add a refusal we are sure about.
  *
  * Why it exists: the skew that actually happens is a daemon left running across
- * an upgrade that lacks a newly ADDED op (amneziawg_* and openvpn_* were both
- * additive, with no protocol-version bump, so the version number cannot see it).
- * Without this the first sign is `unknown op` from the bring-up, which for those
- * two protocols is AFTER the session has been paid for.
+ * an upgrade that lacks a newly ADDED op (amneziawg_* was additive, with no
+ * protocol-version bump, so the version number cannot see it). Without this the
+ * first sign is `unknown op` from the bring-up, which for AmneziaWG is AFTER the
+ * session has been paid for.
  */
 export async function daemonMissingOp(op: DaemonOp): Promise<boolean> {
   const caps = await daemonCapabilities()

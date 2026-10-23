@@ -68,12 +68,18 @@ test('rankPlanCandidates: proxy mode keeps only the child-proxy protocols (2, 4,
       candidate({ address: 'sentnode1v2', type: 2 }),
       candidate({ address: 'sentnode1xr', type: 4 }),
       candidate({ address: 'sentnode1hy', type: 6 }),
-      candidate({ address: 'sentnode1ovpn', type: 3 }),
+      candidate({ address: 'sentnode1awg', type: 5 }),
     ],
     { requireProxyCapable: true },
   )
   assert.deepEqual(new Set(ranked.map((c) => c.type)), new Set([2, 4, 6]))
   assert.equal(excluded.length, 2)
+})
+
+test('[PRO-1] rankPlanCandidates: an OpenVPN node (3) a plan still links is never bought', () => {
+  const { ranked, excluded } = rankPlanCandidates([candidate({ address: 'sentnode1ovpn', type: 3 })], { requireProxyCapable: false })
+  assert.deepEqual(ranked, [])
+  assert.deepEqual(excluded.map((e) => [e.address, e.reason]), [['sentnode1ovpn', 'runs an unknown protocol']])
 })
 
 test('rankPlanCandidates: exclusion reasons carry no em dash (they reach the UI)', () => {
@@ -126,7 +132,7 @@ test('rankPlanCandidates: unprobed nodes stay eligible but rank after every prob
   const { ranked } = rankPlanCandidates(
     [
       candidate({ address: 'sentnode1unprobed', type: 1, latencyMs: null }),
-      candidate({ address: 'sentnode1slow', type: 3, latencyMs: 900 }),
+      candidate({ address: 'sentnode1slow', type: 6, latencyMs: 900 }),
     ],
     { requireProxyCapable: false },
   )

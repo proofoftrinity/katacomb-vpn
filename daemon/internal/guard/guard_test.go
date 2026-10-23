@@ -100,7 +100,6 @@ func runCorpus(t *testing.T, proto string, validate func([]byte) error) {
 // [NT-1] The root side re-validates node configs against the shared corpus.
 func TestWireguardCorpus(t *testing.T) { runCorpus(t, "wireguard", AssertWireguardConfig) }
 func TestAmneziaWgCorpus(t *testing.T) { runCorpus(t, "amneziawg", AssertAmneziaWgConfig) }
-func TestOpenVpnCorpus(t *testing.T)   { runCorpus(t, "openvpn", AssertOpenVpnConfig) }
 
 // A WireGuard config must never be accepted by the AmneziaWG validator's WG
 // subset loosening, nor an AWG config by the plain-WG one: the corpus files are
@@ -121,10 +120,6 @@ func TestErrorsCarryLineNumbers(t *testing.T) {
 	err := AssertWireguardConfig([]byte("[Interface]\nPrivateKey = aGVsbG8=\nPostUp = touch /tmp/pwned\n"))
 	if err == nil || !strings.Contains(err.Error(), "line 3") {
 		t.Fatalf("want a line-3 error, got %v", err)
-	}
-	err = AssertOpenVpnConfig([]byte("client\nup /bin/sh\n"))
-	if err == nil || !strings.Contains(err.Error(), "line 2") {
-		t.Fatalf("want a line-2 error, got %v", err)
 	}
 }
 

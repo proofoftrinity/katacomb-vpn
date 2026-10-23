@@ -216,7 +216,6 @@ export function evaluateQuota(input: QuotaInput): QuotaVerdict {
 const SERVICE_TYPE_ALIASES: Record<string, number> = {
   wireguard: 1,
   v2ray: 2,
-  openvpn: 3,
   xray: 4,
   amneziawg: 5,
   awg: 5,

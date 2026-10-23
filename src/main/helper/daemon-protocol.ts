@@ -28,8 +28,6 @@ export const DAEMON_OPS = [
   'wireguard_down',
   'amneziawg_up',
   'amneziawg_down',
-  'openvpn_up',
-  'openvpn_down',
   'tun_up',
   'tun_down',
   'killswitch_on',
@@ -38,7 +36,7 @@ export const DAEMON_OPS = [
   'dns_restore',
 ] as const
 
-// What the Windows service serves (docs/windows.md): no OpenVPN and no IPsec probe,
+// What the Windows service serves (docs/windows.md): no IPsec probe,
 // plus three read-only ops for what the app reads for itself on Linux (/proc/net/dev,
 // `ip route`, `ip link`). Pinned to the corpus's `windowsOps` like the list above.
 export const WINDOWS_DAEMON_OPS = [

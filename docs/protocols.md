@@ -1,12 +1,12 @@
 # Node protocol types
 
-All six protocols and how each one differs. `src/main/protocols/` holds the
-config builders; `src/renderer/utils/protocols.ts` is the single source of
+The five protocols this client runs, and how each one differs. `src/main/protocols/`
+holds the config builders; `src/renderer/utils/protocols.ts` is the single source of
 truth for labels, badges and the supported flag.
 
 `SentNode.type` is a **numeric** protocol tag from the `api.sentnodes.com/v2/nodes`
-feed: `0`=unknown, `1`=WireGuard, `2`=V2Ray, `3`=OpenVPN, `4`=XRAY, `5`=AmneziaWG,
-`6`=Hysteria2. **Each node runs exactly ONE protocol** — a node's own `/info`
+feed: `0`=unknown, `1`=WireGuard, `2`=V2Ray, `3`=OpenVPN (not run since 1.19.0), `4`=XRAY,
+`5`=AmneziaWG, `6`=Hysteria2. **Each node runs exactly ONE protocol** — a node's own `/info`
 endpoint reports a single `service_type` (verified against dvpnx master + live
 v9.0.0 nodes). The v9.0.0 "six protocols" marketing means six protocol *types*
 exist across the network, NOT six per node; multi-protocol operators register
@@ -20,11 +20,16 @@ assume a two-protocol world). The Nodes-tab protocol filter is a single-select
 `<select>` in `NodeFilters.tsx` driven by `PROTOCOL_FILTER_OPTIONS`; `NodeFilter.type`
 is `'all' | ProtocolType`.
 
-**[PRO-1] All six protocols are connectable: WireGuard (1), V2Ray (2), OpenVPN (3), XRAY (4),
-AmneziaWG (5), Hysteria2 (6).** Only type 0 (unknown) is not. The main-process IPC
-guards (`nodeType` not in `{1,2,3,4,5,6}` → throw) plus `isProtocolSupported` in the
-connect UI are the enforcement. Any *future* protocol needs its own binary, config
-generation/validation, and (for root-run ones) a privileged daemon op.
+**[PRO-1] Five protocols are connectable: WireGuard (1), V2Ray (2), XRAY (4), AmneziaWG (5),
+Hysteria2 (6).** Type 0 (unknown) is not, and neither is type 3 (OpenVPN, removed in
+1.19.0). `normalizeNodes` (`nodes/node-normalize.ts`) drops type-3 nodes where the feed and
+the disk cache enter the app, so no tab offers one; the main-process IPC guards (`nodeType`
+not in `{1,2,4,5,6}` → throw) refuse it before payment; `performHandshake` throws on a type
+it has no branch for instead of falling through to the V2Ray handshake; and
+`reconnectRefusal` refuses a session saved for an OpenVPN node before 1.19.0, which can
+still be ended. `isProtocolSupported` disables the rest in the connect UI. Any *future*
+protocol needs its own binary, config generation/validation, and (for root-run ones) a
+privileged daemon op.
 
 **XRAY** is the VLESS+Reality protocol and reuses almost the entire V2Ray path: it's
 a v2ray-core fork that reads the **same JSON config**, so it runs through the same
@@ -150,56 +155,11 @@ SOCKS5 listener (`isChildProxy()` narrows v2ray+xray+hysteria2 together). What d
   no `dns-set`, no DoH — and a missing `resolvconf` still fails the bring-up with the
   `/resolvconf/i` text that drives `DNS_PROVISION_FAILED`.
 
-**OpenVPN** (type 3) also rides the **root/privileged path** (`isChildProxy` must never
-include it). The wire shape is identical at go-sdk master and the commit node v8.3.1
-pins, so one implementation covers the whole network:
-- Handshake request is `{uuid}` as a **16-BYTE ARRAY** (node field is v2fly
-  `uuid.UUID` = `[16]byte`) — the opposite of hysteria2's string field. The uuid is
-  only the peer id: the node's PKI *issues the client certificate*, so the response is
-  `{metadata:[{port, protocol:"tcp"|"udp", ca:b64(DER), tls:b64(256-byte tls-crypt)}],
-  cert:b64(DER), key:b64(DER PKCS#8)}`. There is **no `addrs`** in the body (the
-  OpenVPN server pushes the tunnel IP) — the endpoint comes from `result.addrs`.
-- `src/main/protocols/openvpn-config.ts` (`buildOpenVpnConfig`, pure + unit-tested) emits ONE
-  self-contained `.ovpn` with **inline `<ca>/<cert>/<key>/<tls-crypt>` blocks** — not
-  the go-sdk's config-plus-four-PKI-files layout. That is what lets it live in
-  `SavedSessionConfig.configString` (reconnect works) and be shipped to the daemon as
-  content. Every blob is base64-**decoded and re-armored by us**, so no node byte can
-  become a directive; `ca`/`cert` must parse as X.509 and `key` as a private key
-  (node:crypto), and the tls-crypt key must be exactly 256 bytes — all throw → refund.
-  The endpoint is IPv4-pinned (a hostname `remote` would deadlock on reconnect with the
-  kill switch armed). `management 127.0.0.1 2323` from the upstream template is dropped.
-- **[PRO-6] The security boundary is the directive allow-list**, not a blocklist:
-  `up`/`down`/`route-up`/`ipchange`/`client-connect`/`tls-verify`/
-  `auth-user-pass-verify`/`learn-address`/`plugin`/`script-security` all run code as
-  root and are rejected by omission (`assertSafeOpenVpnConfig`, mirrored on the root
-  side by `guard.AssertOpenVpnConfig`). It also **requires** `client` + all four PKI blocks and
-  rejects a repeated `remote` (the kill switch only whitelists the first).
-  Operational flags are deliberately NOT allowed in the file — the helper passes
-  `--script-security 0 --dev sntl-ovpn --daemon --writepid --log --connect-*` on the
-  command line *after* `--config` (openvpn is last-one-wins), so they can only come
-  from us. **Invariant: anything the guard rejects is supplied by the helper.**
-- **Distro binary, not bundled**: `deb.depends` gains `openvpn`, resolved from an
-  absolute allow-list (`/usr/sbin/openvpn`, …) — never `$PATH` under root. This is the
-  plain-WireGuard model (system `wg-quick`), chosen over vendoring because openvpn is a
-  TLS client and distro packaging ships the OpenSSL CVE fixes.
-- **Own interface `sntl-ovpn`** (not sntl0): a userspace AWG sntl0 is already
-  `type tun`, so a third tun there would make adoption/teardown ambiguous
-  (`awg-down` ≠ `ovpn-down`). Costs only `traffic-stats`' third fallback,
-  `ops.Status`'s `ovpnUp` (daemon/), the `detectOtherVpn` exclusion and the
-  `vpnIface` ternary — all two-way, no new discriminator.
-- **openvpn stays resident** (wg-quick/awg-quick exit), so `ovpn-up` daemonizes it and
-  then **waits for proof**: `sntl-ovpn` present AND "Initialization Sequence Completed"
-  in the log, else it kills the pid and returns the log tail (that text reaches the
-  connect modal). `ovpn-down` kills the pid, waits, then deletes the link. Liveness is
-  interface polling (`startRootTunnelMonitor`, shared with WG/AWG) — there is no child
-  process to watch, since root owns it.
-- Helper verbs `ovpn-up <config>` / `ovpn-down`; daemon ops `openvpn_up` /
-  `openvpn_down` (additive — no protocol-version bump).
-- **DNS is ours, not the tunnel's.** Applying the server's pushed DNS would need an
-  `--up` script (the LPE vector), so OpenVPN joins the `dns-set` group with
-  v2ray/xray/hysteria2 — plaintext-through-tunnel, and NOT the DoH group (that
-  transform is v2ray-JSON-shaped). Consequently there is **no `DNS_PROVISION_FAILED`
-  path**: `dnsFallback`/`stripDnsLines` stay WG/AWG-only.
+**OpenVPN** (type 3) was removed in 1.19.0. About two nodes on the network ran it, and
+it was the one protocol that needed a distro package (`openvpn`), an interface of its own
+(`sntl-ovpn`) and daemon ops the Windows service never had. Its nodes are dropped where
+the feed enters the app ([PRO-1]). [PRO-6], its directive allow-list, was retired with
+it; the number is not reused.
 
 **[PRO-7] Connection modes.** `ConnectParams.mode` is `'tunnel'` (default, routes the whole
 device) or `'proxy'`. Local-proxy mode applies ONLY to the child-proxy protocols

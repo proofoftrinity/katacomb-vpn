@@ -96,6 +96,6 @@ test('[PH-6] the unit keeps /run/katacomb-vpn across the restart every upgrade r
   const service = unit.slice(unit.indexOf('[Service]'), unit.indexOf('[Install]'))
   const keys = Object.fromEntries(service.split('\n').map((l) => l.trim()).filter((l) => /^[A-Za-z]+=/.test(l)).map((l) => l.split(/=(.*)/s).slice(0, 2)))
   assert.equal(keys.RuntimeDirectory, 'katacomb-vpn')
-  assert.equal(keys.RuntimeDirectoryPreserve, 'restart', 'without it every upgrade wiped tun.state and openvpn.pid, stranding routes')
+  assert.equal(keys.RuntimeDirectoryPreserve, 'restart', 'without it every upgrade wiped tun.state and killswitch.state, stranding routes')
   assert.match(read('resources/linux/packaging/postinstall.sh'), /systemctl (try-)?restart katacomb-vpn-daemon/, 'the restart it has to survive')
 })
