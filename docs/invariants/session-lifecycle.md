@@ -8,7 +8,14 @@ re-checks SL-2 to SL-4 against it (docs/testing.md).
   is no settle or refund message. Phase 1 (the user's End, or the quota running out) sets
   `active → inactive_pending` and stamps `inactiveAt = now + statusTimeout`; phase 2 is
   the EndBlocker settling it there (`EventEnd`). **So End is NOT an instant refund** —
-  it just performs phase 1 by hand. Don't word it as one.
+  it just performs phase 1 by hand. Don't word it as one. What settlement does, read in
+  sentinelhub v12.0.2 (`x/node/keeper/hooks.go`, `x/subscription/keeper/hooks.go`) on
+  2026-11-04: a P2P session pays the node pro rata for the usage it reported (per byte,
+  or per nanosecond for an hourly one), capped at the deposit, and the rest of the
+  deposit goes back to the account; a plan session's usage already came out of the
+  allocation as the node reported it, so End only detaches it and the subscription keeps
+  the rest. The End confirmation says exactly that, with the 2 hours, and never
+  "forfeited", which was wrong for both kinds.
 - **[SL-2] `statusTimeout` is 7200s (2h)** on mainnet — a governance param, so read it rather
   than hardcoding if it ever matters numerically.
 - **[SL-3] `inactiveAt` means two different things by status.** On an `inactive_pending` row it
@@ -37,7 +44,7 @@ re-checks SL-2 to SL-4 against it (docs/testing.md).
   expired one before anything is mutated. Positive evidence only: no row, no refusal.
 - Settlement pays the node for actual usage and returns only the remainder, so an
   **expired** session (quota fully consumed by definition) refunds ~nothing. The card
-  deliberately promises no refund.
+  deliberately promises no refund, and the End confirmation says "whatever is left".
 - **[SL-6] A session is scored the way its node enforces it.** Read from source
   (sentinelhub v12.0.2, dvpnx 8.2.0 to 9.0.0, dvpnd 9.4.3) on 2026-10-29:
   - The node stores the caps at the handshake and cuts the peer there; nothing later

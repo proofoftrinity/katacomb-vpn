@@ -272,7 +272,18 @@ export default function ActiveSessions({
     const reconnectTarget = vpnConnected && !isThisSessionConnected
       ? sessions.find((s) => s.id === status.sessionId) ?? null
       : null
-    const warnings = ['This will close the session on-chain. Remaining data/time will be forfeited.']
+    // What End does to the money ([SL-1]): nothing comes back at the click. At
+    // settlement, 2h later, the chain pays the node pro rata for the usage it reported
+    // and returns the rest of a P2P deposit; a plan session's usage already came out
+    // of the allocation, and the plan keeps the rest.
+    const warnings = [
+      'This closes the session on the chain. It cannot be reconnected afterwards.',
+      session.subscriptionId
+        ? 'Your plan keeps whatever data and time it has left, and you can start a new session from it.'
+        : peer && peer.status === 'active'
+          ? 'You pay each node only for what it reports you used. Whatever is left of each deposit goes back to your wallet when the chain settles the session, about 2 hours from now.'
+          : 'You pay the node only for what it reports you used. Whatever is left of your deposit goes back to your wallet when the chain settles the session, about 2 hours from now.',
+    ]
     if (peer && peer.status === 'active') {
       warnings.push(`This is the ${session.chainRole ?? 'first'} hop of a two-hop chain, so #${peer.id} will be ended too. One hop alone carries no traffic.`)
     } else if (session.chainPeerSessionId) {

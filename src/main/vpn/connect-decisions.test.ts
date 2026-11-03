@@ -637,8 +637,8 @@ test('deadTunnelMessage: a freshly issued peer that carries nothing is worth one
 })
 
 test('[SL-1] deadTunnelMessage: neither wording promises money back', () => {
-  // Ending a session forfeits the remainder (the confirm dialog says so); the panel
-  // must not contradict it.
+  // What is left of a deposit comes back only at settlement, 2h after End (the
+  // confirm dialog says so); the panel must not promise more.
   for (const msg of [deadTunnelMessage(true), deadTunnelMessage(false)]) {
     assert.equal(/refund|reclaim|deposit back/i.test(msg), false)
   }
