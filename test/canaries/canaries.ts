@@ -413,6 +413,27 @@ export const CANARIES: Canary[] = [
     run: [TEARDOWN],
   },
   {
+    name: "[SL-6] Reconnect goes ahead past the node's deadline, and the chain takes the whole deposit",
+    file: IPC_TS,
+    find: '    if (quota.clock && quota.maxDurationSeconds !== null &&\n',
+    replace: '    if (false && quota.clock && quota.maxDurationSeconds !== null &&\n',
+    run: [LIFE],
+  },
+  {
+    name: "[SL-6] a renewed plan session is scored against the chain's grown caps, past the node's cut",
+    file: IPC_TS,
+    find: '  const caps = effectiveCaps({ maxBytes: parseInt(row.maxBytes, 10) || 0, maxDurationSeconds: row.maxDurationSeconds }, row.nodeCaps)',
+    replace: '  const caps = effectiveCaps({ maxBytes: parseInt(row.maxBytes, 10) || 0, maxDurationSeconds: row.maxDurationSeconds }, undefined)',
+    run: [LIFE],
+  },
+  {
+    name: '[SL-6] the watchdog counts download only, and an upload-heavy session runs past the cut',
+    file: IPC_TS,
+    find: '  const scored = currentQuotaVerdict(bytes ? bytes.rx + bytes.tx : 0)\n  if (!scored) return',
+    replace: '  const scored = currentQuotaVerdict(bytes ? bytes.rx : 0)\n  if (!scored) return',
+    run: [LIFE],
+  },
+  {
     name: '[REL-31] the kill-switch marker is written after arming',
     file: 'src/main/vpn/kill-switch.ts',
     find: '  markKillSwitchArmed()\n  await runPrivileged([',

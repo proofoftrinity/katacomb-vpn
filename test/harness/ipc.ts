@@ -109,6 +109,7 @@ function defaults(tunnel: Tunnel, state: { nextSession: number; chainSessions: u
       resolveNodeRemoteUrl: async () => 'https://203.0.113.7:8585',
       endSession: async () => undefined,
       loadSessionConfig: () => null,
+      rememberNodeCaps: noop,
       listSessionsOwnedByOtherWallets: () => [],
       sendChainHopProgress: noop,
       sendPlanProgress: noop,

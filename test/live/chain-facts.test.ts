@@ -37,7 +37,8 @@ test('chain-facts: the read before the node reported passes, with the report-jum
   assert.deepEqual(fs.filter((f) => f.verdict === 'FAIL'), [])
   assert.equal(line(fs, /no node report yet/).verdict, 'PASS')
   assert.equal(line(fs, /a node report moves/).verdict, 'NOT SEEN')
-  assert.equal(fs.length, 7, verdicts(fs).join('\n'))
+  assert.equal(fs.length, 8, verdicts(fs).join('\n'))
+  assert.equal(line(fs, /plan session's time cap/).verdict, 'NOT SEEN', 'this account held no plan session')
 })
 
 test('chain-facts: the read after the node reported passes, and sees the jump', () => {
@@ -45,6 +46,20 @@ test('chain-facts: the read after the node reported passes, and sees the jump', 
   assert.deepEqual(fs.filter((f) => f.verdict === 'FAIL'), [])
   assert.equal(line(fs, /a node report moves/).verdict, 'PASS')
   assert.equal(line(fs, /no node report yet/).verdict, 'NOT SEEN')
+})
+
+// No account of ours held a plan session when this check was added (2026-11-04), so this
+// row is built from the hub's rule (x/session UpdateSessionMaxValues), not read: a plan
+// session started at 10:40, on a subscription that ends 30 days after its own start.
+test('chain-facts: SL-6 passes when a plan session\'s time cap is its subscription\'s end − its start, and fails otherwise', () => {
+  const start = unreported[0].startAt
+  const subEnd = t('2026-11-06T09:12:00Z')
+  const plan: Row = { ...unreported[0], plan: { maxDurationS: (subEnd - start) / 1000, subscriptionInactiveAt: subEnd } }
+  assert.equal(line(judge(beforeReport([plan])), /plan session's time cap/).verdict, 'PASS')
+  // A renewal moves the subscription's end; a cap that stayed where it was is the fact failing.
+  const stale = line(judge(beforeReport([{ ...plan, plan: { ...plan.plan!, subscriptionInactiveAt: subEnd + 30 * 86_400_000 } }])), /plan session's time cap/)
+  assert.equal(stale.verdict, 'FAIL')
+  assert.deepEqual(stale.offenders.map((o) => o.split(':')[0]), ['#66486462'])
 })
 
 test('chain-facts: SL-2 fails on any other statusTimeout, and the failure names the copy that assumes 2 h', () => {

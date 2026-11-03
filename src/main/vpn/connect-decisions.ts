@@ -147,12 +147,17 @@ export interface QuotaInput {
   baselineDurationSeconds: number
   /** How long the CURRENT tunnel has been up. */
   connectedSeconds: number
+  /**
+   * [SL-6] The node's own clock for the session (nodeClockSeconds), or null when no
+   * handshake was recorded for it.
+   */
+  nodeSeconds: number | null
   /** 0 ⇒ not data-metered. */
   maxBytes: number
-  /** On-chain download settled before this connect. */
+  /** On-chain download + upload settled before this connect. */
   baselineBytes: number
-  /** Interface rx counter for the current tunnel (readTunnelBytes().rx). */
-  liveRxBytes: number
+  /** Interface rx + tx for the current tunnel (readTunnelBytes()). */
+  liveBytes: number
 }
 
 export type QuotaVerdict =
@@ -172,25 +177,28 @@ const QUOTA_WARN_PCT = 90
  *
  * BOTH caps are measured the same way: what the chain already settled, plus what
  * this tunnel has done since it came up. For bytes that is
- * `baselineBytes + liveRxBytes` (DOWNLOAD ONLY, the same number the user is looking
- * at); for time it is `baselineDurationSeconds + connectedSeconds`.
+ * `baselineBytes + liveBytes`, download AND upload, because that is what the node
+ * cuts on and the chain bills ([SL-6]); for time it is
+ * `baselineDurationSeconds + connectedSeconds`, or the node's clock when that is
+ * further along (it counts the gaps between connects; [SL-6]).
  *
  * Time deliberately does NOT use wall-clock since the session's `startAt`. The
  * chain meters `duration` from the node's usage proofs, so an idle session accrues
  * nothing — verified on mainnet: session #53647217 sat for 53 minutes with
  * `duration: 0`, which a wall-clock reading would have called 88% spent and torn
- * down, destroying a full paid hour.
+ * down, destroying a full paid hour. The node's clock starts at the handshake, not
+ * at `startAt`, which is why it can be taken without repeating that mistake.
  *
  * The node's own metering may still differ slightly from ours, which is what the
  * reconnect give-up path absorbs. In local-proxy mode there is no interface to
- * count, so `liveRxBytes` is 0 and only a time cap can expire.
+ * count, so `liveBytes` is 0 and only a time cap can expire.
  */
 export function evaluateQuota(input: QuotaInput): QuotaVerdict {
   const hasTimeCap = input.maxDurationSeconds !== null && input.maxDurationSeconds > 0
   const hasByteCap = input.maxBytes > 0
 
-  const usedSeconds = input.baselineDurationSeconds + input.connectedSeconds
-  const usedBytes = input.baselineBytes + input.liveRxBytes
+  const usedSeconds = Math.max(input.baselineDurationSeconds + input.connectedSeconds, input.nodeSeconds ?? 0)
+  const usedBytes = input.baselineBytes + input.liveBytes
 
   const timePct = hasTimeCap ? usedSeconds / input.maxDurationSeconds! * 100 : null
   const dataPct = hasByteCap ? usedBytes / input.maxBytes * 100 : null

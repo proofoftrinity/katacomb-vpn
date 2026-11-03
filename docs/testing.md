@@ -15,7 +15,7 @@ wrong until shown otherwise. The rules for changing the suite itself are in
 | `npm run test:daemon` | the Go tests alone |
 | `npm run test:canaries` | every mutation canary must turn its tests red (about 80 s) |
 | `npm run test:fuzz` | each Go fuzz target for `FUZZTIME` (default 10 s); CI also runs the daemon under `-race` |
-| `npm run check:chain [address…]` | the live-chain facts the `manual` rules SL-2..SL-4 rest on, read from mainnet; never part of `verify` (see below) |
+| `npm run check:chain [address…]` | the live-chain facts the `manual` rules SL-2..SL-4 rest on, and the plan-cap fact behind SL-6, read from mainnet; never part of `verify` (see below) |
 | `npx electron-vite build && node scripts/check-bundle-requires.mjs` | CI: builds the app, then checks the bundles require no npm package ([ARCH-3]) |
 
 - Node 22.18+ (native type stripping, `engines` in `package.json`); Go is the

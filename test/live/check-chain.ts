@@ -1,5 +1,5 @@
 // `npm run check:chain [address…]`: re-checks against live mainnet the chain facts the
-// manual rules SL-2, SL-3 and SL-4 rest on. Read-only (queries, no transaction) and
+// manual rules SL-2, SL-3 and SL-4 rest on, and the plan-cap fact behind SL-6. Read-only (queries, no transaction) and
 // never part of `npm run verify`: it needs the network, and what it sees depends on
 // which sessions the accounts hold right now. With no address it reads the app's own
 // wallets. RPC=<url> picks the endpoint. Exit 0 when nothing failed (a NOT SEEN line
@@ -12,6 +12,7 @@ import { QueryClient, createProtobufRpcClient } from '@cosmjs/stargate'
 import { connectComet } from '@cosmjs/tendermint-rpc'
 import Long from 'long'
 import { QueryServiceClientImpl } from '@sentinel-official/sentinel-js-sdk/dist/protobuf/sentinel/session/v3/querier.js'
+import { QueryServiceClientImpl as SubscriptionQuery } from '@sentinel-official/sentinel-js-sdk/dist/protobuf/sentinel/subscription/v3/querier.js'
 import { Session as NodeSession } from '@sentinel-official/sentinel-js-sdk/dist/protobuf/sentinel/node/v3/session.js'
 import { Session as SubSession } from '@sentinel-official/sentinel-js-sdk/dist/protobuf/sentinel/subscription/v3/session.js'
 import { judge, type ChainRead, type Row } from './chain-facts.ts'
@@ -29,7 +30,9 @@ function accounts(): string[] {
 async function read(addresses: string[]): Promise<ChainRead> {
   const comet = await connectComet(RPC)
   try {
-    const q = new QueryServiceClientImpl(createProtobufRpcClient(QueryClient.withExtensions(comet)))
+    const rpc = createProtobufRpcClient(QueryClient.withExtensions(comet))
+    const q = new QueryServiceClientImpl(rpc)
+    const subs = new SubscriptionQuery(rpc)
     const timeout = (await q.QueryParams({})).params?.statusTimeout
     if (!timeout) throw new Error('the session params carry no statusTimeout')
     const blockTime = async () => (await comet.block()).block.header.time.getTime()
@@ -43,14 +46,16 @@ async function read(addresses: string[]): Promise<ChainRead> {
       read.accounts.push({
         address,
         total: Number(r.pagination?.total ?? 0),
-        rows: r.sessions.map((any): Row => {
-          const s = (any.typeUrl.includes('.node.') ? NodeSession : SubSession).decode(any.value).baseSession
+        rows: await Promise.all(r.sessions.map(async (any): Promise<Row> => {
+          const isPlan = !any.typeUrl.includes('.node.')
+          const decoded = isPlan ? SubSession.decode(any.value) : NodeSession.decode(any.value)
+          const s = decoded.baseSession
           const ms = (t: Date | undefined, what: string) => {
             if (!t) throw new Error(`session ${s?.id} has no ${what}`)
             return t.getTime()
           }
           if (!s) throw new Error(`a ${any.typeUrl} row has no base session`)
-          return {
+          const row: Row = {
             id: s.id.toString(),
             status: s.status,
             startAt: ms(s.startAt, 'startAt'),
@@ -60,7 +65,15 @@ async function read(addresses: string[]): Promise<ChainRead> {
             down: s.downloadBytes,
             up: s.uploadBytes,
           }
-        }),
+          if (isPlan && 'subscriptionId' in decoded) {
+            const sub = (await subs.QuerySubscription({ id: decoded.subscriptionId })).subscription
+            row.plan = {
+              maxDurationS: Number(s.maxDuration?.seconds ?? 0) + (s.maxDuration?.nanos ?? 0) / 1e9,
+              subscriptionInactiveAt: ms(sub?.inactiveAt, 'subscription inactiveAt'),
+            }
+          }
+          return row
+        })),
       })
     }
     read.after = await blockTime()
