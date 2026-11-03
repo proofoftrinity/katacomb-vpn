@@ -206,11 +206,16 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   the node's usage proofs, so a session bought and left idle accrues *nothing* — mainnet
   #53647217 sat 53 minutes at `duration: 0`. Both caps are therefore scored the same way,
   "what the chain settled before this connect + what this tunnel has done since":
-  `baselineDurationSeconds + connectedSeconds` and `baselineBytes + liveRxBytes`.
+  `baselineDurationSeconds + connectedSeconds` and `baselineBytes + liveBytes` (download
+  + upload, as the node cuts and the chain bills; [SL-6]). Time is the larger of that sum
+  and the node's own clock, which runs from the handshake ([SL-6]), never from `startAt`.
   `connectedAtMs` (set in `startQuotaWatchdog`, before its timer guard) is the second
   half of the time sum and is surfaced as `ConnectionStatus.connectedAt` so the Sessions
   card draws the identical number. **Never reintroduce `Date.now() - startAt` as a usage
   measure** — it reads an untouched paid hour as spent and the watchdog then destroys it.
+  `duration: 0` on a session that has been used is the node not having reported yet, not
+  its clock standing still: the node counts from its handshake ([REL-21]), and reports
+  every couple of hours.
 - **[REL-16] Watch the paid quota.** Nothing else does: `startRootTunnelMonitor` polls whether the
   INTERFACE exists, and a node that has stopped forwarding leaves it up, so an exhausted
   session used to sit on a dead tunnel. Every successful bring-up funnels through
@@ -337,13 +342,16 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   Deliberately NOT wrapped in `establishSessionOrRefund`: there is no new session to
   refund, and cancelling the user's live session over a briefly unreachable node is
   the opposite of the intent.
-- **[REL-20] Usage time accrues only while the tunnel is alive.** `connectedSecondsAlive()`,
+- **[REL-20] Usage time stops at the tunnel's last sign of life.** `connectedSecondsAlive()`,
   not `Date.now() - connectedAtMs`, feeds both the quota watchdog and
   `rememberSessionUsage` — it clamps at `aliveUntilMs`, the last confirmed sign of
   life. The chain meters `duration` from node proofs and a stalled node submits none,
   so counting wall-clock past that point bills the user for time they were never
   charged for, and (being a floor under the gauge) would end a session with paid time
-  left. `lastSessionUsage` is **persisted** (`session-usage.json`) so the gauge
+  left. The node's clock ([SL-6]) is read at the same moment (`nodeSecondsAlive()`): it
+  starts at the handshake rather than at this tunnel, so it counts the gaps between
+  connects, which the node does charge ([REL-21]), but never the dead time after the
+  last sign of life. `lastSessionUsage` is **persisted** (`session-usage.json`) so the gauge
   doesn't reset to a not-yet-settled chain figure on relaunch; it is only ever a
   FLOOR, the chain overtakes it and wins, and entries are pruned once their session
   leaves `getActiveSessions()` — on a SUCCESSFUL read only, since an RPC failure

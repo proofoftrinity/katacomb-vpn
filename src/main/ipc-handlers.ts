@@ -4,6 +4,7 @@ import { existsSync, unlinkSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { IPC } from '../shared/ipc-channels'
 import { DERIVE_PREVIEW_MAX_COUNT } from '../shared/hd-path'
+import { effectiveCaps, nodeClockSeconds, paidTimeEndsAtMs, type NodeCaps } from '../shared/node-quota'
 import {
   onRpcEndpointChanged,
   onChainPathChanged,
@@ -32,7 +33,7 @@ import {
   logout,
   type SessionInfo,
 } from './chain/wallet'
-import { subscribeToNode, performHandshake, handshakeChainEntry, handshakeChainExit, finalizeChain, sendChainHopProgress, sendPlanProgress, chainHopRoleOf, chainSigner, resolveNodeRemoteUrl, loadSessionConfig, listSessionsOwnedByOtherWallets, endSession, V2RayPolicyError } from './chain/chain-service'
+import { subscribeToNode, performHandshake, handshakeChainEntry, handshakeChainExit, finalizeChain, sendChainHopProgress, sendPlanProgress, chainHopRoleOf, chainSigner, resolveNodeRemoteUrl, loadSessionConfig, rememberNodeCaps, listSessionsOwnedByOtherWallets, endSession, V2RayPolicyError } from './chain/chain-service'
 import type { ReplySigner } from './protocols/reply-signature'
 import { versionSignsReplies } from '../shared/node-signing'
 import { openChainFlow } from './chain/chain-clients'
@@ -234,7 +235,9 @@ let lastPlanOverview: PlanOverview | null = null
 
 /**
  * Everything a session row carries that the chain itself doesn't: the node's name,
- * and — for a multihop chain — which end this hop is and what its partner's id is.
+ * what the node took at its handshake ([SL-6]: the row keeps the chain's own caps, and
+ * every scorer applies effectiveCaps), and — for a multihop chain — which end this hop
+ * is and what its partner's id is.
  *
  * Every writer of `lastKnownSessions` reaches this through `primeSessionsCache`
  * below. WALLET_SESSIONS returns that cache verbatim while a tunnel is up, so a
@@ -250,6 +253,7 @@ function decorateSessionRow<T extends { id: string; nodeAddress: string }>(sessi
   chainPeerSessionId?: string
   chainRole?: 'entry' | 'exit'
   chainPeerEndedByUser?: boolean
+  nodeCaps?: NodeCaps
 } {
   const saved = loadSessionConfig(session.id)
   const nodeMeta = getNodeMeta(session.nodeAddress)
@@ -257,6 +261,7 @@ function decorateSessionRow<T extends { id: string; nodeAddress: string }>(sessi
     ...session,
     nodeMoniker: saved?.nodeMoniker || nodeMeta.moniker,
     nodeCountry: saved?.nodeCountry || nodeMeta.country,
+    nodeCaps: saved?.nodeCaps,
     chainPeerSessionId: saved?.chainPeerSessionId,
     chainRole: saved?.chainRole,
     // The other hop is a TOMBSTONE: its credentials were cleared by a cancel this app
@@ -456,6 +461,9 @@ interface ActiveQuota {
   baselineDurationSeconds: number
   maxBytes: number
   baselineBytes: number
+  // [SL-6] The node's clock from the session's last handshake, when one was recorded.
+  // Held here as well as in the saved config, which is not written without a keyring.
+  clock?: NodeCaps
 }
 let activeQuota: ActiveQuota | null = null
 // MULTIHOP: the exit hop's quota. Both hops carry the SAME byte stream and the same
@@ -502,21 +510,27 @@ const QUOTA_POLL_MS = 15_000
 // out: the node cut the tunnel slightly before our own estimate said it would.
 const QUOTA_GIVE_UP_PCT = 95
 
-/** Read the quota off a chain session row, or null when it carries no cap at all. */
-function quotaFromSessionRow(row: SessionInfo): ActiveQuota | null {
-  const maxBytes = parseInt(row.maxBytes, 10) || 0
-  const hasTimeCap = row.maxDurationSeconds !== null && row.maxDurationSeconds > 0
-  if (maxBytes <= 0 && !hasTimeCap) return null
+/**
+ * Read the quota off a session row, or null when it carries no cap at all. [SL-6] The
+ * caps are the smaller of the chain's and what the node took at its handshake: after a
+ * plan renewal the chain's are bigger, and the node still cuts at its own.
+ */
+function quotaFromSessionRow(row: SessionInfo & { nodeCaps?: NodeCaps }): ActiveQuota | null {
+  const caps = effectiveCaps({ maxBytes: parseInt(row.maxBytes, 10) || 0, maxDurationSeconds: row.maxDurationSeconds }, row.nodeCaps)
+  const hasTimeCap = caps.maxDurationSeconds !== null && caps.maxDurationSeconds > 0
+  if (caps.maxBytes <= 0 && !hasTimeCap) return null
   return {
     sessionId: row.id,
-    maxDurationSeconds: hasTimeCap ? row.maxDurationSeconds : null,
+    maxDurationSeconds: hasTimeCap ? caps.maxDurationSeconds : null,
     // What the chain has already metered before this connect; the watchdog adds the
     // live tunnel's own usage on top (see evaluateQuota). `duration` is metered from
     // the node's proofs, NOT from wall-clock since startAt — an idle session accrues
     // nothing, so startAt is useless as a quota measure.
     baselineDurationSeconds: row.durationSeconds ?? 0,
-    maxBytes,
-    baselineBytes: parseInt(row.downloadBytes, 10) || 0,
+    maxBytes: caps.maxBytes,
+    // Both directions: the node cuts on download + upload, and the chain bills both.
+    baselineBytes: (parseInt(row.downloadBytes, 10) || 0) + (parseInt(row.uploadBytes, 10) || 0),
+    clock: row.nodeCaps,
   }
 }
 
@@ -531,19 +545,40 @@ function setQuota(row: SessionInfo | undefined): void {
   )
 }
 
+/**
+ * [SL-6] Record what the node enforces from a handshake it just answered: the caps it
+ * read off the chain then (`read`, a quota taken from the session's chain row, or from
+ * what was bought when the row was unreadable) and when its clock started. Kept on the
+ * live quota and in the saved config, then the session cache is re-decorated so the
+ * Sessions card and a later reconnect see it. Never for a chain's exit hop ([MH-12]).
+ */
+function recordNodeCaps(handshakeAtMs: number, read: ActiveQuota | null): void {
+  if (!read) return
+  const caps: NodeCaps = {
+    maxBytes: read.maxBytes,
+    maxDurationSeconds: read.maxDurationSeconds ?? 0,
+    handshakeAtMs,
+    durationAtHandshakeSeconds: read.baselineDurationSeconds,
+  }
+  if (activeQuota?.sessionId === read.sessionId) activeQuota.clock = caps
+  rememberNodeCaps(read.sessionId, caps)
+  primeSessionsCache(lastKnownSessions as SessionInfo[])
+}
+
 /** Rank a quota verdict so the worst of several can be picked. */
 const QUOTA_LEVEL_RANK = { ok: 0, warn: 1, expired: 2 } as const
 /** An 'expired' verdict carries no pct — it is already past the cap, so treat it as 100. */
 const quotaPct = (v: QuotaVerdict): number => ('pct' in v ? v.pct : 100)
 
-function verdictFor(quota: ActiveQuota, liveRxBytes: number) {
+function verdictFor(quota: ActiveQuota, liveBytes: number) {
   return evaluateQuota({
     maxDurationSeconds: quota.maxDurationSeconds,
     baselineDurationSeconds: quota.baselineDurationSeconds,
     connectedSeconds: connectedSecondsAlive(),
+    nodeSeconds: nodeSecondsAlive(quota),
     maxBytes: quota.maxBytes,
     baselineBytes: quota.baselineBytes,
-    liveRxBytes,
+    liveBytes,
   })
 }
 
@@ -556,10 +591,10 @@ function verdictFor(quota: ActiveQuota, liveRxBytes: number) {
  * reporting an expiry against the entry when it was the exit that ran out names the
  * wrong node to replace.
  */
-function currentQuotaVerdict(liveRxBytes: number): { verdict: QuotaVerdict; sessionId: string } | null {
+function currentQuotaVerdict(liveBytes: number): { verdict: QuotaVerdict; sessionId: string } | null {
   const scored = [activeQuota, activeExitQuota]
     .filter((q): q is ActiveQuota => q !== null)
-    .map((q) => ({ verdict: verdictFor(q, liveRxBytes), sessionId: q.sessionId }))
+    .map((q) => ({ verdict: verdictFor(q, liveBytes), sessionId: q.sessionId }))
   if (scored.length === 0) return null
   return scored.reduce((worst, s) =>
     QUOTA_LEVEL_RANK[s.verdict.level] > QUOTA_LEVEL_RANK[worst.verdict.level] ||
@@ -637,7 +672,7 @@ async function quotaTick(): Promise<void> {
   // Same shape: it may await a tunnel test.
   void checkChainExitDeadline()
   // No interface reads as zero bytes, as /proc/net/dev's absent line always did.
-  const scored = currentQuotaVerdict(bytes?.rx ?? 0)
+  const scored = currentQuotaVerdict(bytes ? bytes.rx + bytes.tx : 0)
   if (!scored) return
   const verdict = scored.verdict
   if (verdict.level === 'expired') {
@@ -863,8 +898,9 @@ function describeRemaining(reason: 'time' | 'data', remaining: number): string {
     const mins = Math.max(1, Math.round(remaining / 60))
     return mins >= 60 ? `${(mins / 60).toFixed(1)} hours` : `${mins} minutes`
   }
-  const gb = remaining / 1024 ** 3
-  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.max(1, Math.round(remaining / 1024 ** 2))} MB`
+  // Decimal units, as the chain sells them ([SL-6]: a gigabyte is 10⁹ bytes).
+  const gb = remaining / 1e9
+  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.max(1, Math.round(remaining / 1e6))} MB`
 }
 
 /**
@@ -1224,9 +1260,24 @@ function reconnectRefusal(saved: NonNullable<ReturnType<typeof loadSessionConfig
   for (const id of [saved.sessionId, saved.chainPeerSessionId]) {
     const row = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === id)
     const quota = row ? quotaFromSessionRow(row) : null
-    if (quota && evaluateQuota({ ...quota, connectedSeconds: 0, liveRxBytes: 0 }).level === 'expired') {
+    if (!quota) continue
+    const scored = { ...quota, connectedSeconds: 0, liveBytes: 0 }
+    if (evaluateQuota({ ...scored, nodeSeconds: null }).level === 'expired') {
       return `Session #${id} has used everything it was paid for, so it cannot be reconnected. ` +
         'End it from the Sessions tab and start a new one.'
+    }
+    // [SL-6] The node's clock read at NOW, not at the last use: a reconnect is activity,
+    // and the node's first reading after it counts the time away. Past the deadline that
+    // reading is over the paid time, the node cuts the peer, and the chain takes the
+    // whole deposit instead of refunding the part not used.
+    if (quota.clock && quota.maxDurationSeconds !== null &&
+      evaluateQuota({ ...scored, nodeSeconds: nodeClockSeconds(quota.clock, Date.now()) }).level === 'expired') {
+      const ended = new Date(paidTimeEndsAtMs(quota.clock, quota.maxDurationSeconds))
+      const endedAt = (ended.toDateString() === new Date().toDateString() ? '' : `${ended.toLocaleDateString([], { day: 'numeric', month: 'short' })}, `) +
+        ended.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      return `The paid time of session #${id} ended at ${endedAt}. The node counts time from your first ` +
+        'connect, time away included, so reconnecting now would cost the whole session. End it from ' +
+        'the Sessions tab instead: you are charged only up to your last use.'
     }
   }
   return null
@@ -2205,7 +2256,13 @@ function rememberUsageFor(sessionId: string, live: { rx: number; tx: number }): 
     // stopped answering submits none, so counting wall-clock past that point would
     // record time the user was never charged for — and, since this value is a floor
     // under the quota gauge, would end a session that still had paid time on it.
-    durationSeconds: (baseline?.durationSeconds ?? 0) + connectedSecondsAlive(),
+    //
+    // [SL-6] Or the node's clock up to that same moment, when it is further along: it
+    // counts the gaps between connects, and it is what the node will report.
+    durationSeconds: Math.max(
+      (baseline?.durationSeconds ?? 0) + connectedSecondsAlive(),
+      nodeSecondsAlive([activeQuota, activeExitQuota].find((q) => q?.sessionId === sessionId) ?? null) ?? 0,
+    ),
   })
 }
 
@@ -2218,6 +2275,16 @@ function connectedSecondsAlive(): number {
   if (!connectedAtMs) return 0
   const until = Math.max(aliveUntilMs, connectedAtMs)
   return Math.max(0, (Math.min(Date.now(), until) - connectedAtMs) / 1000)
+}
+
+/**
+ * [SL-6] The node's clock for a quota, read at the same last sign of life: the node moves
+ * its figure only on activity, so time after that is not charged either. Null without
+ * a live tunnel, or when no handshake was recorded for the session.
+ */
+function nodeSecondsAlive(quota: ActiveQuota | null): number | null {
+  if (!quota?.clock || !connectedAtMs) return null
+  return nodeClockSeconds(quota.clock, Math.min(Date.now(), Math.max(aliveUntilMs, connectedAtMs)))
 }
 
 /**
@@ -2322,7 +2389,8 @@ async function attemptReconnect(): Promise<void> {
     // the interface monitor fires first and burns through the attempts — so a
     // give-up this close to the cap is an expiry, and the user deserves the honest
     // reason rather than a generic connection failure.
-    const scored = currentQuotaVerdict((await readTunnelBytes())?.rx ?? 0)
+    const bytes = await readTunnelBytes()
+    const scored = currentQuotaVerdict(bytes ? bytes.rx + bytes.tx : 0)
     if (scored && (scored.verdict.level === 'expired' ||
       (scored.verdict.level === 'warn' && scored.verdict.pct >= QUOTA_GIVE_UP_PCT))) {
       await standDownSession(scored.verdict.reason, scored.sessionId)
@@ -3239,6 +3307,7 @@ export function registerIpcHandlers(): void {
         isDeposit: true,
         remoteUrl,
       })
+      const handshakeAtMs = Date.now()
 
       applySession(sessionId, params.nodeAddress, params.nodeMoniker, params.nodeCountry, params.nodeType, result)
 
@@ -3256,11 +3325,12 @@ export function registerIpcHandlers(): void {
           sessionId,
           maxDurationSeconds: params.type === 'hours' ? params.amount * 3600 : null,
           baselineDurationSeconds: 0,
-          maxBytes: params.type === 'gigabytes' ? params.amount * 1024 ** 3 : 0,
+          maxBytes: params.type === 'gigabytes' ? params.amount * 1e9 : 0,
           baselineBytes: 0,
         }
         quotaWarned = false
       }
+      recordNodeCaps(handshakeAtMs, activeQuota)
 
       return {
         sessionId,
@@ -3390,6 +3460,7 @@ export function registerIpcHandlers(): void {
       exitSigner,
     })
 
+    const handshakeAtMs = Date.now()
     const entryHop: ChainHopInput = { ...toHop(params.entry), sessionId: result.entrySessionId }
     const exitHop: ChainHopInput = { ...toHop(params.exit), sessionId: result.exitSessionId }
     applyChainSession(entryHop, exitHop, result.configString, result.signer)
@@ -3408,7 +3479,7 @@ export function registerIpcHandlers(): void {
       sessionId,
       maxDurationSeconds: params.type === 'hours' ? params.amount * 3600 : null,
       baselineDurationSeconds: 0,
-      maxBytes: params.type === 'gigabytes' ? params.amount * 1024 ** 3 : 0,
+      maxBytes: params.type === 'gigabytes' ? params.amount * 1e9 : 0,
       baselineBytes: 0,
     })
     if (!activeQuota) {
@@ -3416,6 +3487,8 @@ export function registerIpcHandlers(): void {
       quotaWarned = false
     }
     if (!activeExitQuota) activeExitQuota = purchasedQuota(result.exitSessionId)
+    // The entry only: the exit meters nothing ([MH-12]), so its node enforces neither cap.
+    recordNodeCaps(handshakeAtMs, activeQuota)
 
       return {
         sessionId: result.entrySessionId,
@@ -3556,6 +3629,11 @@ export function registerIpcHandlers(): void {
           nodeCountry: saved.nodeCountry,
         })
         applySession(saved.sessionId, saved.nodeAddress, saved.nodeMoniker || '', saved.nodeCountry || '', nodeType, fresh)
+        // [SL-6] A new peer, admitted on the chain's caps as they are now (a renewed plan's
+        // grown ones included) and on a new clock. Read off the chain's figures, not the
+        // old peer's, which are what this handshake replaces.
+        const row = (lastKnownSessions as SessionInfo[]).find((s) => s?.id === saved.sessionId)
+        recordNodeCaps(Date.now(), row ? quotaFromSessionRow({ ...row, nodeCaps: undefined }) : null)
         return {
           sessionId: saved.sessionId,
           protocol: fresh.protocol,
@@ -3987,6 +4065,7 @@ export function registerIpcHandlers(): void {
         isDeposit: false,
         remoteUrl,
       })
+      const handshakeAtMs = Date.now()
 
       applySession(sessionId, params.nodeAddress, params.nodeMoniker, params.nodeCountry, params.nodeType, result)
 
@@ -4012,6 +4091,7 @@ export function registerIpcHandlers(): void {
         }
         quotaWarned = false
       }
+      recordNodeCaps(handshakeAtMs, activeQuota)
 
       // A subscription (and maybe an allocation) just appeared on chain.
       notifySessionsChanged()
@@ -4101,6 +4181,7 @@ export function registerIpcHandlers(): void {
         isDeposit: false,
         remoteUrl,
       })
+      const handshakeAtMs = Date.now()
 
       applySession(sessionId, params.nodeAddress, params.nodeMoniker, params.nodeCountry, params.nodeType, result)
 
@@ -4125,6 +4206,7 @@ export function registerIpcHandlers(): void {
         }
         quotaWarned = false
       }
+      recordNodeCaps(handshakeAtMs, activeQuota)
 
       // A new session row exists on chain.
       notifySessionsChanged()
@@ -4347,6 +4429,7 @@ export function registerIpcHandlers(): void {
             isDeposit: false,
             remoteUrl,
           })
+          const handshakeAtMs = Date.now()
 
           applySession(sessionId, candidate.address, candidate.moniker, candidate.country, candidate.type, result)
           const sessions = await sessionsPromise
@@ -4366,6 +4449,7 @@ export function registerIpcHandlers(): void {
             }
             quotaWarned = false
           }
+          recordNodeCaps(handshakeAtMs, activeQuota)
           notifySessionsChanged()
 
           return {

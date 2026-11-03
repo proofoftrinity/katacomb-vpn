@@ -310,6 +310,177 @@ describe('reconnecting a saved session', () => {
     })
   })
 
+  // What the node enforces is what it took at its handshake, data counted both ways and
+  // time counted from the handshake with the gaps (docs/invariants/session-lifecycle.md).
+  describe('[SL-6] a session is scored the way its node enforces it', () => {
+    const HOUR = 3_600
+    const row = (id: string, extra: Record<string, unknown> = {}) => ({
+      id, nodeAddress: NODE_WG, status: 'active', downloadBytes: '0', uploadBytes: '0', maxBytes: '0',
+      durationSeconds: 0, maxDurationSeconds: HOUR, inactiveAt: null, startAt: '2026-10-06T23:59:00Z',
+      subscriptionId: null, priceDenom: 'udvpn', priceValue: '5000000', ...extra,
+    })
+    const conflict = () => Object.assign(new Error('Request failed with status code 409'), {
+      response: { status: 409, data: { error: { message: 'session already exists in database' } } },
+    })
+    /**
+     * Saved configs as chain-service keeps them: a handshake writes a fresh record (or
+     * gets a 409 from a node that still holds the session), and rememberNodeCaps adds
+     * the caps to it.
+     */
+    const configStore = () => {
+      const store = new Map<string, Record<string, unknown>>()
+      return {
+        store,
+        fakes: {
+          performHandshake: async (p: { sessionId: string }) => {
+            if (store.has(p.sessionId)) throw conflict()
+            store.set(p.sessionId, SAVED(p.sessionId))
+            return { protocol: 'wireguard', configString: 'cfg-wireguard' } as never
+          },
+          loadSessionConfig: (id: string) => (store.get(id) ?? null) as never,
+          rememberNodeCaps: (id: string, nodeCaps: unknown) => {
+            const saved = store.get(id)
+            if (saved) store.set(id, { ...saved, nodeCaps })
+          },
+        },
+      }
+    }
+    const expiredReason = async (h: IpcHarness) =>
+      ((await h.settle(h.invoke('CONNECTION_STATUS'))) as { expired?: { reason: string } }).expired?.reason
+
+    /** Reconnect from the Sessions tab, then connect with what it returned, as the renderer does. */
+    async function reconnectAndConnect(h: IpcHarness, sessionId: string): Promise<void> {
+      const res = await h.settle(h.invoke('CONNECTION_RECONNECT', { sessionId })) as { protocol: string; configString: string }
+      await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: res.protocol, configString: res.configString }))
+      assert.equal(h.tunnel.up, true)
+    }
+
+    /** Buy an hour, use ten minutes of it, then leave it for `awayMinutes`. */
+    async function hourThenAway(awayMinutes: number) {
+      const cfg = configStore()
+      const h = ipc.fresh({ chainSessions: [row('1001')], fakes: { 'chain/chain-service': cfg.fakes } })
+      await h.settle(h.invoke('CONNECTION_SUBSCRIBE', { ...REQUEST.CONNECTION_SUBSCRIBE, type: 'hours', amount: 1 }))
+      await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: 'wireguard' }))
+      await h.advance(10 * 60_000)
+      await h.settle(h.invoke('CONNECTION_DISCONNECT'))
+      await h.advance(awayMinutes * 60_000)
+      await h.settle(h.invoke('WALLET_SESSIONS')) // the renderer's poll
+      return { h, cfg }
+    }
+
+    test('[SL-6] an hourly session with a gap expires at the node\'s deadline, not after another hour of tunnel', async (t) => {
+      const { h } = await hourThenAway(30)
+      t.after(() => h.dispose())
+      // The node still holds the session (409), so its clock is the one from the purchase.
+      await reconnectAndConnect(h, '1001')
+      await h.advance(18 * 60_000)
+      assert.equal(h.tunnel.up, true, '10 + 30 + 18 minutes on the node clock: still paid for')
+      await h.advance(3 * 60_000)
+      assert.equal(h.tunnel.up, false, 'the hour ran out on the node 20 minutes after the reconnect')
+      assert.equal(await expiredReason(h), 'time')
+    })
+
+    test('[SL-6] Reconnect past the node\'s deadline is refused, though the metered time is under the cap', async (t) => {
+      const { h } = await hourThenAway(55)
+      t.after(() => h.dispose())
+      const before = mark(h)
+      const err = await h.settleError(h.invoke('CONNECTION_RECONNECT', { sessionId: '1001' }))
+      assert.match(err.message, /paid time of session #1001 ended at .*End it from the Sessions tab/)
+      assert.deepEqual(after(h.calls('chain/chain-service', 'performHandshake'), before), [])
+      assert.equal(h.tunnel.up, false)
+      assert.equal((h.main.getConnectionInfo() as { reconnectSessionId?: string }).reconnectSessionId, undefined, 'nor does the tray offer it')
+    })
+
+    // The renewal doubled the chain's caps for the same session; the node kept 10 GB.
+    const nodeCaps = { maxBytes: 10e9, maxDurationSeconds: 0, handshakeAtMs: Date.parse('2026-10-06T23:59:00Z'), durationAtHandshakeSeconds: 0 }
+    const renewed = async (downloadBytes: string) => {
+      const h = ipc.fresh({
+        chainSessions: [row('2001', { subscriptionId: '77', maxBytes: '20000000000', maxDurationSeconds: null, downloadBytes, uploadBytes: '400000000' })],
+        fakes: { 'chain/chain-service': { loadSessionConfig: (id: string) => SAVED(id, { nodeCaps }) } },
+      })
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      return h
+    }
+
+    test('[SL-6] a renewed plan session keeps the caps its node took: Reconnect is refused once they are used', async (t) => {
+      const h = await renewed('9600000000') // + 0.4 GB up = the node's 10 GB
+      t.after(() => h.dispose())
+      const err = await h.settleError(h.invoke('CONNECTION_RECONNECT', { sessionId: '2001' }))
+      assert.match(err.message, /used everything it was paid for/)
+      assert.deepEqual(h.calls('chain/chain-service', 'performHandshake'), [])
+    })
+
+    test('[SL-6] control: a renewed plan session under the node\'s caps reconnects', async (t) => {
+      const h = await renewed('5000000000')
+      t.after(() => h.dispose())
+      await h.settle(h.invoke('CONNECTION_RECONNECT', { sessionId: '2001' }))
+    })
+
+    test('[SL-6] a reconnect arms the watchdog at the node\'s caps, not the renewed chain\'s', async (t) => {
+      const h = ipc.fresh({
+        chainSessions: [row('2001', { subscriptionId: '77', maxBytes: '20000000000', maxDurationSeconds: null, downloadBytes: '8500000000', uploadBytes: '500000000' })],
+        fakes: {
+          'chain/chain-service': { loadSessionConfig: (id: string) => SAVED(id, { nodeCaps }), performHandshake: async () => { throw conflict() } },
+          // 200 MB a read, both ways: the node's last gigabyte goes in a few ticks.
+          'vpn/vpn-manager': { readTunnelBytes: async () => (h.tunnel.up ? { rx: (h.tunnel.rx += 100e6), tx: (h.tunnel.tx += 100e6) } : null) },
+        },
+      })
+      t.after(() => h.dispose())
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      await reconnectAndConnect(h, '2001')
+      await h.advance(3 * 60_000)
+      assert.equal(h.tunnel.up, false, 'stood down at the node\'s 10 GB, with 10 GB of chain cap still "left"')
+      assert.equal(await expiredReason(h), 'data')
+    })
+
+    test('[SL-6] data counts download and upload: an upload-heavy session is stood down when the two reach the cap', async (t) => {
+      const h = ipc.fresh({ fakes: { 'vpn/vpn-manager': {
+        // 600 MB up and 450 MB down: under a gigabyte either way, over it together.
+        readTunnelBytes: async () => (h.tunnel.up ? { rx: 450e6, tx: 600e6 } : null),
+      } } })
+      t.after(() => h.dispose())
+      await h.settle(h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE)) // 1 GB
+      await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: 'wireguard' }))
+      await h.advance(30_000)
+      assert.equal(h.tunnel.up, false)
+      assert.equal(await expiredReason(h), 'data')
+    })
+
+    test('[SL-6] a gigabyte is 10⁹ bytes: a 1 GB session whose chain row is unreadable is stood down at 10⁹', async (t) => {
+      const h = ipc.fresh({ fakes: { 'vpn/vpn-manager': {
+        readTunnelBytes: async () => (h.tunnel.up ? { rx: 1.01e9, tx: 0 } : null),
+      } } })
+      t.after(() => h.dispose())
+      await h.settle(h.invoke('CONNECTION_SUBSCRIBE', REQUEST.CONNECTION_SUBSCRIBE))
+      await h.settle(h.invoke('CONNECTION_CONNECT', { protocol: 'wireguard' }))
+      await h.advance(30_000)
+      assert.equal(h.tunnel.up, false, 'the node cuts a 1 GB session at 10⁹ bytes, not at 1024³')
+      assert.equal(await expiredReason(h), 'data')
+    })
+
+    test('[SL-6] a fresh peer on reconnect is admitted on the chain\'s caps as they are now, on a new clock', async (t) => {
+      const old = { maxBytes: 10e9, maxDurationSeconds: 0, handshakeAtMs: Date.parse('2026-10-01T00:00:00Z'), durationAtHandshakeSeconds: 0 }
+      const h = ipc.fresh({
+        chainSessions: [row('2001', { subscriptionId: '77', maxBytes: '20000000000', maxDurationSeconds: null, downloadBytes: '1000000000' })],
+        fakes: { 'chain/chain-service': { loadSessionConfig: (id: string) => SAVED(id, { nodeCaps: old }) } }, // the node lost its record: it answers
+      })
+      t.after(() => h.dispose())
+      await h.settle(h.invoke('WALLET_SESSIONS'))
+      await h.settle(h.invoke('CONNECTION_RECONNECT', { sessionId: '2001' }))
+      const recorded = h.calls('chain/chain-service', 'rememberNodeCaps').map((c) => c.args)
+      assert.deepEqual(recorded, [['2001', { maxBytes: 20e9, maxDurationSeconds: 0, handshakeAtMs: Date.now(), durationAtHandshakeSeconds: 0 }]])
+    })
+
+    test('[SL-6] [MH-12] a chain records the entry\'s caps only: its exit hop meters nothing', async (t) => {
+      const h = ipc.fresh(worldFor('CONNECTION_SUBSCRIBE_CHAIN'))
+      t.after(() => h.dispose())
+      const res = await h.settle(h.invoke('CONNECTION_SUBSCRIBE_CHAIN', REQUEST.CONNECTION_SUBSCRIBE_CHAIN)) as { sessionId: string; exitSessionId: string }
+      const recorded = h.calls('chain/chain-service', 'rememberNodeCaps').map((c) => c.args[0])
+      assert.deepEqual(recorded, [res.sessionId])
+      assert.notEqual(res.exitSessionId, res.sessionId)
+    })
+  })
+
   // The tray's Reconnect is main's pick, off the same session cache and the same refusals
   // as CONNECTION_RECONNECT: offered only when that handler would go ahead.
   describe('[REL-38] the tray offers Reconnect only for a session main would reconnect', () => {

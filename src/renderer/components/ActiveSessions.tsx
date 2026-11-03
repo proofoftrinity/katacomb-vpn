@@ -15,6 +15,7 @@ import { useConfirm } from './ConfirmModal'
 import { useNavigation } from '../contexts/NavigationContext'
 import type { SessionInfo } from '../types'
 import { cardState as cardStateOf, chainUsage, flooredUsage, quotaUsedUp as isQuotaUsedUp, timePercent, usagePercent, usageReading, type SessionUsage } from '../utils/session-card'
+import { effectiveCaps, nodeClockSeconds, paidTimeEndsAtMs } from '../../shared/node-quota'
 
 interface Props {
   sessions: SessionInfo[]
@@ -33,13 +34,27 @@ interface Props {
   setError: (message: string | null) => void
 }
 
-function formatBytes(bytes: string): string {
-  const n = parseInt(bytes, 10)
+// Decimal units, as the chain sells them ([SL-6]: a gigabyte is 10⁹ bytes). In 1024s a
+// 1 GB session read "of 953.7 MB".
+function formatBytes(bytes: string | number): string {
+  const n = typeof bytes === 'number' ? bytes : parseInt(bytes, 10)
   if (isNaN(n) || n === 0) return '0 B'
-  if (n < 1024) return `${n} B`
-  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`
-  if (n < 1073741824) return `${(n / 1048576).toFixed(1)} MB`
-  return `${(n / 1073741824).toFixed(2)} GB`
+  if (n < 1e3) return `${n} B`
+  if (n < 1e6) return `${(n / 1e3).toFixed(1)} KB`
+  if (n < 1e9) return `${(n / 1e6).toFixed(1)} MB`
+  return `${(n / 1e9).toFixed(2)} GB`
+}
+
+/**
+ * "14:05", or "5 Nov, 14:05" on another day: when a session's paid time ends, on the
+ * user's own clock. A plan's can be weeks away.
+ */
+function clockTime(ms: number): string {
+  const d = new Date(ms)
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return d.toDateString() === new Date().toDateString()
+    ? time
+    : `${d.toLocaleDateString([], { day: 'numeric', month: 'short' })}, ${time}`
 }
 
 function formatDuration(seconds: number | null): string {
@@ -137,11 +152,14 @@ export default function ActiveSessions({
     // double-counting; giving it only to the entry would show the exit frozen.
     const live = vpnConnected &&
       (status.sessionId === session.id || status.chainExit?.sessionId === session.id)
-    // Metered time, never wall-clock since startAt (see usageReading).
+    // Metered time, never wall-clock since startAt (see usageReading); while connected,
+    // the node's clock when that is further along ([SL-6]).
+    const nowMs = Date.now()
     const reading = usageReading(
       session,
       live ? { rxBytes: liveStats.rxBytes, txBytes: liveStats.txBytes, connectedAt: status.connectedAt ?? null } : null,
-      Date.now(),
+      nowMs,
+      session.nodeCaps ? nodeClockSeconds(session.nodeCaps, nowMs) : null,
     )
     const usage = flooredUsage(reading, shownUsage.current.get(session.id))
     return { session, usage }
@@ -426,22 +444,32 @@ export default function ActiveSessions({
             const isConnectedSession = vpnConnected &&
               (status.sessionId === session.id || status.chainExit?.sessionId === session.id ||
                 (exitRow !== null && status.chainExit?.sessionId === exitRow.session.id))
+            // [SL-6] Scored as the node enforces it: data is download + upload, against
+            // the caps the node took at its handshake where a plan renewal has grown the
+            // chain's since.
+            const caps = effectiveCaps({ maxBytes: parseInt(session.maxBytes, 10) || 0, maxDurationSeconds: session.maxDurationSeconds }, session.nodeCaps)
             const downloadBytes = String(Math.round(usage.downloadBytes))
             const uploadBytes = String(Math.round(usage.uploadBytes))
-            const dataPct = usagePercent(downloadBytes, session.maxBytes)
+            const usedBytes = String(Math.round(usage.downloadBytes + usage.uploadBytes))
+            const dataPct = usagePercent(usedBytes, String(caps.maxBytes))
             // A session is metered on data (per-GB, maxBytes>0), on time
             // (per-hour, maxDuration>0), or both (plan). Show a gauge only for a
             // cap that exists, so the bar tracks the metric that's actually billed.
-            const maxBytesNum = parseInt(session.maxBytes, 10)
-            const hasByteCap = !isNaN(maxBytesNum) && maxBytesNum > 0
-            const hasTimeCap = session.maxDurationSeconds !== null && session.maxDurationSeconds > 0
+            const hasByteCap = caps.maxBytes > 0
+            const hasTimeCap = caps.maxDurationSeconds !== null && caps.maxDurationSeconds > 0
             const meteredSeconds = usage.seconds
             // A node can meter slightly past the cap (#53634305 recorded 3618s of
             // 3600s), so clamp the READOUT to what was paid for.
             const elapsedSeconds = hasTimeCap
-              ? Math.min(meteredSeconds, session.maxDurationSeconds!)
+              ? Math.min(meteredSeconds, caps.maxDurationSeconds!)
               : meteredSeconds
-            const timePct = timePercent(meteredSeconds, session.maxDurationSeconds)
+            const timePct = timePercent(meteredSeconds, caps.maxDurationSeconds)
+            // [SL-6] The node counts time from the first connect, time away included, so
+            // the paid time ends at a fixed moment. Null without a recorded handshake.
+            const paidEndsAt = session.nodeCaps && caps.maxDurationSeconds !== null
+              ? paidTimeEndsAtMs(session.nodeCaps, caps.maxDurationSeconds)
+              : null
+            const paidTimeOver = paidEndsAt !== null && Date.now() >= paidEndsAt
             // Anything but 'active' means the chain has already closed this session
             // (it ran out, or someone cancelled it) and it is settling. It can no
             // longer be cancelled or connected to — only watched until it drops off
@@ -476,7 +504,7 @@ export default function ActiveSessions({
             // Connecting there costs a handshake and a password prompt to bring up
             // a tunnel the quota watchdog stands down at its next 15s tick. End is
             // the action that fits, and it stays enabled.
-            const quotaUsedUp = isQuotaUsedUp(session, usage)
+            const quotaUsedUp = isQuotaUsedUp(caps, usage, session.nodeCaps ? nodeClockSeconds(session.nodeCaps, Date.now()) : null)
             // `inactiveAt` means two different things depending on status — both
             // measured against mainnet, where statusTimeout is 7200s:
             //   ended  (2): fixed at statusAt + 2h — when the chain settles it and
@@ -598,6 +626,8 @@ export default function ActiveSessions({
                             title={
                               setupHeld
                                 ? 'Install what the notice above lists first'
+                                : quotaUsedUp && paidTimeOver && timePct < 100
+                                ? `The paid time ended at ${clockTime(paidEndsAt!)}. Reconnecting now would cost the whole session. End it and you are charged only up to your last use`
                                 : quotaUsedUp
                                 ? 'This session has used everything it was paid for. End it and start a new one'
                                 : vpnConnected
@@ -662,7 +692,7 @@ export default function ActiveSessions({
                   <div className="mb-2">
                     <div className="flex items-center justify-between text-xs mb-1">
                       <span className="text-text-secondary">
-                        Data used: {formatBytes(downloadBytes)} of {formatBytes(session.maxBytes)}
+                        Data used: {formatBytes(usedBytes)} of {formatBytes(caps.maxBytes)}
                         {isConnectedSession && <span className="text-success text-[10px] ml-1 align-middle">live</span>}
                       </span>
                       <span className={`font-mono ${dataPct > 90 ? 'text-danger' : dataPct > 70 ? 'text-warning' : 'text-text-secondary'}`}>
@@ -689,10 +719,10 @@ export default function ActiveSessions({
                           earlier. Name what is actually metered, and explain it. */}
                       <span
                         className="text-text-secondary"
-                        title={'Time spent connected to the node, not time since you paid.\n' +
-                          'The chain meters it from the node\'s usage reports, so a session you leave idle stays where it is.'}
+                        title={'Time the node counts: from your first connect to your last use, time away in between included.\n' +
+                          'A session you have not connected to stays at zero, and one you leave stays where it is until you connect again.'}
                       >
-                        Time used: {formatDuration(elapsedSeconds)} of {formatDuration(session.maxDurationSeconds)}
+                        Time used: {formatDuration(elapsedSeconds)} of {formatDuration(caps.maxDurationSeconds)}
                         {isConnectedSession && <span className="text-success text-[10px] ml-1 align-middle">live</span>}
                       </span>
                       <span className={`font-mono ${timePct > 90 ? 'text-danger' : timePct > 70 ? 'text-warning' : 'text-text-secondary'}`}>
@@ -707,6 +737,14 @@ export default function ActiveSessions({
                         style={{ width: `${timePct}%` }}
                       />
                     </div>
+                    {/* [SL-6] A fixed moment: the node's clock runs from the first connect. */}
+                    {paidEndsAt !== null && !isEnded && (
+                      <div className={`text-xs mt-1 ${paidTimeOver ? 'text-warning' : 'text-text-tertiary'}`}>
+                        {paidTimeOver
+                          ? `Paid time ended at ${clockTime(paidEndsAt)}. End the session: reconnecting would cost all of it.`
+                          : `Paid time ends at ${clockTime(paidEndsAt)}, connected or not.`}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -726,11 +764,10 @@ export default function ActiveSessions({
                       </span> P2P
                     </span>
                   )}
-                  {!hasByteCap && (
-                    <span>
-                      Down: <span className="font-mono">{formatBytes(downloadBytes)}</span>
-                    </span>
-                  )}
+                  {/* Both lines on every card: the data gauge counts them together. */}
+                  <span>
+                    Down: <span className="font-mono">{formatBytes(downloadBytes)}</span>
+                  </span>
                   <span>
                     Up: <span className="font-mono">{formatBytes(uploadBytes)}</span>
                   </span>
@@ -850,7 +887,7 @@ function HopLine({ role, session, usage, ended }: {
           land well apart (a live chain finished on 29.1 MB against 4.5 MB), so a
           single number with no breakdown looks like an error rather than a fact. */}
       <span className="ml-auto shrink-0 text-text-tertiary font-mono text-xs">
-        {formatBytes(String(Math.round(usage.downloadBytes)))}
+        {formatBytes(Math.round(usage.downloadBytes + usage.uploadBytes))}
       </span>
     </div>
   )

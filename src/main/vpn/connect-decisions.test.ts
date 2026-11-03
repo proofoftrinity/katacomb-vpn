@@ -308,11 +308,11 @@ test('stripDnsLines: does not eat keys that merely start with DNS', () => {
 // overrides only the fields it is actually testing.
 const CAPLESS = {
   maxDurationSeconds: null, baselineDurationSeconds: 0, connectedSeconds: 0,
-  maxBytes: 0, baselineBytes: 0, liveRxBytes: 0,
+  nodeSeconds: null, maxBytes: 0, baselineBytes: 0, liveBytes: 0,
 }
 
 test('evaluateQuota: a session with NO cap never expires, however long it runs', () => {
-  const v = evaluateQuota({ ...CAPLESS, connectedSeconds: 400 * 3600, liveRxBytes: 900e9 })
+  const v = evaluateQuota({ ...CAPLESS, connectedSeconds: 400 * 3600, liveBytes: 900e9 })
   assert.equal(v.level, 'ok')
 })
 
@@ -346,13 +346,13 @@ test('evaluateQuota: time counts the chain baseline PLUS this tunnel, warns at 9
 
 test('evaluateQuota: data counts the on-chain baseline PLUS the live interface bytes', () => {
   const gig = { ...CAPLESS, maxBytes: 1000 }
-  assert.deepEqual(evaluateQuota({ ...gig, baselineBytes: 400, liveRxBytes: 100 }), { level: 'ok', pct: 50 })
-  const warn = evaluateQuota({ ...gig, baselineBytes: 400, liveRxBytes: 550 })
+  assert.deepEqual(evaluateQuota({ ...gig, baselineBytes: 400, liveBytes: 100 }), { level: 'ok', pct: 50 })
+  const warn = evaluateQuota({ ...gig, baselineBytes: 400, liveBytes: 550 })
   assert.equal(warn.level, 'warn')
   assert.equal(warn.level === 'warn' && warn.reason, 'data')
   assert.equal(warn.level === 'warn' && warn.remaining, 50) // bytes left
   assert.deepEqual(
-    evaluateQuota({ ...gig, baselineBytes: 400, liveRxBytes: 600 }),
+    evaluateQuota({ ...gig, baselineBytes: 400, liveBytes: 600 }),
     { level: 'expired', reason: 'data' },
   )
 })
@@ -360,24 +360,38 @@ test('evaluateQuota: data counts the on-chain baseline PLUS the live interface b
 test('evaluateQuota: with both caps the WORST one decides, and names itself as the reason', () => {
   const both = { ...CAPLESS, maxDurationSeconds: 3600, maxBytes: 1000 }
   // 10% of the time, 95% of the data → data warns.
-  const dataWorst = evaluateQuota({ ...both, connectedSeconds: 360, liveRxBytes: 950 })
+  const dataWorst = evaluateQuota({ ...both, connectedSeconds: 360, liveBytes: 950 })
   assert.equal(dataWorst.level === 'warn' && dataWorst.reason, 'data')
   // 95% of the time, 10% of the data → time warns.
-  const timeWorst = evaluateQuota({ ...both, connectedSeconds: 3420, liveRxBytes: 100 })
+  const timeWorst = evaluateQuota({ ...both, connectedSeconds: 3420, liveBytes: 100 })
   assert.equal(timeWorst.level === 'warn' && timeWorst.reason, 'time')
   // Either cap alone reaching 100% expires the session.
   assert.deepEqual(
-    evaluateQuota({ ...both, connectedSeconds: 60, liveRxBytes: 1000 }),
+    evaluateQuota({ ...both, connectedSeconds: 60, liveBytes: 1000 }),
     { level: 'expired', reason: 'data' },
   )
 })
 
 test('evaluateQuota: boundaries are inclusive — exactly 90% warns, exactly 100% expires', () => {
   const gig = { ...CAPLESS, maxBytes: 1000 }
-  assert.equal(evaluateQuota({ ...gig, liveRxBytes: 899 }).level, 'ok')
-  assert.equal(evaluateQuota({ ...gig, liveRxBytes: 900 }).level, 'warn')
-  assert.equal(evaluateQuota({ ...gig, liveRxBytes: 999 }).level, 'warn')
-  assert.equal(evaluateQuota({ ...gig, liveRxBytes: 1000 }).level, 'expired')
+  assert.equal(evaluateQuota({ ...gig, liveBytes: 899 }).level, 'ok')
+  assert.equal(evaluateQuota({ ...gig, liveBytes: 900 }).level, 'warn')
+  assert.equal(evaluateQuota({ ...gig, liveBytes: 999 }).level, 'warn')
+  assert.equal(evaluateQuota({ ...gig, liveBytes: 1000 }).level, 'expired')
+})
+
+test('[SL-6] evaluateQuota: time is the node clock when that is further along, gaps included', () => {
+  const hour = { ...CAPLESS, maxDurationSeconds: 3600 }
+  // 10 min connected, 30 min away, back for 20: our tunnels say 30 min, the node 60.
+  assert.deepEqual(
+    evaluateQuota({ ...hour, baselineDurationSeconds: 600, connectedSeconds: 1200, nodeSeconds: 3600 }),
+    { level: 'expired', reason: 'time' },
+  )
+  // It can only bring an expiry earlier: a node clock behind ours changes nothing.
+  assert.deepEqual(
+    evaluateQuota({ ...hour, baselineDurationSeconds: 1200, connectedSeconds: 600, nodeSeconds: 900 }),
+    { level: 'ok', pct: 50 },
+  )
 })
 
 test('evaluateQuota: a node metering slightly past the cap still reads as expired, not negative', () => {

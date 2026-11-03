@@ -1,6 +1,7 @@
 import type { V2RayCategory } from '../utils/v2ray-connection'
 import type { ProtocolType } from '../utils/protocols'
 import type { RpcCandidate, RpcHealth } from '../../shared/rpc-health'
+import type { NodeCaps } from '../../shared/node-quota'
 
 export interface SentNode {
   address: string
@@ -188,6 +189,12 @@ export interface SessionInfo {
    * ended it" rather than calling the chain broken.
    */
   chainPeerEndedByUser?: boolean
+  /**
+   * [SL-6] What the node took from the chain at the session's last handshake, and when
+   * its clock started. Absent when no handshake was recorded (an older session, a
+   * chain's exit hop, no keyring); the card then scores the chain's figures alone.
+   */
+  nodeCaps?: NodeCaps
 }
 
 /**

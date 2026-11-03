@@ -1,6 +1,6 @@
 // The verdicts `npm run check:chain` prints: the chain facts the manual rules SL-2, SL-3
-// and SL-4 rest on (docs/invariants/session-lifecycle.md), judged from one read of
-// mainnet. Pure, so chain-facts.test.ts can run every verdict offline;
+// and SL-4 rest on, and the plan-cap fact SL-6 rests on (docs/invariants/session-lifecycle.md),
+// judged from one read of mainnet. Pure, so chain-facts.test.ts can run every verdict offline;
 // check-chain.ts does the reading.
 
 /** One session row as the chain returns it, times in ms since the epoch. */
@@ -14,6 +14,8 @@ export interface Row {
   durationS: number
   down: string
   up: string
+  /** A plan session only: its time cap as the chain returns it, and its subscription's end (ms). */
+  plan?: { maxDurationS: number; subscriptionInactiveAt: number }
 }
 
 export interface ChainRead {
@@ -81,6 +83,13 @@ export function judge(read: ChainRead): Finding[] {
   add('SL-4', read.accounts.filter((a) => a.total > APP_PAGE).map((a) =>
     `${a.address}: ${a.total} sessions, the app reads the first ${APP_PAGE}`),
   `every account's sessions fit the app's page of ${APP_PAGE} (most: ${Math.max(0, ...read.accounts.map((a) => a.total))})`)
+
+  // The chain computes a plan session's time cap on every read, from the subscription's
+  // end: a renewal moves that end, so the cap grows under a node that took the old one.
+  const plans = rows.filter((r) => r.plan)
+  add('SL-6', plans.filter((r) => Math.abs(r.plan!.maxDurationS * 1000 - (r.plan!.subscriptionInactiveAt - r.startAt)) > 1000).map((r) =>
+    `#${r.id}: maxDuration ${r.plan!.maxDurationS} s, subscription end − start is ${(r.plan!.subscriptionInactiveAt - r.startAt) / 1000} s`),
+  `a plan session's time cap is its subscription's end − its start (${plans.length} rows)`, plans.length > 0)
 
   return findings
 }

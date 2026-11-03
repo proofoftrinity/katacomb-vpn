@@ -10,6 +10,7 @@ import {
 } from '@sentinel-official/sentinel-js-sdk'
 import { BrowserWindow, app, net, safeStorage } from 'electron'
 import { IPC } from '../../shared/ipc-channels'
+import type { NodeCaps } from '../../shared/node-quota'
 import { readFileSync, existsSync, unlinkSync, mkdirSync, readdirSync, statSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { createServer } from 'node:net'
@@ -111,6 +112,13 @@ interface SavedSessionConfig {
    * connected bar for a V2Ray chain.
    */
   nodeType?: number
+  /**
+   * [SL-6] What the node took from the chain at this config's handshake, and when its
+   * clock started. Every handshake writes a fresh record without it, so a new peer
+   * never inherits an old one's limits; `rememberNodeCaps` adds it once the caller
+   * knows them. Absent on an older record, and on a chain's exit hop.
+   */
+  nodeCaps?: NodeCaps
 }
 
 function getSessionsDir(): string {
@@ -156,6 +164,13 @@ export function loadSessionConfig(sessionId: string): SavedSessionConfig | null 
   } catch {
     return null
   }
+}
+
+/** [SL-6] Add what the node enforces to the config its handshake just saved. */
+export function rememberNodeCaps(sessionId: string, nodeCaps: NodeCaps): void {
+  const saved = loadSessionConfig(sessionId)
+  if (!saved?.configString) return
+  saveSessionConfig({ ...saved, nodeCaps })
 }
 
 function deleteSessionConfig(sessionId: string): void {

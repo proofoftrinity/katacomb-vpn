@@ -2,7 +2,9 @@ import type { SessionInfo } from '../types'
 
 // What a Sessions-tab card shows and offers, as pure decisions so they can be held to
 // their rules (docs/renderer.md [RN-2], docs/invariants/reliability.md [REL-24],
-// docs/multihop.md [MH-10]). ActiveSessions renders them.
+// docs/multihop.md [MH-10], docs/invariants/session-lifecycle.md [SL-6]). ActiveSessions
+// renders them, and works out what the node enforces with src/shared/node-quota.ts
+// ([RN-5]: no runtime import here).
 
 /** What a session's gauges show: on-chain baseline plus this tunnel's live meter. */
 export interface SessionUsage {
@@ -36,18 +38,22 @@ export function timePercent(elapsedSeconds: number, maxSeconds: number | null): 
  * done since it came up when the row carries it. Time is measured like bytes, NOT as
  * wall-clock since startAt: the chain meters duration from the node's proofs, so a
  * session bought and never connected accrues nothing (#53647217 sat 53 minutes at
- * duration 0 while the card read an entire paid hour spent).
+ * duration 0 while the card read an entire paid hour spent). [SL-6] While the tunnel is
+ * up, time follows the node's clock at `nowMs` (`nodeSeconds`, null with no recorded
+ * handshake) when that is further along: it counts the gaps between connects.
  */
 export function usageReading(
   session: Pick<SessionInfo, 'downloadBytes' | 'uploadBytes' | 'durationSeconds'>,
   live: LiveMeter | null,
   nowMs: number,
+  nodeSeconds: number | null,
 ): SessionUsage {
+  const metered = (session.durationSeconds ?? 0) +
+    (live && live.connectedAt ? Math.max(0, (nowMs - live.connectedAt) / 1000) : 0)
   return {
     downloadBytes: (parseInt(session.downloadBytes || '0', 10) || 0) + (live ? live.rxBytes : 0),
     uploadBytes: (parseInt(session.uploadBytes || '0', 10) || 0) + (live ? live.txBytes : 0),
-    seconds: (session.durationSeconds ?? 0) +
-      (live && live.connectedAt ? Math.max(0, (nowMs - live.connectedAt) / 1000) : 0),
+    seconds: live && nodeSeconds !== null ? Math.max(metered, nodeSeconds) : metered,
   }
 }
 
@@ -96,12 +102,21 @@ export function cardState(entry: Hop, exit: Hop | null): 'open' | 'broken' | 'en
  * The session has used everything it was paid for. 'active' does not mean usable: the
  * chain meters past the cap and leaves the row active (#53647217: 5673 s of a paid
  * 3600 s, status 1), so Connect must gate on this; End stays offered.
+ *
+ * [SL-6] Scored as the node enforces it: against `caps` (effectiveCaps), data both ways,
+ * and time on the node's clock at now (`nodeSecondsNow`, null with no recorded
+ * handshake). Now, not the last use: reconnecting is activity, and once the node's clock
+ * is past the paid time the first reading cuts the peer and the chain takes the whole
+ * deposit instead of refunding the unused part.
  */
-export function quotaUsedUp(session: Pick<SessionInfo, 'maxBytes' | 'maxDurationSeconds'>, usage: SessionUsage): boolean {
-  const maxBytes = parseInt(session.maxBytes, 10)
-  const hasByteCap = !isNaN(maxBytes) && maxBytes > 0
-  const hasTimeCap = session.maxDurationSeconds !== null && session.maxDurationSeconds > 0
-  const dataPct = usagePercent(String(Math.round(usage.downloadBytes)), session.maxBytes)
-  const timePct = timePercent(usage.seconds, session.maxDurationSeconds)
+export function quotaUsedUp(
+  caps: { maxBytes: number; maxDurationSeconds: number | null },
+  usage: SessionUsage,
+  nodeSecondsNow: number | null,
+): boolean {
+  const hasByteCap = caps.maxBytes > 0
+  const hasTimeCap = caps.maxDurationSeconds !== null && caps.maxDurationSeconds > 0
+  const dataPct = usagePercent(String(Math.round(usage.downloadBytes + usage.uploadBytes)), String(caps.maxBytes))
+  const timePct = timePercent(Math.max(usage.seconds, nodeSecondsNow ?? 0), caps.maxDurationSeconds)
   return (hasTimeCap && timePct >= 100) || (hasByteCap && dataPct >= 100)
 }
