@@ -509,8 +509,8 @@ export function prunableUsageIds(
  * local (routing, the kill switch) or a momentary stall at the node — so the
  * existing retry-without-re-paying path is the right offer.
  *
- * Neither wording promises money back: ending a session forfeits its remainder,
- * which is what the confirm dialog already tells the user.
+ * Neither wording promises money back: what is left of a deposit comes back only
+ * when the chain settles the session, 2h after End, which the End confirmation says.
  */
 export function deadTunnelMessage(nodeIssuedFreshPeer: boolean, isChain = false): string {
   if (isChain) {

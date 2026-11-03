@@ -121,10 +121,13 @@ function shownText(file: string): string[] {
     .filter((t) => t.length > 0)
 }
 
-test('[SL-1] the Sessions tab never words End as a refund: End is phase 1, and the remainder is forfeited', () => {
+test('[SL-1] the Sessions tab never words End as an instant refund: what is left comes back only when the chain settles', () => {
   const shown = shownText('src/renderer/components/ActiveSessions.tsx')
-  assert.deepEqual(shown.filter((t) => /refund|money back|get .* back|returned to you|reimburs/i.test(t)), [])
-  assert.ok(shown.some((t) => /forfeit/i.test(t)), 'the End confirmation says what is given up')
+  assert.deepEqual(shown.filter((t) => /refund|money back|get .* back|returned to you|reimburs|forfeit/i.test(t)), [])
+  const comesBack = shown.filter((t) => /back to your wallet/i.test(t))
+  assert.ok(comesBack.length > 0, 'the End confirmation says what happens to a P2P deposit')
+  for (const t of comesBack) assert.match(t, /when the chain settles the session, about 2 hours from now/, t)
+  assert.ok(shown.some((t) => /plan keeps whatever data and time it has left/i.test(t)), 'and to a plan session\'s allocation')
 })
 
 // [NT-3] The channel that delivers a node's keys authenticates nothing, so no copy may
