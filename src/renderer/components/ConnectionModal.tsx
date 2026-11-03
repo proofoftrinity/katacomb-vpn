@@ -449,6 +449,15 @@ export default function ConnectionModal({ node, onClose }: Props) {
                     funds={funds}
                   />
                 </Receipt>
+                {/* Buying more than needed is safe: settlement pays the node for what it
+                    metered and returns the rest of the deposit (session-lifecycle.md). */}
+                {selectedPrice && (
+                  <p className="text-xs text-text-tertiary">
+                    {subType === 'gigabytes'
+                      ? 'You pay only for the data you send and receive. End the session when you\'re done, and what you didn\'t use comes back to your wallet when the chain settles it, about 2 hours later.'
+                      : 'You pay for the time from your first connect to your last use. End the session when you\'re done, and the hours you didn\'t use come back to your wallet when the chain settles it, about 2 hours later.'}
+                  </p>
+                )}
                 {compatiblePlans && compatiblePlans.length > 0 && (
                   <p className="text-xs text-text-tertiary">
                     This node is part of {compatiblePlans.length} plan{compatiblePlans.length === 1 ? '' : 's'}.{' '}
