@@ -12,6 +12,7 @@ import { providerSetupSteps, setupComplete, type SetupStep } from '../../utils/p
 import type { ConnectionStatus, ProviderDetailsInput } from '../../types'
 import ChainUnreachable from '../ChainUnreachable'
 import DisconnectButton from '../DisconnectButton'
+import InfoTip from '../InfoTip'
 import { useConfirm } from '../ConfirmModal'
 import ProviderDetailsFields from './ProviderDetailsFields'
 import ProviderIdentityCard, { useProviderStatus } from './ProviderIdentityCard'
@@ -103,8 +104,7 @@ export default function ProviderConsole({
       return (
         <Centered>
           <p className="text-text-secondary text-sm">
-            The blockchain is not reachable through your own tunnel, and there is no cached copy of
-            your provider from this session yet.
+            Your provider has not been read this session, and the chain is not reachable while the VPN is connected.
           </p>
           <p className="text-text-tertiary text-xs mt-2">Disconnect the VPN to manage your provider.</p>
           <div className="mt-3"><DisconnectButton onDisconnected={onDisconnected} /></div>
@@ -166,8 +166,7 @@ export default function ProviderConsole({
       {readOnly ? (
         <div className="px-5 py-1.5 border-b border-border bg-warning-subtle shrink-0 flex items-center justify-between gap-3">
           <p className="text-warning text-xs">
-            Showing cached data: the chain is not reachable while the VPN is connected. Reads stay
-            available, actions need you to disconnect first.
+            Showing cached data: the chain is not reachable while the VPN is connected. Disconnect to make changes.
           </p>
           <DisconnectButton onDisconnected={onDisconnected} />
         </div>
@@ -358,11 +357,11 @@ function ProviderOnboarding({ address, steps, readOnly, onRegistered, onDisconne
     if (!(await requestConfirm({
       title: `Register "${details.name.trim()}" as a provider?`,
       body: [
-        `Deposit: ${depositLabel} (plus network fee). The deposit goes to the community pool and is NOT refundable.`,
-        'You will land inactive: a second transaction activates you, and until then the chain refuses to create plans or start leases.',
-        'This is an on-chain transaction.',
+        `Deposit: ${depositLabel}. It goes to the community pool and is NOT refundable.`,
+        'You start inactive: the chain refuses plans and leases until a second transaction activates you.',
       ],
       confirmLabel: 'Register',
+      fee: true,
     }))) return
 
     setBusy(true)
@@ -382,9 +381,11 @@ function ProviderOnboarding({ address, steps, readOnly, onRegistered, onDisconne
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
           <h2 className="text-text-primary text-lg font-semibold">Become a provider</h2>
-          <p className="text-text-secondary text-sm mt-2 max-w-2xl">
-            A provider publishes subscription plans on the Sentinel chain. Subscribers pay you for a plan;
-            you cover them with bandwidth by leasing nodes and linking those nodes to the plan.
+          <p className="flex items-center gap-1.5 text-text-secondary text-sm mt-2">
+            Publish subscription plans on the Sentinel chain, and get paid by subscribers.
+            <InfoTip label="How being a provider works" topic="provider">
+              You cover subscribers with bandwidth by leasing nodes and linking those nodes to the plan.
+            </InfoTip>
           </p>
         </div>
 
@@ -408,10 +409,10 @@ function ProviderOnboarding({ address, steps, readOnly, onRegistered, onDisconne
         <div className="grid grid-cols-1 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-6 items-start">
           <div className="space-y-4">
             <dl className="border border-border bg-bg-secondary rounded-md divide-y divide-border text-sm">
-              <Row label="Your provider address">
+              <Row label="Your provider address" tip="Your wallet address in provider form. The same key signs for both.">
                 <span className="font-mono text-xs text-accent break-all">{address}</span>
               </Row>
-              <Row label="Registration deposit">
+              <Row label="Registration deposit" tip="Set by chain governance and read from the chain.">
                 <span className="text-text-primary">{depositLabel}</span>
               </Row>
             </dl>
@@ -429,16 +430,12 @@ function ProviderOnboarding({ address, steps, readOnly, onRegistered, onDisconne
               </div>
             )}
 
-            <p className="text-text-tertiary text-xs">
-              The provider address is your wallet address in provider form, and the same key signs for both.
-              The deposit is set by chain governance and is paid into the community pool, so it cannot be
-              reclaimed by deactivating later. There is no way to remove a provider from the chain once it
-              exists, so registering is a one-way step.
-            </p>
-            <p className="text-text-tertiary text-xs">
-              You will be inactive right after registering: a second transaction activates you. Plans can only
-              go live while the provider is active.
-            </p>
+            {/* Money that cannot come back and a step that cannot be undone stay on screen ([RN-15]). */}
+            <div className="space-y-1.5 text-xs">
+              <p className="text-text-secondary">The deposit goes to the community pool and cannot be reclaimed by deactivating.</p>
+              <p className="text-text-secondary">A provider cannot be removed from the chain, so registering is a one-way step.</p>
+              <p className="text-text-tertiary">You start inactive. A second transaction activates you, and only then can plans go live.</p>
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -467,10 +464,13 @@ function ProviderOnboarding({ address, steps, readOnly, onRegistered, onDisconne
   )
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({ label, tip, children }: { label: string; tip: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 px-4 py-3">
-      <dt className="text-text-secondary shrink-0">{label}</dt>
+      <dt className="flex items-center gap-1.5 text-text-secondary shrink-0">
+        {label}
+        <InfoTip label={`About the ${label.toLowerCase()}`}>{tip}</InfoTip>
+      </dt>
       <dd className="text-right min-w-0">{children}</dd>
     </div>
   )

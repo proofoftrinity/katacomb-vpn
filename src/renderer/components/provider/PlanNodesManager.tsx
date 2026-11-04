@@ -138,9 +138,10 @@ export default function PlanNodesManager({
   async function handleUnlink(address: string) {
     if (!(await requestConfirm({
       title: `Unlink this node from plan #${plan.id}?`,
-      body: ['Subscribers stop being served by it. Your lease is unaffected. This is an on-chain transaction.'],
+      body: ['Subscribers stop being served by it. Your lease is unaffected.'],
       confirmLabel: 'Unlink',
       danger: true,
+      fee: true,
     }))) return
     await run(address, () => window.api.providerPlanUnlink(plan.id, address))
   }
@@ -149,10 +150,11 @@ export default function PlanNodesManager({
     if (!(await requestConfirm({
       title: `Link this node to plan #${plan.id}?`,
       body: [
-        'Subscribers to the plan can connect through it. You already hold the lease, so this costs the network fee only.',
-        'This is an on-chain transaction.',
+        'Subscribers to the plan can connect through it.',
+        'You already hold the lease, so this costs the network fee only.',
       ],
       confirmLabel: 'Link',
+      fee: true,
     }))) return
     await run(address, () => window.api.providerPlanLink(plan.id, address))
   }
@@ -760,6 +762,7 @@ function LeaseModal({ node, planId, price, economics, readOnly, onClose, onDone 
             tone: 'warning',
             label: 'Billed every hour, used or not',
             text: 'A lease is how you pay a node operator to carry your plan\'s traffic, and the chain refuses to link a node without one. You are billed every hour whether or not anyone connects, so this is a running cost your plan price has to cover. Ending the lease early refunds the unused hours.',
+            topic: 'leases',
           },
           ...(poolPercent !== null ? [{
             key: 'pool',

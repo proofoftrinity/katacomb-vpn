@@ -7,6 +7,7 @@ import { formatUdvpn, formatUdvpnAmount } from '../../utils/provider-format'
 import { useConfirm } from '../ConfirmModal'
 import { AmountStepper, FooterReason, Note, ReviewModal, SectionHead } from '../ConnectReview'
 import CountryFlag from '../CountryFlag'
+import InfoTip from '../InfoTip'
 import ProtocolIcon from '../ProtocolIcon'
 import Spinner from '../Spinner'
 
@@ -116,9 +117,9 @@ export default function LeaseManageModal({ lease, node, readOnly, onClose, onDon
       title: `Change the renewal policy on lease #${lease.id}?`,
       body: [
         `From "${renewalPolicyLabel(lease.renewalPricePolicy)}" to "${renewalPolicyLabel(policy)}".`,
-        'This is an on-chain transaction, and costs the network fee only.',
       ],
       confirmLabel: 'Change policy',
+      fee: true,
     }))) return
     await act('policy', () => window.api.leaseUpdatePolicy(lease.id, policy))
   }
@@ -128,10 +129,10 @@ export default function LeaseManageModal({ lease, node, readOnly, onClose, onDon
       title: `Extend lease #${lease.id} to ${hours} hours?`,
       body: [
         `Cost: ${extendTotal ? formatUdvpnAmount(extendTotal) : 'unknown'} escrowed now.`,
-        'The chain does not add to the hours you have left: it refunds what is unspent and charges for the whole new term, starting from zero.',
-        'This is an on-chain transaction.',
+        'It replaces the hours you have left: the chain refunds what is unspent and charges for the whole new term.',
       ],
       confirmLabel: 'Extend lease',
+      fee: true,
     }))) return
     await act('renew', () => window.api.leaseRenew(lease.id, hours))
   }
@@ -142,10 +143,10 @@ export default function LeaseManageModal({ lease, node, readOnly, onClose, onDon
       body: [
         'The unspent escrow is refunded.',
         'The chain also unlinks this node from every plan you had linked it to, so those plans stop being served by it.',
-        'This is an on-chain transaction.',
       ],
       confirmLabel: 'End lease',
       danger: true,
+      fee: true,
     }))) return
     await act('end', () => window.api.leaseEnd(lease.id))
   }
@@ -210,9 +211,11 @@ export default function LeaseManageModal({ lease, node, readOnly, onClose, onDon
         <SectionHead title="Extend now" />
         <AmountStepper label="New term" amount={hours} onChange={setHours} unit="hours" presets={[24, 168, 720]} />
         <div className="flex items-center justify-between gap-3 mt-2.5">
-          <p className="text-text-tertiary text-[11px]">
-            This replaces the term rather than adding to it: the chain refunds the unspent escrow and
-            charges for the full new stretch. It starts at the length you originally bought.
+          <p className="flex items-center gap-1.5 text-text-tertiary text-[11px]">
+            Replaces the term rather than adding to it.
+            <InfoTip label="How extending works" topic="leases">
+              The chain refunds the unspent escrow and charges for the full new stretch. The field starts at the length you originally bought.
+            </InfoTip>
           </p>
           <button
             type="button"

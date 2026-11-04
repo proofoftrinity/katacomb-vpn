@@ -32,8 +32,8 @@ export default function ProviderDetailsFields({ details, onChange, disabled, sav
           cap={PROVIDER_LIMITS.name} placeholder="Shown next to your plans" />
         {isTestPlan(name) ? (
           <Note>
-            &quot;{name}&quot; reads as a test account, so this app&apos;s plan catalog files your plans
-            under Test plans, which are hidden by default.
+            &quot;{name}&quot; reads as a test account, so this app&apos;s catalog files your plans under Test
+            plans, hidden by default.
           </Note>
         ) : savedName !== undefined && isTestPlan(savedName) && name !== '' && (
           <p className="flex items-start gap-2 text-xs text-success bg-success-subtle rounded-md px-2.5 py-2">

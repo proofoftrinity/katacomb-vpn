@@ -177,10 +177,8 @@ export default function SubscriptionActionModal({ subscription, plan, locked, on
       {/* Cancel */}
       {confirming === 'cancel' ? (
         <div className="bg-danger-subtle border border-danger rounded-md p-3 space-y-2 text-sm">
-          <p className="text-danger">
-            Cancelling marks the subscription inactive and ends its sessions. It is not an
-            instant refund: the chain settles what was used first, over up to two hours.
-          </p>
+          <p className="text-danger">Cancelling marks the subscription inactive and ends its sessions.</p>
+          <p className="text-danger">It is not an instant refund: the chain settles what was used first, over up to two hours.</p>
           <div className="flex gap-2">
             <button
               onClick={() => run(

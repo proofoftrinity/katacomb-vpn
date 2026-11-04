@@ -50,6 +50,7 @@ import {
 import ChainReviewModal from './ChainReviewModal'
 import InfoTip from '../InfoTip'
 import Spinner from '../Spinner'
+import Tooltip from '../Tooltip'
 import type { SentNode } from '../../types'
 
 /**
@@ -410,7 +411,7 @@ export default function MultihopView() {
           {/* "on its own" is load-bearing. The claim is about what ONE node can see,
               which is exactly what the two hops split. Two operators comparing notes
               still defeat it, and the review modal says so before any money moves. */}
-          <InfoTip label="About two-hop chains">
+          <InfoTip label="About two-hop chains" topic="multihop">
             <span className="block">Neither node on its own sees both who you are and where you go.</span>
             <span className="block mt-1.5">
               Both hops must be wrapped in TLS or Reality, which is stricter than an ordinary
@@ -596,7 +597,9 @@ export default function MultihopView() {
                 <TypeCell node={node} />
                 <div className="use-cell w-[128px] shrink-0 flex items-center gap-1 text-xs">
                   {label ? (
-                    <span className={`truncate ${TONE_CLASS[label.tone]}`} title={label.title}>{label.badge}</span>
+                    <Tooltip className="min-w-0" content={label.tip}>
+                      <span className={`truncate ${TONE_CLASS[label.tone]}`}>{label.badge}</span>
+                    </Tooltip>
                   ) : entryChip.kind === 'clash' && exitChip.kind === 'clash' ? (
                     // Too close to both hops: one reason, for the hop being filled, as a
                     // row with no chips gives. Two would not fit, and say the same thing.
@@ -625,7 +628,7 @@ export default function MultihopView() {
             {verifiedOnly
               ? 'No node here has been verified for this hop yet.'
               : tooOldMatches > 0
-                ? `No chainable node matches "${filter.search.trim()}". ${tooOldMatches === 1 ? '1 older node does' : `${tooOldMatches} older nodes do`}, but nodes older than 9.0.0 cannot be checked before paying, so they cannot be chained.`
+                ? `No chainable node matches "${filter.search.trim()}". ${tooOldMatches === 1 ? '1 older node does' : `${tooOldMatches} older nodes do`}, but nodes older than 9.0.0 cannot be checked before paying.`
                 : 'No nodes match your filters'}
           </div>
         )}
@@ -744,27 +747,32 @@ function RoleChip({ role, chip, onChoose }: {
 }) {
   if (chip.kind === 'clash') {
     return (
-      <span
-        onClick={(e) => e.stopPropagation()}
-        title={chip.title}
-        className="truncate text-[10.5px] text-danger cursor-not-allowed"
-      >
-        {chip.badge}
-      </span>
+      <Tooltip className="min-w-0" content={chip.tip}>
+        <span
+          onClick={(e) => e.stopPropagation()}
+          className="truncate text-[10.5px] text-danger cursor-not-allowed"
+        >
+          {chip.badge}
+        </span>
+      </Tooltip>
     )
   }
   return (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); if (chip.kind !== 'refused') onChoose() }}
-      aria-disabled={chip.kind === 'refused'}
-      aria-pressed={chip.kind === 'picked'}
-      title={chip.title}
-      className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 text-[10.5px] leading-4 font-medium transition-colors ${CHIP_CLASS[chip.kind]}`}
-    >
-      {chip.kind === 'picked' && <CheckIcon className="w-2.5 h-2.5" />}
-      {role === 'entry' ? 'Entry' : 'Exit'}
-    </button>
+    <Tooltip content={chip.tip}>
+      {(_, describedBy) => (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); if (chip.kind !== 'refused') onChoose() }}
+          aria-disabled={chip.kind === 'refused'}
+          aria-pressed={chip.kind === 'picked'}
+          aria-describedby={describedBy}
+          className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 text-[10.5px] leading-4 font-medium transition-colors ${CHIP_CLASS[chip.kind]}`}
+        >
+          {chip.kind === 'picked' && <CheckIcon className="w-2.5 h-2.5" />}
+          {role === 'entry' ? 'Entry' : 'Exit'}
+        </button>
+      )}
+    </Tooltip>
   )
 }
 

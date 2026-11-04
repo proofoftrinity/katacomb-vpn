@@ -415,12 +415,17 @@ from `src/main/`; `src/shared/` is the only overlap.
   behind a press: a blocker and its fix, money that cannot come back, the
   recovery-phrase warnings, errors and fault banners; they are shortened where they can
   be and carry `data-full` where they cannot. The test (`renderer-rules.test.ts`) fails
-  any line over 120 characters in the screens rewritten so far (`SHORT_COPY_FILES`, which
-  grows as screens are rewritten), counting a JSX element's or fragment's own text, a
+  any line over 120 characters in any renderer file (`help-topics.ts`, the on-demand text
+  itself, aside), counting a JSX element's or fragment's own text, a
   native `title` (a long one belongs in a `Tooltip`, which a keyboard can open), and every
-  other string at its outermost expression; a class string kept in a constant is skipped.
+  other string at its outermost expression; a class string kept in a constant and markup
+  (an SVG path, a CSS selector) are skipped.
   A confirm's body is one fact per paragraph, so the End confirm keeps its [SL-1] words
-  split in two. The press-away part is text in a `tip:` or
+  split in two. An on-chain confirm passes `fee` and gets one muted line, "On-chain
+  transaction · network fee", with the fees topic behind its "?", in place of the "This is
+  an on-chain transaction" paragraph each body used to end with. The Multi-hop row and
+  chip explanations are `tip`s (`chain-node.ts`), drawn in a `Tooltip`; a chip is a button,
+  so a keyboard reaches its tip too. The press-away part is text in a `tip:` or
   `detail:`, a `{ label, text }` object (a tip or a Limit's panel), a variable named
   `…Tip`, an `InfoTip` or `Tooltip`, or a `data-full` element. There is no verbose
   setting: short is the default for everyone. `Tooltip` draws in a portal at fixed

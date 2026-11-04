@@ -155,31 +155,10 @@ test('[NT-3] every connect review states the limit unless the node signs: keysLi
   }
 })
 
-// [RN-15] One line per fact on screen, the reason one press away. A screen joins this list
-// when its copy has been rewritten; the list grows by phase (the plan of 2026-11-04).
-const SHORT_COPY_FILES = [
-  'src/renderer/components/ConnectionModal.tsx',
-  'src/renderer/components/ConnectReview.tsx',
-  'src/renderer/components/RouteStrip.tsx',
-  'src/renderer/components/plans/PlanConnectModal.tsx',
-  'src/renderer/components/multihop/ChainReviewModal.tsx',
-  'src/renderer/utils/switch.ts',
-  'src/renderer/App.tsx',
-  'src/renderer/components/ActiveSessions.tsx',
-  'src/renderer/components/ChainUnreachable.tsx',
-  'src/renderer/components/ConnectedBar.tsx',
-  'src/renderer/components/ConnectErrorActions.tsx',
-  'src/renderer/components/InsufficientFunds.tsx',
-  'src/renderer/components/RpcBanner.tsx',
-  'src/renderer/components/RpcStatus.tsx',
-  'src/renderer/components/Settings.tsx',
-  'src/renderer/components/SystemSetup.tsx',
-  'src/renderer/components/nodes/NodeCells.tsx',
-  'src/renderer/components/settings/WalletsTab.tsx',
-  'src/renderer/components/wallet/MnemonicInput.tsx',
-  'src/renderer/components/wallet/WalletPanel.tsx',
-  'src/renderer/components/wallet/WalletPicker.tsx',
-]
+// [RN-15] One line per fact on screen, the reason one press away. Every renderer file, since
+// the last phase of the plan of 2026-11-04; help-topics.ts is the on-demand text itself.
+const SHORT_COPY_FILES = rendererFiles.filter((f) =>
+  /\.tsx?$/.test(f) && !f.endsWith('.test.ts') && f !== 'src/renderer/utils/help-topics.ts')
 const MAX_LINE = 120
 // Components whose content is the "one press away" part.
 const ON_DEMAND = new Set(['InfoTip', 'Tooltip', 'HelpPanel'])
@@ -232,13 +211,15 @@ function onDemandOrFull(n: ts.Node): boolean {
 
 /** A class string kept in a constant: no capital and no sentence punctuation, which a long line of copy always has. */
 const isClassList = (t: string) => !/[A-Z]/.test(t) && !/[,;]|\.\s/.test(t)
+/** Markup, not words: an SVG path or a CSS selector never has two plain words in a row. */
+const isMarkup = (t: string) => !/[A-Za-z]+ [A-Za-z]+/.test(t)
 
 /** Every line of copy in `sf` longer than MAX_LINE that is not on demand or marked data-full. */
 function longLines(sf: ts.SourceFile): string[] {
   const out: string[] = []
   const report = (n: ts.Node, text: string) => {
     const t = text.replace(/\s+/g, ' ').trim()
-    if (t.length > MAX_LINE && !isClassList(t) && !onDemandOrFull(n)) out.push(`${where(n)}: ${t.length} chars: "${t.slice(0, 70)}…"`)
+    if (t.length > MAX_LINE && !isClassList(t) && !isMarkup(t) && !onDemandOrFull(n)) out.push(`${where(n)}: ${t.length} chars: "${t.slice(0, 70)}…"`)
   }
   const COMBINING = (n: ts.Node) => ts.isTemplateSpan(n) || ts.isParenthesizedExpression(n) || ts.isConditionalExpression(n) || ts.isBinaryExpression(n)
   const STRINGISH = (n: ts.Node) => ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateExpression(n)
@@ -286,6 +267,16 @@ test('[RN-15] the measure sees a long line, and lets a tip or data-full through'
   assert.ok(!flagged(`const a = { label: 'Limit', text: <p>${long}</p> }`))
   assert.ok(!flagged(`const whyTip = <p>${long}</p>`))
   assert.ok(!flagged(`const GHOST = '${'flex items-center gap-1.5 text-xs '.repeat(5)}'`))
+  assert.ok(!flagged(`const a = <path d="${'M544.86,911.94l348.09-2.88c11.7-.09 '.repeat(5)}" />`))
+  assert.ok(!flagged(`const FOCUSABLE = '${'button:not([disabled]), [href], '.repeat(5)}'`))
+})
+
+// [RN-15] Say it once: "This is an on-chain transaction" closed about 14 confirm bodies
+// before the confirm's `fee` line said it for all of them.
+test('[RN-15] an on-chain confirm says its fee in the fee line, not in a paragraph of its own', () => {
+  assert.match(read('src/renderer/components/ConfirmModal.tsx'), /pending\.fee &&/, 'the confirm lost its fee line: re-aim this test')
+  const said = SHORT_COPY_FILES.flatMap((f) => shownText(f).filter((t) => /is an on-chain transaction/i.test(t)).map((t) => `${f}: ${t}`))
+  assert.deepEqual(said, [])
 })
 
 // [RN-15] Shortening the create screen surfaced a false line: "You will not be shown this

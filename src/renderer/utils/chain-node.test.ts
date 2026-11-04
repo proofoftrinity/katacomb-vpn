@@ -96,7 +96,7 @@ test('a node that could not be reached is never selectable', () => {
   assert.equal(state.selectable, false)
   assert.equal(state.badge, 'unknown')
   assert.equal(state.tone, 'warning')
-  assert.equal(state.title, 'timeout')
+  assert.equal(state.tip, 'timeout')
 })
 
 test('a graded node that fails the rule is refused, per role', () => {
@@ -107,7 +107,7 @@ test('a graded node that fails the rule is refused, per role', () => {
       selectable: false,
       badge: 'no TLS',
       tone: 'danger',
-      title: 'Serves grpc, but none of it is wrapped in TLS or Reality. Still fine for an ordinary single-hop connection.',
+      tip: 'Serves grpc, but none of it is wrapped in TLS or Reality. Still fine for an ordinary single-hop connection.',
     },
   )
   assert.equal(chainRowState(node({}), noTls, 'exit', null).badge, 'no TLS/TCP')
@@ -129,7 +129,7 @@ test('a verified row names the wrapping it would get', () => {
       selectable: true,
       badge: 'TCP + Reality',
       tone: 'success',
-      title: 'Serves tcp, grpc. This hop would be wrapped in Reality.',
+      tip: 'Serves tcp, grpc. This hop would be wrapped in Reality.',
     },
   )
   assert.equal(chainRowState(node({}), grade({}), 'entry', null).badge, 'TLS')
@@ -188,7 +188,7 @@ test('a pair conflict refuses an otherwise verified row, and says why', () => {
   assert.equal(state.selectable, false)
   assert.equal(state.badge, 'same country')
   assert.equal(state.tone, 'danger')
-  assert.match(state.title, /^Both hops are in Germany\./)
+  assert.match(state.tip, /^Both hops are in Germany\./)
 })
 
 test('a pair conflict is reported before the grade, which can never rescue it', () => {
@@ -219,7 +219,7 @@ test("the other hop's pick is refused for this role, whatever its grade", () => 
   const n = node({})
   const state = hopChipState(n, grade({}), 'entry', null, n, null)
   assert.equal(state.kind, 'refused')
-  assert.equal(state.title, 'Already your exit.')
+  assert.equal(state.tip, 'Already your exit.')
 })
 
 test('a chip is usable exactly when the row is selectable for that role', () => {
@@ -244,7 +244,7 @@ test('a conflict is a clash that names its reason, for the role it was computed 
   const state = hopChipState(n, grade({}), 'exit', null, null, sameCountry)
   assert.equal(state.kind, 'clash')
   assert.equal(state.kind === 'clash' && state.badge, 'same country')
-  assert.match(state.title, /^Both hops are in Germany\./)
+  assert.match(state.tip, /^Both hops are in Germany\./)
   assert.equal(hopChipState(n, grade({}), 'entry', null, null, null).kind, 'usable')
 })
 
@@ -256,8 +256,8 @@ test('a usable chip for a filled hop says it replaces that hop', () => {
   const current = node({ address: 'sentnode1cur', moniker: '(DIGGO) Melbourne' })
   const state = hopChipState(node({}), grade({}), 'entry', current, null, null)
   assert.equal(state.kind, 'usable')
-  assert.match(state.title, /^Replaces \(DIGGO\) Melbourne as your entry\. Serves tcp\./)
-  assert.doesNotMatch(hopChipState(node({}), grade({}), 'entry', null, null, null).title, /Replaces/)
+  assert.match(state.tip, /^Replaces \(DIGGO\) Melbourne as your entry\. Serves tcp\./)
+  assert.doesNotMatch(hopChipState(node({}), grade({}), 'entry', null, null, null).tip, /Replaces/)
 })
 
 // ---- swapBlocker ----
