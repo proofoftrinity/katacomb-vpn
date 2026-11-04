@@ -346,6 +346,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
         ? 'Can\'t tell where one hop is'
         : `Both hops share a ${conflict.badge === 'same country' ? 'country' : 'network'}`,
       tipLabel: 'Why the hops must be apart',
+      topic: 'multihop',
       tip: "One hosting network can watch both ends of a chain whoever rents the two machines, and one country's courts can reach both. A chain needs its two hops in different countries and on different networks.",
       body: <><p>{conflict.title}</p>{pickAnotherExit}</>,
     } : {
@@ -353,6 +354,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
       tone: 'success',
       text: 'Different countries and networks',
       tipLabel: 'What was compared',
+      topic: 'multihop',
       tip: `Entry in ${entry.country} on AS${entry.asn}, exit in ${exit.country} on AS${exit.asn}, with no shared address block or domain. One hosting network, or one country's courts, cannot see both ends.`,
     },
     // One line per outcome, reasoning behind the "?". The refused variant keeps its
@@ -363,6 +365,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
       tone: 'danger',
       text: 'This node cannot be the exit',
       tipLabel: 'Why this node cannot be the exit',
+      topic: 'multihop',
       tip: 'Only plain TCP survives being carried inside the entry hop: grpc and websocket bring their own dialer. Pick another exit.',
       body: (
         <>
@@ -375,6 +378,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
       tone: 'success',
       text: `Exit can be chained: plain TCP inside ${exitSecurity}`,
       tipLabel: 'What was verified on this exit',
+      topic: 'multihop',
       tip: `This node serves plain TCP, so it can be chained, and the hop will be wrapped in ${
         exitSecurity === 'Reality' ? 'Reality' : "TLS, with the node's certificate pinned"
       }.${exitGrade.transports.length > 1
@@ -385,6 +389,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
       tone: 'warning',
       text: exitGrade ? `Exit not checked: ${exitGrade.error ?? 'the node did not answer'}` : 'Exit not checked yet',
       tipLabel: 'What happens if this exit cannot be chained',
+      topic: 'multihop',
       tip: "Whether it can be chained is unknown until the handshake. If it can't, both sessions are cancelled and refunded automatically.",
     },
     // Per-hop wallets, now required. Paying both hops from one account is what lets
@@ -399,6 +404,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
       tone: 'danger',
       text: 'The exit needs its own wallet',
       tipLabel: 'Why the exit needs its own wallet',
+      topic: 'wallets',
       tip: "A session's account is public on chain. Paid from one wallet, either node can look your address up and find the other hop.",
       body: (
         <>
@@ -425,6 +431,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
       tone: 'danger',
       text: `“${exitName}” was funded from “${activeName}”`,
       tipLabel: 'Why a transfer between the wallets undoes this',
+      topic: 'wallets',
       tip: 'There is a transfer between this wallet and your active one, and transfers are public. Anyone who sees both hops can follow it back and join them. To get the benefit, the exit wallet needs funds that never touched the other account.',
       body: <><p>Transfers are public, so paying separately hides nothing. Pick another wallet.</p>{walletSelect}</>,
     } : exitWalletState === 'unchecked' ? {
@@ -432,6 +439,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
       tone: 'warning',
       text: `Couldn't check whether “${exitName}” and “${activeName}” are linked`,
       tipLabel: 'Why the link check could not run',
+      topic: 'wallets',
       tip: 'The RPC did not answer, or keeps no transaction index. If you funded this wallet from the other one, that transfer is public and the hops are still joined.',
       body: walletSelect,
     } : {
@@ -439,6 +447,7 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
       tone: 'success',
       text: `Exit paid by “${exitName}”. No transfer links it to “${activeName}”`,
       tipLabel: 'What this check does and does not cover',
+      topic: 'wallets',
       tip: 'Neither node can pair them by following coins from one to the other. Only that one hop is checked: if both wallets were funded from the same third account, an exchange withdrawal for instance, that account still joins them.',
       body: walletSelect,
     },
@@ -448,18 +457,21 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
   const limits: Limit[] = [
     {
       key: 'anonymity',
+      topic: 'multihop',
       tone: 'danger',
       label: 'Not anonymity',
       text: 'Two operators working together can still match the traffic itself, since the same bytes cross both hops at the same moments. Paying each hop from a different account stops them pairing you on chain; it does not stop them comparing notes.',
     },
     {
       key: 'speed',
+      topic: 'multihop',
       tone: 'warning',
       label: 'About 20x slower',
       text: 'Every packet crosses two nodes, often on two continents. Measured on a live chain, not estimated: about 20 times the latency of one hop, at 2 to 3 MB/s. Two sessions, two deposits, each billed separately.',
     },
     {
       key: 'lifetime',
+      topic: 'multihop',
       tone: 'warning',
       label: 'Ends about 2 h after buying',
       text: 'Exit nodes do not report usage to the chain, so the chain closes the exit session about 2 hours after you buy it, however much time or data you paid for. The entry keeps whatever it has left. Measured on three chains through three different exit nodes.',
@@ -510,9 +522,11 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
         stage={stage}
         info={reviewing ? {
           label: 'What each hop can see',
-          // The two claims the strip makes by itself, with the caveat that keeps the
-          // second one honest. These were two always-green rows before.
-          text: "The entry sees your IP but not your destinations; the exit sees your destinations, and your traffic reaches it only through the entry. Neither alone watches both ends of your browsing. Buying a session means asking a node for its keys, and for the exit that request is carried by the entry hop, so the exit sees the entry's address and never yours. One thing it does not cover: while you were choosing, this app asked candidate nodes what they support, directly. That question carries no wallet and no session, but it did come from you.",
+          // The two claims the strip makes by itself. The topic says them in full, with
+          // the caveat that keeps the second one honest (the candidate probes came
+          // from the user directly). These were two always-green rows before.
+          text: "The entry sees your IP but not your destinations; the exit sees your destinations, and your traffic reaches it only through the entry. Neither alone watches both ends of your browsing.",
+          topic: 'multihop',
         } : undefined}
       />
 
@@ -670,9 +684,8 @@ export default function ChainReviewModal({ entry, exit, onClose }: Props) {
               <p className="text-text-primary">Both hops are bought and still open.</p>
               <p className="text-text-secondary">
                 Entry <span className="font-mono">#{paid.entrySessionId}</span>, exit{' '}
-                <span className="font-mono">#{paid.exitSessionId}</span>. Retrying the connection
-                does not charge you again. If you give up, end them from the Sessions tab, where
-                they appear as one chain.
+                <span className="font-mono">#{paid.exitSessionId}</span>. Retrying does not charge you
+                again. If you give up, end them in Sessions, where they show as one chain.
               </p>
             </div>
           )}

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, ReactNode } from 'react'
+import type { TopicId } from '../utils/help-topics'
 
 export type MainTab = 'map' | 'nodes' | 'multihop' | 'plans' | 'sessions' | 'provider'
 export type SettingsTab = 'general' | 'network' | 'wallets' | 'system'
@@ -10,6 +11,10 @@ interface NavigationContextValue {
   settingsTab: SettingsTab | null
   openSettings: (tab?: SettingsTab) => void
   closeSettings: () => void
+  /** The Help panel's view ([RN-15]): a topic, the index, or null when it is closed. */
+  helpTopic: TopicId | 'index' | null
+  openHelp: (topic?: TopicId | 'index') => void
+  closeHelp: () => void
   plansNodeFilter: string | null
   goToPlansForNode: (nodeAddress: string) => void
   clearPlansNodeFilter: () => void
@@ -33,6 +38,8 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   // connect-error panel several modals deep — can send the user to the right
   // Settings tab without a prop threaded through every parent.
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null)
+  // Here for the same reason: a "?" deep inside any window opens it.
+  const [helpTopic, setHelpTopic] = useState<TopicId | 'index' | null>(null)
 
   const openSettings = useCallback((tab: SettingsTab = 'general') => {
     setSettingsTab(tab)
@@ -40,6 +47,14 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
 
   const closeSettings = useCallback(() => {
     setSettingsTab(null)
+  }, [])
+
+  const openHelp = useCallback((topic: TopicId | 'index' = 'index') => {
+    setHelpTopic(topic)
+  }, [])
+
+  const closeHelp = useCallback(() => {
+    setHelpTopic(null)
   }, [])
 
   const goToPlansForNode = useCallback((nodeAddress: string) => {
@@ -79,6 +94,9 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       settingsTab,
       openSettings,
       closeSettings,
+      helpTopic,
+      openHelp,
+      closeHelp,
       plansNodeFilter,
       goToPlansForNode,
       clearPlansNodeFilter,
@@ -95,6 +113,9 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       settingsTab,
       openSettings,
       closeSettings,
+      helpTopic,
+      openHelp,
+      closeHelp,
       plansNodeFilter,
       goToPlansForNode,
       clearPlansNodeFilter,

@@ -26,6 +26,7 @@ import { NodesProvider, useNodesContext } from './contexts/NodesContext'
 import { PlansProvider } from './contexts/PlansContext'
 import { ChainDraftProvider, useChainDraft } from './contexts/ChainDraftContext'
 import { NavigationProvider, useNavigation, type MainTab } from './contexts/NavigationContext'
+import HelpPanel from './components/HelpPanel'
 import Spinner from './components/Spinner'
 import { leaseStopsSoon } from './utils/lease-runway'
 import { formatDuration } from './utils/format'
@@ -271,7 +272,7 @@ function AppInner() {
   // which is what isVpnActive() gates the cached-data handlers on in main. Proxy mode
   // is connected but redirects nothing, so the RPC endpoint is still reachable there.
   const chainFrozen = isConnected && !connStatus.proxyMode
-  const { mainTab, setMainTab, settingsTab, openSettings, closeSettings } = useNavigation()
+  const { mainTab, setMainTab, settingsTab, openSettings, closeSettings, openHelp } = useNavigation()
   const [showAbout, setShowAbout] = useState(false)
   // The expiry banner's "Buy again on <node>": its buy window, held here so it outlives the banner.
   const [buyAgainNode, setBuyAgainNode] = useState<SentNode | null>(null)
@@ -439,6 +440,12 @@ function AppInner() {
         <div className="flex items-center gap-3 shrink-0">
           <WalletPanel address={wallet.address} name={wallet.name} chainFrozen={chainFrozen} />
           <button
+            onClick={() => openHelp()}
+            className="text-text-secondary hover:text-accent text-sm transition-colors"
+          >
+            Help
+          </button>
+          <button
             onClick={() => openSettings()}
             className="text-text-secondary hover:text-accent text-sm transition-colors"
             title="Settings"
@@ -546,6 +553,8 @@ function AppInner() {
           providerTabVisible={providerVisible}
         />
       )}
+
+      <HelpPanel />
     </div>
   )
 }

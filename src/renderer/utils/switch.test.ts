@@ -103,14 +103,15 @@ test('[RN-10] the switch row says the gap, the kill switch and the session left 
   const prev = previousConnection(single)!
   const on = switchFacts(prev, true)
   assert.equal(on.text, 'Switches from Alpha')
-  assert.match(on.lines[0], /apps reach the internet directly, and the kill switch is off\./)
-  assert.match(on.lines[1], /^Session #101 stays open/)
-  assert.doesNotMatch(switchFacts(prev, false).lines[0], /kill switch/)
+  // The gap is the line on screen; the session left open is in its tip ([RN-15]) and the footer.
+  assert.match(on.line, /apps reach the internet directly, and the kill switch is off\./)
+  assert.match(on.tip, /Session #101 stays open: go back to it from Sessions/)
+  assert.doesNotMatch(switchFacts(prev, false).line, /kill switch/)
   // Proxy mode never touched routing and has no kill switch, so it claims neither.
   const proxy = switchFacts({ ...prev, proxyMode: true }, true)
-  assert.doesNotMatch(proxy.lines[0], /kill switch|directly/)
-  assert.match(switchFacts(previousConnection(chain)!, false).lines[1], /^Both sessions of your chain stay open/)
+  assert.doesNotMatch(proxy.line, /kill switch|directly/)
+  assert.match(switchFacts(previousConnection(chain)!, false).tip, /Both sessions of your chain stay open/)
   assert.equal(switchFooterText(prev), 'Disconnects from Alpha first. Its session stays open.')
   // No em dashes in anything the user reads (docs/renderer.md).
-  for (const s of [on.text, ...on.lines, on.tip, proxy.tip, switchFooterText(prev)]) assert.doesNotMatch(s, /—/)
+  for (const s of [on.text, on.line, on.tip, proxy.line, proxy.tip, switchFooterText(prev)]) assert.doesNotMatch(s, /—/)
 })

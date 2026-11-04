@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { countryCode } from '../utils/country-codes'
 import InfoTip from './InfoTip'
+import type { TopicId } from '../utils/help-topics'
 import { CheckIcon, CloseIcon, GlobeIcon, LaptopIcon } from './Icons'
 
 /**
@@ -139,7 +140,7 @@ export default function RouteStrip({ hops, stage, compact = false, info }: {
   hops: RouteHop[]
   stage: RouteStage
   compact?: boolean
-  info?: { label: string; text: ReactNode }
+  info?: { label: string; text: ReactNode; topic?: TopicId }
 }) {
   const count: 1 | 2 = hops.length >= 2 ? 2 : 1
   const shown = hops.slice(0, count)
@@ -193,7 +194,7 @@ export default function RouteStrip({ hops, stage, compact = false, info }: {
       </Stop>
       {info && (
         <span className="absolute top-2 right-2">
-          <InfoTip label={info.label}>{info.text}</InfoTip>
+          <InfoTip label={info.label} topic={info.topic}>{info.text}</InfoTip>
         </span>
       )}
     </div>

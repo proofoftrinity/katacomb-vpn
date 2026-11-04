@@ -155,6 +155,118 @@ test('[NT-3] every connect review states the limit unless the node signs: keysLi
   }
 })
 
+// [RN-15] One line per fact on screen, the reason one press away. A screen joins this list
+// when its copy has been rewritten; the list grows by phase (the plan of 2026-11-04).
+const SHORT_COPY_FILES = [
+  'src/renderer/components/ConnectionModal.tsx',
+  'src/renderer/components/ConnectReview.tsx',
+  'src/renderer/components/RouteStrip.tsx',
+  'src/renderer/components/plans/PlanConnectModal.tsx',
+  'src/renderer/components/multihop/ChainReviewModal.tsx',
+  'src/renderer/utils/switch.ts',
+]
+const MAX_LINE = 120
+// Components whose content is the "one press away" part.
+const ON_DEMAND = new Set(['InfoTip', 'Tooltip', 'HelpPanel'])
+// Attributes that never reach the screen as a line of copy, or are the on-demand part.
+const NOT_A_LINE = new Set(['className', 'title', 'placeholder', 'key', 'id', 'href', 'type', 'label', 'content', 'detail', 'topic', 'value'])
+
+/** The longest text an expression can put on screen; dynamic parts count as nothing. */
+function staticText(e: ts.Node): string {
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text
+  if (ts.isTemplateExpression(e)) return e.head.text + e.templateSpans.map((s) => staticText(s.expression) + s.literal.text).join('')
+  if (ts.isParenthesizedExpression(e)) return staticText(e.expression)
+  if (ts.isConditionalExpression(e)) {
+    const [a, b] = [staticText(e.whenTrue), staticText(e.whenFalse)]
+    return a.length >= b.length ? a : b
+  }
+  if (ts.isBinaryExpression(e)) {
+    const op = e.operatorToken.kind
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) return staticText(e.right)
+    if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken) {
+      const [a, b] = [staticText(e.left), staticText(e.right)]
+      return a.length >= b.length ? a : b
+    }
+    if (op === ts.SyntaxKind.PlusToken) return staticText(e.left) + staticText(e.right)
+  }
+  return ''
+}
+
+const tagOf = (el: ts.JsxElement | ts.JsxSelfClosingElement) => (ts.isJsxElement(el) ? el.openingElement : el).tagName.getText()
+const hasAttr = (el: ts.JsxElement, name: string) => el.openingElement.attributes.properties.some((a) => ts.isJsxAttribute(a) && a.name.getText() === name)
+const propName = (p: ts.PropertyAssignment) => (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name) ? p.name.text : '')
+
+/** Inside a tip (a `tip:` or a `fooTip` variable), a Limit's panel, a `data-full` element or an on-demand component. */
+function onDemandOrFull(n: ts.Node): boolean {
+  for (let p: ts.Node | undefined = n; p; p = p.parent) {
+    if ((ts.isJsxElement(p) || ts.isJsxSelfClosingElement(p)) && ON_DEMAND.has(tagOf(p))) return true
+    if (ts.isJsxElement(p) && hasAttr(p, 'data-full')) return true
+    // A `fooTip` variable holds text a tip shows.
+    if (ts.isVariableDeclaration(p) && /Tip$/.test(p.name.getText())) return true
+    if (ts.isPropertyAssignment(p)) {
+      const name = propName(p)
+      if (name === 'tip' || name === 'detail') return true
+      // { label, text } is a tip or a Limit's panel: the label shows, the text on demand.
+      if (name === 'text' && ts.isObjectLiteralExpression(p.parent) &&
+        p.parent.properties.some((q) => ts.isPropertyAssignment(q) && propName(q) === 'label')) return true
+    }
+  }
+  return false
+}
+
+/** Every line of copy in `file` longer than MAX_LINE that is not on demand or marked data-full. */
+function longLines(file: string): string[] {
+  const out: string[] = []
+  const report = (n: ts.Node, text: string) => {
+    const t = text.replace(/\s+/g, ' ').trim()
+    if (t.length > MAX_LINE && !onDemandOrFull(n)) out.push(`${where(n)}: ${t.length} chars: "${t.slice(0, 70)}…"`)
+  }
+  const COMBINING = (n: ts.Node) => ts.isTemplateSpan(n) || ts.isParenthesizedExpression(n) || ts.isConditionalExpression(n) || ts.isBinaryExpression(n)
+  const STRINGISH = (n: ts.Node) => ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateExpression(n)
+  for (const n of nodes(parse(file))) {
+    // A JSX element's own words: its text runs and the strings it interpolates.
+    if (ts.isJsxElement(n)) {
+      if (hasAttr(n, 'data-full')) continue
+      report(n, n.children.map((c) => ts.isJsxText(c) ? c.text : ts.isJsxExpression(c) && c.expression ? staticText(c.expression) : ' ').join(''))
+      continue
+    }
+    // Any other string: measured whole, once, at the outermost expression that builds it.
+    if (!STRINGISH(n)) continue
+    let top: ts.Node = n
+    while (top.parent && COMBINING(top.parent)) top = top.parent
+    if (ts.isTemplateSpan(top) || ts.isImportDeclaration(top.parent)) continue // inside a template, measured with it
+    if (nodes(top).find(STRINGISH) !== n) continue
+    const at = top.parent
+    if (ts.isJsxExpression(at) && (ts.isJsxElement(at.parent) || ts.isJsxFragment(at.parent))) continue // measured with its element
+    const attr = ts.isJsxAttribute(at) ? at : ts.isJsxExpression(at) && ts.isJsxAttribute(at.parent) ? at.parent : null
+    if (attr && (NOT_A_LINE.has(attr.name.getText()) || attr.name.getText().startsWith('aria-'))) continue
+    report(top, staticText(top))
+  }
+  return out
+}
+
+test('[RN-15] a rewritten screen puts one line per fact on screen: nothing over 120 characters outside a tip or data-full', () => {
+  const hits = SHORT_COPY_FILES.flatMap(longLines)
+  assert.deepEqual(hits, [], 'shorten the line and move the reason into a tip or a Help topic; a blocker, an error or money that cannot come back keeps its words and carries data-full')
+})
+
+test('[RN-15] the measure sees a long line, and lets a tip or data-full through', () => {
+  // A positive control: the rule above would pass vacuously if longLines saw nothing.
+  const long = 'x'.repeat(MAX_LINE + 1)
+  const probe = (src: string) => {
+    const sf = ts.createSourceFile('probe.tsx', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    return nodes(sf).filter(ts.isJsxElement).some((el) => !hasAttr(el, 'data-full') && !onDemandOrFull(el) &&
+      el.children.map((c) => ts.isJsxText(c) ? c.text : ts.isJsxExpression(c) && c.expression ? staticText(c.expression) : '').join('').trim().length > MAX_LINE)
+  }
+  assert.ok(probe(`const a = <p>${long}</p>`))
+  assert.ok(probe(`const a = <p>{ok ? '${long}' : 'short'}</p>`))
+  assert.ok(!probe(`const a = <p data-full>${long}</p>`))
+  assert.ok(!probe(`const a = <InfoTip label="why"><p>${long}</p></InfoTip>`))
+  assert.ok(!probe(`const a = <InfoTip label="why">${long}</InfoTip>`))
+  assert.ok(!probe(`const a = { label: 'Limit', text: <p>${long}</p> }`))
+  assert.ok(!probe(`const whyTip = <p>${long}</p>`))
+})
+
 // [RN-9] A copied recovery phrase is wiped from the clipboard 30 s later, and the wipe
 // must outlive the screen that scheduled it: the create screen unmounts the moment the
 // new wallet opens, and Settings unmounts the Wallets tab on close or on a tab change,

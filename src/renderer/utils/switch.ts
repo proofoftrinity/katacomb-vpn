@@ -79,25 +79,24 @@ export async function switchThenBuy<T>(steps: {
 }
 
 /**
- * The switch row's words: what the gap costs and what happens to the session left
- * behind. Unused, a session is closed by the chain on its own [SL-1, SL-3]; nothing is
- * promised about when, since that depends on the node's last usage report.
+ * The switch row's words: the gap, on screen, because it is what the press costs right
+ * away; and in the tip, why the connection has to go first and what happens to the
+ * session left behind (the footer says it stays open too). Unused, a session is closed
+ * by the chain on its own [SL-1, SL-3]; nothing is promised about when, since that
+ * depends on the node's last usage report.
  */
-export function switchFacts(prev: PreviousConnection, killSwitch: boolean): { text: string; lines: string[]; tip: string } {
+export function switchFacts(prev: PreviousConnection, killSwitch: boolean): { text: string; line: string; tip: string } {
   const gap = prev.proxyMode
     ? 'The local proxy stops first. Apps pointed at it have no connection until this one is up.'
     : `Your connection drops first. Until this one is up, apps reach the internet directly${
       killSwitch ? ', and the kill switch is off' : ''}.`
-  const session = prev.chain
+  const leftOpenTip = prev.chain
     ? 'Both sessions of your chain stay open: go back to it from Sessions, or end it there. Left unused, the blockchain closes them by itself.'
     : `${prev.sessionId ? `Session #${prev.sessionId}` : 'Its session'} stays open: go back to it from Sessions, or end it there. Left unused, the blockchain closes it by itself.`
-  return {
-    text: `Switches from ${prev.label}`,
-    lines: [gap, session],
-    tip: prev.proxyMode
-      ? 'One connection runs at a time, so the current one stops before the new one is bought.'
-      : 'One connection runs at a time, and the blockchain cannot be reached through the tunnel, so the current connection has to go before the new one can be bought.',
-  }
+  const whyTip = prev.proxyMode
+    ? 'One connection runs at a time, so the current one stops before the new one is bought.'
+    : 'One connection runs at a time, and the blockchain cannot be reached through the tunnel, so the current connection has to go before the new one can be bought.'
+  return { text: `Switches from ${prev.label}`, line: gap, tip: `${whyTip} ${leftOpenTip}` }
 }
 
 /** The footer's line while a switch is what Pay will do. */
