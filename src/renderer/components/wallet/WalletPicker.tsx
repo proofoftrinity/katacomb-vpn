@@ -3,6 +3,7 @@ import type { WalletStoreStatus } from '../../types'
 import SetupLayout from './SetupLayout'
 import Spinner from '../Spinner'
 import CopyButton from '../CopyButton'
+import InfoTip from '../InfoTip'
 import { AlertIcon, PlusIcon } from '../Icons'
 import { groupWalletsBySeed } from '../../../shared/seed-groups'
 import { displayConnectError } from '../../utils/connect-errors'
@@ -152,7 +153,8 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
               onCancel={() => setConfirmingRemove(false)}
               onConfirm={removeSavedSeed}
             >
-              <p className="text-text-secondary text-xs">
+              {/* A recovery-phrase warning: stays on screen in full ([RN-15]). */}
+              <p className="text-text-secondary text-xs" data-full>
                 Without your written-down recovery phrase it cannot be restored. Funds stay
                 on-chain, reachable only by importing the phrase again.
               </p>
@@ -244,16 +246,22 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
               <h2 className="text-[11px] font-semibold uppercase tracking-wider text-warning mb-2">
                 Cannot be unlocked · {plural(locked.length)}
               </h2>
+              {/* A blocker and its fix, short enough to stay on screen ([RN-15]). No
+                  topic: the Help panel lives in the main window, not the setup screens. */}
               <p className="text-text-secondary text-xs mb-2">
                 {status.keyringMissing ? <>
-                  Your keyring didn't answer, so {locked.length === 1 ? 'its seed' : 'their seeds'} can't be
-                  unlocked this time. Start or unlock your keyring, then restart the app. Keep
-                  {locked.length === 1 ? ' it' : ' them'}: removing deletes the stored seed.
+                  Your keyring didn't answer. Start or unlock it, then restart the app. Keep
+                  {locked.length === 1 ? ' it' : ' them'}: removing deletes the stored seed.{' '}
+                  <InfoTip label="Why it cannot be unlocked">
+                    So {locked.length === 1 ? 'its seed' : 'their seeds'} can't be unlocked this time.
+                  </InfoTip>
                 </> : <>
-                  Your keyring can't unlock {locked.length === 1 ? 'its seed' : 'their seeds'}. If you saved
-                  {locked.length === 1 ? ' it' : ' them'} while logged in to another desktop, open the app there
-                  once: from then on it uses that keyring here too. Otherwise import the same recovery phrase
-                  again. Your funds are on-chain and unaffected.
+                  Import the same recovery phrase again. Your funds are on-chain and unaffected.{' '}
+                  <InfoTip label="Saved on another desktop?">
+                    Your keyring can't unlock {locked.length === 1 ? 'its seed' : 'their seeds'}. If you saved
+                    {locked.length === 1 ? ' it' : ' them'} while logged in to another desktop, open the app there
+                    once: from then on it uses that keyring here too.
+                  </InfoTip>
                 </>}
               </p>
               <div className="bg-bg-secondary border border-border rounded-md divide-y divide-border overflow-hidden">
@@ -289,7 +297,8 @@ export default function WalletPicker({ status, onChanged, onAddAnother }: Props)
                   </li>
                 ))}
               </ul>
-              <p className="text-text-secondary text-xs">
+              {/* A recovery-phrase warning: stays on screen in full ([RN-15]). */}
+              <p className="text-text-secondary text-xs" data-full>
                 This removes the encrypted seeds from this device. Without your written-down
                 recovery phrase they cannot be restored. Funds stay on-chain, reachable only by
                 re-importing the phrase. App settings are kept.

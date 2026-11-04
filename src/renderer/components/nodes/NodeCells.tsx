@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react'
 import type { SentNode, NodeProbeResult } from '../../types'
 import CopyButton from '../CopyButton'
+import Tooltip from '../Tooltip'
 import ProtocolIcon from '../ProtocolIcon'
 import { ActivityIcon, HomeIcon, KeyIcon, LayersIcon, ShieldIcon } from '../Icons'
 import { protocolMeta } from '../../utils/protocols'
@@ -65,32 +66,38 @@ export function NodeIdentityCell({ node, onActivate }: { node: SentNode; onActiv
         >
           {node.moniker || '—'}
         </button>
+        {/* Hover only: four tab stops on every row would bury the table for a keyboard
+            user, and the review window says the same when a row is opened. */}
         {node.isResidential && (
-          <span className="shrink-0 text-info" title="Residential: the node directory places this address in a consumer ISP range. That is the directory's own label, not a check this app performs.">
-            <HomeIcon className="w-3.5 h-3.5" />
-          </span>
+          <Tooltip className="shrink-0 text-info" content="Residential: the node directory places this address in a consumer ISP range. That is the directory's own label, not a check this app performs.">
+            <span role="img" aria-label="Residential" className="inline-flex"><HomeIcon className="w-3.5 h-3.5" /></span>
+          </Tooltip>
         )}
         {/* Deliberately neutral, never green. Node operators are adversaries in this
             app's threat model and there is nothing on chain to verify against, so a
             "safe" colour here would be an assurance the directory cannot give. */}
         {node.isWhitelisted && (
-          <span className="shrink-0 text-text-secondary" title="Whitelisted: the node directory lists this node on its own whitelist. That is the directory's own label, not a check this app performs.">
-            <ShieldIcon className="w-3.5 h-3.5" />
-          </span>
+          <Tooltip className="shrink-0 text-text-secondary" content="Whitelisted: the node directory lists this node on its own whitelist. That is the directory's own label, not a check this app performs.">
+            <span role="img" aria-label="Whitelisted" className="inline-flex"><ShieldIcon className="w-3.5 h-3.5" /></span>
+          </Tooltip>
         )}
         {/* Neutral for the same reason, and on purpose a different colour from the
             teal key the connection bar shows: here it is only the directory's version
             string (versionSignsReplies, the predicate the Signed filter uses), there
             it is a signature this app verified. Grey is the claim, teal the proof. */}
         {versionSignsReplies(node.version) && (
-          <span className="shrink-0 text-text-secondary" title={`Signs its handshake: the node directory reports version ${node.version}, and dvpnd 9.4 and later sign their handshake reply. That is the directory's version string, not a check this app performs. The signature itself is checked when you connect.`}>
-            <KeyIcon className="w-3.5 h-3.5" />
-          </span>
+          <Tooltip
+            className="shrink-0 text-text-secondary"
+            topic="signing"
+            content={`Signs its handshake: the node directory reports version ${node.version}, and dvpnd 9.4 and later sign their handshake reply. That is the directory's version string, not a check this app performs. The signature itself is checked when you connect.`}
+          >
+            <span role="img" aria-label="Signs its handshake" className="inline-flex"><KeyIcon className="w-3.5 h-3.5" /></span>
+          </Tooltip>
         )}
         {node.isDuplicate && (
-          <span className="shrink-0 text-warning" title="Duplicate: the node directory lists another node with the same identity. Hide duplicates in the filter bar removes these.">
-            <LayersIcon className="w-3.5 h-3.5" />
-          </span>
+          <Tooltip className="shrink-0 text-warning" content="Duplicate: the node directory lists another node with the same identity. Hide duplicates in the filter bar removes these.">
+            <span role="img" aria-label="Duplicate" className="inline-flex"><LayersIcon className="w-3.5 h-3.5" /></span>
+          </Tooltip>
         )}
       </div>
       {/* The full address, ellipsized by the column rather than by hand: wide windows

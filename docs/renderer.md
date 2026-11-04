@@ -416,8 +416,11 @@ from `src/main/`; `src/shared/` is the only overlap.
   recovery-phrase warnings, errors and fault banners; they are shortened where they can
   be and carry `data-full` where they cannot. The test (`renderer-rules.test.ts`) fails
   any line over 120 characters in the screens rewritten so far (`SHORT_COPY_FILES`, which
-  grows as screens are rewritten), counting a JSX element's own text and every other
-  string at its outermost expression. The press-away part is text in a `tip:` or
+  grows as screens are rewritten), counting a JSX element's or fragment's own text, a
+  native `title` (a long one belongs in a `Tooltip`, which a keyboard can open), and every
+  other string at its outermost expression; a class string kept in a constant is skipped.
+  A confirm's body is one fact per paragraph, so the End confirm keeps its [SL-1] words
+  split in two. The press-away part is text in a `tip:` or
   `detail:`, a `{ label, text }` object (a tip or a Limit's panel), a variable named
   `…Tip`, an `InfoTip` or `Tooltip`, or a `data-full` element. There is no verbose
   setting: short is the default for everyone. `Tooltip` draws in a portal at fixed
@@ -427,7 +430,11 @@ from `src/main/`; `src/shared/` is the only overlap.
   Help panel sits above the windows (z-60 against z-50), and a `ReviewModal` or a confirm
   moves left of it (`useHelpAside`) instead of being covered, which at the 960px minimum
   would hide half the window. Escape closes the panel first (caught in the capture phase),
-  then the window.
+  then the window. A press inside a tooltip's panel stops there, so it never reaches the
+  node row or label its trigger sits in. The setup screens have no Help panel, so a "?"
+  there names no topic. Shortening is also when a stale claim surfaces: the create screen
+  said the recovery phrase would not be shown again, which the Wallets tab's Recovery
+  phrase window contradicts, and a test keeps that claim out.
 - BIP-39 validation lives in `src/shared/mnemonic.ts` (`checkMnemonic`, pure + unit-tested):
   word list, word count and **checksum**, re-run on every keystroke so the Import button
   only enables on a phrase that will actually import. It uses `@scure/bip39` — the package

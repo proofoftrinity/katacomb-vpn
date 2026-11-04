@@ -73,7 +73,8 @@ function SessionExpiredBanner({ expired, onBuyAgain }: {
       }`}
     >
       <span aria-hidden>⚠</span>
-      <span className="flex-1">
+      {/* A fault notice: it stays on screen in full ([RN-15]). */}
+      <span className="flex-1" data-full>
         {expired.reason === 'hop-closed' ? (
           <>
             {/* The exit hop never reports usage, so the chain closes it on a deadline
@@ -98,13 +99,12 @@ function SessionExpiredBanner({ expired, onBuyAgain }: {
                 as by the node, and the user cannot tell which. Only 'stalled' below has
                 evidence: traffic left and nothing came back. */}
             The VPN tunnel closed unexpectedly and was disconnected. Your session is still
-            open. Reconnect from the Sessions tab to bring the tunnel back.
+            open: reconnect it from Sessions.
           </>
         ) : expired.reason === 'stalled' ? (
           <>
             The tunnel to <span className="font-medium">{node}</span> stopped carrying traffic and
-            was disconnected. Your session is still open. Reconnect from the Sessions tab to renew
-            the handshake with the node.
+            was disconnected. Your session is still open: reconnect it from Sessions.
           </>
         ) : (
           <>
@@ -114,7 +114,7 @@ function SessionExpiredBanner({ expired, onBuyAgain }: {
                 to replace whichever they happen to remember. */}
             {expired.chainRole && ` (the ${expired.chainRole} hop of your chain)`} ran out of{' '}
             {expired.reason} and was disconnected.
-            {expired.chainRole && ' The other hop is still open, and can be ended from the Sessions tab.'}
+            {expired.chainRole && ' The other hop is still open: end it from Sessions.'}
           </>
         )}
         {expired.trafficBlocked && ' The kill switch is still blocking all traffic.'}
@@ -192,10 +192,10 @@ function KillSwitchStuckBanner() {
   return (
     <div className="px-5 py-1.5 bg-danger-subtle border-b border-danger text-danger text-xs flex items-center gap-2">
       <span aria-hidden>⚠</span>
-      <span className="flex-1">
+      {/* A fault: its fix stays on screen ([RN-15]). */}
+      <span className="flex-1" data-full>
         The kill switch could not be turned off, so all traffic may still be blocked.
-        {IS_WINDOWS ? ' Try again.' : ' Try again, and allow the password prompt if one appears.'} If that fails, restart
-        Katacomb VPN to restore it.
+        {IS_WINDOWS ? ' Try again' : ' Try again and allow the password prompt if one appears'}, or restart Katacomb VPN.
       </span>
       <button
         onClick={async () => {
@@ -236,9 +236,8 @@ function OrphanedTunnelBanner() {
     <div className="px-5 py-1.5 bg-bg-secondary border-b border-border text-text-secondary text-xs flex items-center gap-2">
       <span aria-hidden>⚠</span>
       <span className="flex-1">
-        Katacomb VPN closed a tunnel left running by a previous session, so you are not
-        connected right now. If that session is still open, you can reconnect to it from
-        the Sessions tab.
+        A tunnel left running by the last run was closed, so you are not connected. Its
+        session may still be open in Sessions.
       </span>
       <button
         onClick={() => setDismissed(true)}

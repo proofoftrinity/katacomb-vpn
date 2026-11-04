@@ -160,6 +160,9 @@ export default function Tooltip({ content, topic, children, className = '' }: Pr
           role="tooltip"
           onMouseEnter={cancelClose}
           onMouseLeave={hideSoon}
+          // React carries a portal's clicks up its own tree: a press in the panel must not
+          // reach what the trigger sits in (a node row, a checkbox's label).
+          onClick={(e) => e.stopPropagation()}
           style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? 'visible' : 'hidden' }}
           className="fixed z-[70] w-64 bg-bg-tertiary border border-border rounded-md shadow-lg p-2.5 space-y-1.5 text-xs font-normal text-text-secondary text-left normal-case tracking-normal"
         >

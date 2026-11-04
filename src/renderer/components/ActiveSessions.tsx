@@ -15,6 +15,8 @@ import { useConfirm } from './ConfirmModal'
 import { useNavigation } from '../contexts/NavigationContext'
 import { useNodesContext } from '../contexts/NodesContext'
 import ConnectionModal from './ConnectionModal'
+import InfoTip from './InfoTip'
+import Tooltip from './Tooltip'
 import type { SentNode, SessionInfo } from '../types'
 import { cardState as cardStateOf, chainUsage, flooredUsage, quotaUsedUp as isQuotaUsedUp, timePercent, usagePercent, usageReading, type SessionUsage } from '../utils/session-card'
 import { effectiveCaps, nodeClockSeconds, paidTimeEndsAtMs } from '../../shared/node-quota'
@@ -280,14 +282,14 @@ export default function ActiveSessions({
     // What End does to the money ([SL-1]): nothing comes back at the click. At
     // settlement, 2h later, the chain pays the node pro rata for the usage it reported
     // and returns the rest of a P2P deposit; a plan session's usage already came out
-    // of the allocation, and the plan keeps the rest.
+    // of the allocation, and the plan keeps the rest. One fact per paragraph ([RN-15]).
     const warnings = [
       'This closes the session on the chain. It cannot be reconnected afterwards.',
-      session.subscriptionId
-        ? 'Your plan keeps whatever data and time it has left, and you can start a new session from it.'
+      ...(session.subscriptionId
+        ? ['Your plan keeps whatever data and time it has left, and you can start a new session from it.']
         : peer && peer.status === 'active'
-          ? 'You pay each node only for what it reports you used. Whatever is left of each deposit goes back to your wallet when the chain settles the session, about 2 hours from now.'
-          : 'You pay the node only for what it reports you used. Whatever is left of your deposit goes back to your wallet when the chain settles the session, about 2 hours from now.',
+          ? ['You pay each node only for what it reports you used.', 'Whatever is left of each deposit goes back to your wallet when the chain settles the session, about 2 hours from now.']
+          : ['You pay the node only for what it reports you used.', 'Whatever is left of your deposit goes back to your wallet when the chain settles the session, about 2 hours from now.']),
     ]
     if (peer && peer.status === 'active') {
       warnings.push(`This is the ${session.chainRole ?? 'first'} hop of a two-hop chain, so #${peer.id} will be ended too. One hop alone carries no traffic.`)
@@ -381,7 +383,7 @@ export default function ActiveSessions({
             disabled={refreshing || chainFrozen}
             className="text-text-secondary text-xs hover:text-accent transition-colors flex items-center gap-1 disabled:opacity-50"
             title={chainFrozen
-              ? 'Unavailable while connected: the chain is unreachable through the tunnel, so this list is the one from before you connected. The connected session keeps updating from live traffic.'
+              ? 'Unavailable while connected: this list is from before you connected. The connected session still updates live.'
               : 'Reload sessions from the chain'}
           >
             {refreshing ? <Spinner className="text-accent" /> : 'Refresh'}
@@ -576,12 +578,20 @@ export default function ActiveSessions({
                     {/* Only a lone hop that has ended itself: an open one is broken or
                         ending, and says so in its own words. */}
                     {!isChain && session.chainPeerSessionId && isEnded && (
-                      <span
-                        className="text-warning text-xs border border-warning px-1.5 py-0.5 rounded-sm font-medium"
-                        title={`This was the ${session.chainRole ?? 'first'} hop of a chain with #${session.chainPeerSessionId}, which is no longer listed. One hop alone carries no traffic.`}
+                      <Tooltip
+                        content={`This was the ${session.chainRole ?? 'first'} hop of a chain with #${session.chainPeerSessionId}, which is no longer listed. One hop alone carries no traffic.`}
+                        topic="multihop"
                       >
-                        Chain {session.chainRole ?? 'hop'} · partner gone
-                      </span>
+                        {(_open, describedBy) => (
+                          <span
+                            tabIndex={0}
+                            aria-describedby={describedBy}
+                            className="text-warning text-xs border border-warning px-1.5 py-0.5 rounded-sm font-medium cursor-help focus:outline-hidden focus-visible:border-border-focus"
+                          >
+                            Chain {session.chainRole ?? 'hop'} · partner gone
+                          </span>
+                        )}
+                      </Tooltip>
                     )}
                     {session.subscriptionId && (
                       <span className="text-text-secondary text-xs font-mono">
@@ -643,7 +653,7 @@ export default function ActiveSessions({
                               setupHeld
                                 ? 'Install what the notice above lists first'
                                 : quotaUsedUp && paidTimeOver && timePct < 100
-                                ? `The paid time ended at ${clockTime(paidEndsAt!)}. Reconnecting now would cost the whole session. End it and you are charged only up to your last use`
+                                ? `The paid time ended at ${clockTime(paidEndsAt!)}. Reconnecting would cost the whole session. End it to pay only up to your last use`
                                 : quotaUsedUp
                                 ? 'This session has used everything it was paid for. End it and start a new one'
                                 : vpnConnected
@@ -751,13 +761,13 @@ export default function ActiveSessions({
                       {/* "Time" alone read as wall-clock since purchase, which made a
                           correct 1m-of-1h look broken on a session bought an hour
                           earlier. Name what is actually metered, and explain it. */}
-                      <span
-                        className="text-text-secondary"
-                        title={'Time the node counts: from your first connect to your last use, time away in between included.\n' +
-                          'A session you have not connected to stays at zero, and one you leave stays where it is until you connect again.'}
-                      >
+                      <span className="text-text-secondary inline-flex items-center gap-1">
                         Time used: {formatDuration(elapsedSeconds)} of {formatDuration(caps.maxDurationSeconds)}
-                        {isConnectedSession && <span className="text-success text-[10px] ml-1 align-middle">live</span>}
+                        {isConnectedSession && <span className="text-success text-[10px] align-middle">live</span>}
+                        <InfoTip label="What time used counts" topic="billing">
+                          <p>Time the node counts: from your first connect to your last use, time away in between included.</p>
+                          <p>A session you have not connected to stays at zero, and one you leave stays where it is until you connect again.</p>
+                        </InfoTip>
                       </span>
                       <span className={`font-mono ${timePct > 90 ? 'text-danger' : timePct > 70 ? 'text-warning' : 'text-text-secondary'}`}>
                         {timePct >= 100 ? 'Used up' : `${timePct.toFixed(1)}%`}
@@ -827,8 +837,8 @@ export default function ActiveSessions({
                     bare word reads as the chain that broke. */}
                 {isBroken && (
                   <div className="text-warning text-xs mt-2">
-                    The {endedRole} hop has ended, so this chain carries no traffic. The {openRole} hop
-                    is still open: end it now, or the blockchain closes it by itself
+                    The {endedRole} hop has ended, so this chain carries no traffic. End the {openRole} hop
+                    now, or the blockchain closes it
                     {openClosesInSeconds !== null && openClosesInSeconds > 60
                       ? ` in about ${formatDuration(openClosesInSeconds)}.`
                       : '.'}
@@ -856,18 +866,18 @@ export default function ActiveSessions({
                     the nodes report usage" told the user to keep the chain busy, which
                     does nothing. */}
                 {state === 'open' && inactiveInSeconds !== null && inactiveInSeconds > 0 && (isChain ? (
-                  <div
-                    className="text-text-tertiary text-xs mt-2"
-                    title="Exit nodes do not report usage, so the blockchain closes the exit hop about two hours after it was bought, whether or not the chain is used. That ends the chain."
-                  >
+                  <div className="text-text-tertiary text-xs mt-2 flex items-center gap-1">
                     Chain stops in about {formatDuration(inactiveInSeconds)}, when the blockchain closes the exit hop.
+                    <InfoTip label="Why the chain stops" topic="multihop">
+                      Exit nodes do not report usage, so the blockchain closes the exit hop about two hours after it was bought, whether or not the chain is used. That ends the chain.
+                    </InfoTip>
                   </div>
                 ) : (
-                  <div
-                    className="text-text-tertiary text-xs mt-2"
-                    title="The chain reaps a session the node stops reporting usage for. Every usage report pushes this deadline back, so it only really counts down when nothing is getting through."
-                  >
+                  <div className="text-text-tertiary text-xs mt-2 flex items-center gap-1">
                     Expires in {formatDuration(inactiveInSeconds)} unless the node reports usage.
+                    <InfoTip label="Why it expires" topic="sessions">
+                      The chain reaps a session the node stops reporting usage for. Every usage report pushes this deadline back, so it only really counts down when nothing is getting through.
+                    </InfoTip>
                   </div>
                 ))}
               </div>

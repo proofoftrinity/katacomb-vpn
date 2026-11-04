@@ -164,12 +164,28 @@ const SHORT_COPY_FILES = [
   'src/renderer/components/plans/PlanConnectModal.tsx',
   'src/renderer/components/multihop/ChainReviewModal.tsx',
   'src/renderer/utils/switch.ts',
+  'src/renderer/App.tsx',
+  'src/renderer/components/ActiveSessions.tsx',
+  'src/renderer/components/ChainUnreachable.tsx',
+  'src/renderer/components/ConnectedBar.tsx',
+  'src/renderer/components/ConnectErrorActions.tsx',
+  'src/renderer/components/InsufficientFunds.tsx',
+  'src/renderer/components/RpcBanner.tsx',
+  'src/renderer/components/RpcStatus.tsx',
+  'src/renderer/components/Settings.tsx',
+  'src/renderer/components/SystemSetup.tsx',
+  'src/renderer/components/nodes/NodeCells.tsx',
+  'src/renderer/components/settings/WalletsTab.tsx',
+  'src/renderer/components/wallet/MnemonicInput.tsx',
+  'src/renderer/components/wallet/WalletPanel.tsx',
+  'src/renderer/components/wallet/WalletPicker.tsx',
 ]
 const MAX_LINE = 120
 // Components whose content is the "one press away" part.
 const ON_DEMAND = new Set(['InfoTip', 'Tooltip', 'HelpPanel'])
-// Attributes that never reach the screen as a line of copy, or are the on-demand part.
-const NOT_A_LINE = new Set(['className', 'title', 'placeholder', 'key', 'id', 'href', 'type', 'label', 'content', 'detail', 'topic', 'value'])
+// Attributes that never reach the screen as a line of copy, or are the on-demand part. A
+// native `title` is measured: a long one belongs in a Tooltip, which keyboard users can open.
+const NOT_A_LINE = new Set(['className', 'placeholder', 'key', 'id', 'href', 'type', 'label', 'content', 'detail', 'topic', 'value'])
 
 /** The longest text an expression can put on screen; dynamic parts count as nothing. */
 function staticText(e: ts.Node): string {
@@ -214,19 +230,22 @@ function onDemandOrFull(n: ts.Node): boolean {
   return false
 }
 
-/** Every line of copy in `file` longer than MAX_LINE that is not on demand or marked data-full. */
-function longLines(file: string): string[] {
+/** A class string kept in a constant: no capital and no sentence punctuation, which a long line of copy always has. */
+const isClassList = (t: string) => !/[A-Z]/.test(t) && !/[,;]|\.\s/.test(t)
+
+/** Every line of copy in `sf` longer than MAX_LINE that is not on demand or marked data-full. */
+function longLines(sf: ts.SourceFile): string[] {
   const out: string[] = []
   const report = (n: ts.Node, text: string) => {
     const t = text.replace(/\s+/g, ' ').trim()
-    if (t.length > MAX_LINE && !onDemandOrFull(n)) out.push(`${where(n)}: ${t.length} chars: "${t.slice(0, 70)}…"`)
+    if (t.length > MAX_LINE && !isClassList(t) && !onDemandOrFull(n)) out.push(`${where(n)}: ${t.length} chars: "${t.slice(0, 70)}…"`)
   }
   const COMBINING = (n: ts.Node) => ts.isTemplateSpan(n) || ts.isParenthesizedExpression(n) || ts.isConditionalExpression(n) || ts.isBinaryExpression(n)
   const STRINGISH = (n: ts.Node) => ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateExpression(n)
-  for (const n of nodes(parse(file))) {
-    // A JSX element's own words: its text runs and the strings it interpolates.
-    if (ts.isJsxElement(n)) {
-      if (hasAttr(n, 'data-full')) continue
+  for (const n of nodes(sf)) {
+    // A JSX element's own words, or a fragment's: its text runs and the strings it interpolates.
+    if (ts.isJsxElement(n) || ts.isJsxFragment(n)) {
+      if (ts.isJsxElement(n) && hasAttr(n, 'data-full')) continue
       report(n, n.children.map((c) => ts.isJsxText(c) ? c.text : ts.isJsxExpression(c) && c.expression ? staticText(c.expression) : ' ').join(''))
       continue
     }
@@ -246,25 +265,39 @@ function longLines(file: string): string[] {
 }
 
 test('[RN-15] a rewritten screen puts one line per fact on screen: nothing over 120 characters outside a tip or data-full', () => {
-  const hits = SHORT_COPY_FILES.flatMap(longLines)
+  const hits = SHORT_COPY_FILES.flatMap((f) => longLines(parse(f)))
   assert.deepEqual(hits, [], 'shorten the line and move the reason into a tip or a Help topic; a blocker, an error or money that cannot come back keeps its words and carries data-full')
 })
 
 test('[RN-15] the measure sees a long line, and lets a tip or data-full through', () => {
   // A positive control: the rule above would pass vacuously if longLines saw nothing.
-  const long = 'x'.repeat(MAX_LINE + 1)
-  const probe = (src: string) => {
-    const sf = ts.createSourceFile('probe.tsx', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-    return nodes(sf).filter(ts.isJsxElement).some((el) => !hasAttr(el, 'data-full') && !onDemandOrFull(el) &&
-      el.children.map((c) => ts.isJsxText(c) ? c.text : ts.isJsxExpression(c) && c.expression ? staticText(c.expression) : '').join('').trim().length > MAX_LINE)
-  }
-  assert.ok(probe(`const a = <p>${long}</p>`))
-  assert.ok(probe(`const a = <p>{ok ? '${long}' : 'short'}</p>`))
-  assert.ok(!probe(`const a = <p data-full>${long}</p>`))
-  assert.ok(!probe(`const a = <InfoTip label="why"><p>${long}</p></InfoTip>`))
-  assert.ok(!probe(`const a = <InfoTip label="why">${long}</InfoTip>`))
-  assert.ok(!probe(`const a = { label: 'Limit', text: <p>${long}</p> }`))
-  assert.ok(!probe(`const whyTip = <p>${long}</p>`))
+  const long = 'Long words. '.repeat(11)
+  const flagged = (src: string) => longLines(ts.createSourceFile('probe.tsx', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)).length > 0
+  assert.ok(flagged(`const a = <p>${long}</p>`))
+  assert.ok(flagged(`const a = <p>{ok ? '${long}' : 'short'}</p>`))
+  assert.ok(flagged(`const a = <>${long}</>`))
+  assert.ok(flagged(`const a = <span title="${long}">x</span>`))
+  assert.ok(flagged(`const a = ['${long}']`))
+  assert.ok(!flagged(`const a = <p data-full>${long}</p>`))
+  assert.ok(!flagged(`const a = <p data-full><>${long}</></p>`))
+  assert.ok(!flagged(`const a = <InfoTip label="why"><p>${long}</p></InfoTip>`))
+  assert.ok(!flagged(`const a = <InfoTip label="why">${long}</InfoTip>`))
+  assert.ok(!flagged(`const a = <Tooltip content="${long}">x</Tooltip>`))
+  assert.ok(!flagged(`const a = { label: 'Limit', text: <p>${long}</p> }`))
+  assert.ok(!flagged(`const whyTip = <p>${long}</p>`))
+  assert.ok(!flagged(`const GHOST = '${'flex items-center gap-1.5 text-xs '.repeat(5)}'`))
+})
+
+// [RN-15] Shortening the create screen surfaced a false line: "You will not be shown this
+// again", while Settings, Wallets, Recovery phrase shows the phrase whenever it is asked.
+const NEVER_AGAIN = /(not|never|n't) (be )?(shown|see|displayed|show)\w* (this |it |them )?again|only (time|chance) (to|you)|last (time|chance) to (see|write)/i
+
+test('[RN-15] no screen says the recovery phrase will not be shown again: the Wallets tab shows it', () => {
+  assert.match(read('src/renderer/components/settings/WalletsTab.tsx'), /window\.api\.walletRevealMnemonic\(/,
+    'the Wallets tab no longer shows the phrase: re-aim this test')
+  const claims = rendererFiles.filter((f) => /\.tsx?$/.test(f) && !f.endsWith('.test.ts'))
+    .flatMap((f) => shownText(f).filter((t) => NEVER_AGAIN.test(t)).map((t) => `${f}: ${t}`))
+  assert.deepEqual(claims, [])
 })
 
 // [RN-9] A copied recovery phrase is wiped from the clipboard 30 s later, and the wipe

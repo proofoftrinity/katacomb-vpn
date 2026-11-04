@@ -3,6 +3,7 @@ import type { WalletStoreStatus, AppSettings, DerivationPreview } from '../../ty
 import Spinner from '../Spinner'
 import CopyButton from '../CopyButton'
 import DisconnectButton from '../DisconnectButton'
+import InfoTip from '../InfoTip'
 import { ReviewModal, SectionHead, OptionsSection, Note, FooterReason } from '../ConnectReview'
 import { AlertIcon, CheckIcon, CopyIcon, EyeIcon, KeyIcon, LockIcon, PencilIcon, PlusIcon, TrashIcon } from '../Icons'
 import { useBalance } from '../../hooks/useBalance'
@@ -101,18 +102,25 @@ export default function WalletsTab({
   const { groups, locked } = useMemo(() => groupWalletsBySeed(wallets), [wallets])
 
   // What deleting one row does to its seed, which depends on the rest of its group.
-  const deleteNote = (w: StoredWallet): string => {
+  // One fact per paragraph, all on screen: they are the decision ([RN-15]).
+  const deleteNote = (w: StoredWallet): string[] => {
     if (w.seedGroup === null && keyringMissing) {
-      return 'Your keyring didn\'t answer, so this wallet can\'t be unlocked right now, but its seed is still stored. Removing it deletes that seed: restart the app and unlock your keyring instead.'
+      return [
+        'Your keyring didn\'t answer, so this wallet can\'t be unlocked right now, but its seed is still stored.',
+        'Removing it deletes that seed: restart the app and unlock your keyring instead.',
+      ]
     }
     if (w.seedGroup === null) {
-      return 'This wallet cannot be unlocked, so nothing usable is removed. Import the same recovery phrase again to get it back.'
+      return ['This wallet cannot be unlocked, so nothing usable is removed. Import the same recovery phrase again to get it back.']
     }
     const group = groups.find((g) => g.key === w.seedGroup)
     if (group && group.members.length > 1) {
-      return `Removes this wallet from the device. The seed stays with the other wallets of ${group.label}, so you can create it again at the same path.`
+      return ['Removes this wallet from the device.', `The seed stays with the other wallets of ${group.label}, so you can create it again at the same path.`]
     }
-    return `This is the only wallet of ${group?.label ?? 'this seed'}, so its seed is removed from this device too. Funds stay on-chain, reachable only by importing your written-down phrase again.`
+    return [
+      `This is the only wallet of ${group?.label ?? 'this seed'}, so its seed is removed from this device too.`,
+      'Funds stay on-chain, reachable only by importing your written-down phrase again.',
+    ]
   }
 
   const row = (w: StoredWallet) => (
@@ -217,16 +225,21 @@ export default function WalletsTab({
             warn
             heading={`Cannot be unlocked · ${plural(locked.length)}`}
             note={
+              // A blocker and its fix, short enough to stay on screen ([RN-15]).
               <p className="text-text-secondary text-xs mb-2">
                 {keyringMissing ? <>
-                  Your keyring didn't answer, so {locked.length === 1 ? 'its seed' : 'their seeds'} can't be
-                  unlocked this time. Start or unlock your keyring, then restart the app. Keep
-                  {locked.length === 1 ? ' it' : ' them'}: removing deletes the stored seed.
+                  Your keyring didn't answer. Start or unlock it, then restart the app. Keep
+                  {locked.length === 1 ? ' it' : ' them'}: removing deletes the stored seed.{' '}
+                  <InfoTip label="Why it cannot be unlocked" topic="wallets">
+                    So {locked.length === 1 ? 'its seed' : 'their seeds'} can't be unlocked this time.
+                  </InfoTip>
                 </> : <>
-                  Your keyring can't unlock {locked.length === 1 ? 'its seed' : 'their seeds'}. If you saved
-                  {locked.length === 1 ? ' it' : ' them'} while logged in to another desktop, open the app there
-                  once: from then on it uses that keyring here too. Otherwise import the same recovery phrase
-                  again. Your funds are on-chain and unaffected.
+                  Import the same recovery phrase again. Your funds are on-chain and unaffected.{' '}
+                  <InfoTip label="Saved on another desktop?" topic="wallets">
+                    Your keyring can't unlock {locked.length === 1 ? 'its seed' : 'their seeds'}. If you saved
+                    {locked.length === 1 ? ' it' : ' them'} while logged in to another desktop, open the app there
+                    once: from then on it uses that keyring here too.
+                  </InfoTip>
                 </>}
               </p>
             }
@@ -680,8 +693,8 @@ function NewWalletWindow({ group, onClose, onCreated }: {
             </span>
           </div>
           <p className="text-text-tertiary text-xs">
-            Another account on the same seed, what Keplr and Ledger Live call a subaccount. Leave it
-            as it is for the next address on this one.
+            Another account on the same seed. Leave it as it is for the next address on this one.{' '}
+            <InfoTip label="About accounts">What Keplr and Ledger Live call a subaccount.</InfoTip>
           </p>
         </div>
       </OptionsSection>
@@ -840,7 +853,7 @@ function PhraseWindow({ group, onClose }: { group: Group; onClose: () => void })
 /** Deletes one non-active wallet. Whether its seed survives depends on the rest of its group; `note` says which. */
 function DeleteWindow({ wallet, note, onClose, onDeleted }: {
   wallet: StoredWallet
-  note: string
+  note: string[]
   onClose: () => void
   onDeleted: () => Promise<void>
 }) {
@@ -879,7 +892,9 @@ function DeleteWindow({ wallet, note, onClose, onDeleted }: {
         </>
       }
     >
-      <p className="text-text-secondary text-sm">{note}</p>
+      <div className="space-y-2">
+        {note.map((line) => <p key={line} className="text-text-secondary text-sm">{line}</p>)}
+      </div>
     </ReviewModal>
   )
 }
@@ -971,8 +986,8 @@ function RemoveSeedWindow({ group, isLast, hitsActive, lockedCount, onClose, onR
         </ul>
         {hitsActive && (
           <p className="text-text-secondary text-xs pl-6">
-            The wallet in use is among them. Afterwards the app reloads on another stored
-            wallet, or on the wallet screen when none is left.
+            The wallet in use is among them. The app then reloads on another wallet, or on the
+            wallet screen if none is left.
           </p>
         )}
         <p className="text-text-secondary text-xs pl-6">App settings are kept.</p>
@@ -993,7 +1008,8 @@ function RemoveSeedWindow({ group, isLast, hitsActive, lockedCount, onClose, onR
         </div>
       ) : (
         <div className="space-y-2 text-xs">
-          <p className="text-text-secondary">
+          {/* A recovery-phrase warning: stays on screen in full ([RN-15]). */}
+          <p className="text-text-secondary" data-full>
             The seed is removed from this device with them. Funds stay on-chain, reachable
             only by importing your written-down phrase again.
           </p>

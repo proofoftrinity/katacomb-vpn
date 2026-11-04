@@ -10,6 +10,8 @@ import { parseSplitTunnelRoutes, MAX_SPLIT_TUNNEL_ROUTES } from '../../shared/sp
 import { STATE_DOT } from './RpcStatus'
 import WalletsTab from './settings/WalletsTab'
 import SystemSetup from './SystemSetup'
+import InfoTip from './InfoTip'
+import { useHelpAside } from './HelpPanel'
 import { IS_WINDOWS } from '../utils/protocols'
 
 interface Props {
@@ -59,6 +61,8 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
   const [rpcInput, setRpcInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState<SettingsTab>(initialTab)
+  // Moves left of the Help panel while it is open, like the review windows.
+  const aside = useHelpAside()
   const [splitTunnelInput, setSplitTunnelInput] = useState('')
   // The save is all-or-nothing at the IPC boundary, so the pane pre-checks the
   // same rule and reports the offending lines; `splitTunnelError` carries
@@ -218,7 +222,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
 
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
+    <div className={`fixed inset-0 bg-black/40 flex items-center justify-center z-50 transition-[padding] duration-200 ${aside}`} onClick={onClose}>
       {/*
         Fixed height rather than shrink-to-fit. Measured natural heights at the
         default 1280x800 window (85vh ceiling = 658px): General 771px, Network
@@ -293,9 +297,14 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                   <div>
                     <span className="text-text-primary text-sm">Local Network Sharing</span>
                     <p className="text-text-tertiary text-xs mt-0.5">
-                      {settings.killSwitch
-                        ? 'Reach other devices on your network (SSH, printers, NAS) while the kill switch is on. This traffic stays on your LAN and is not encrypted by the VPN.'
-                        : 'Only applies while the kill switch is on. Your local network is already reachable without it.'}
+                      {settings.killSwitch ? (
+                        <>
+                          Reach SSH, printers and NAS on your network while the kill switch is on.{' '}
+                          <InfoTip label="About local network sharing" topic="kill-switch">
+                            This traffic stays on your LAN and is not encrypted by the VPN.
+                          </InfoTip>
+                        </>
+                      ) : 'Only applies while the kill switch is on. Your local network is already reachable without it.'}
                     </p>
                   </div>
                   <Toggle
@@ -385,9 +394,11 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                   ))}
                 </select>
                 <p className="text-text-tertiary text-xs">
-                  Applied when VPN connects. Prevents DNS leaks to your ISP. On V2Ray
-                  nodes, a chosen resolver is queried over encrypted DNS (DoH), so the
-                  node can't see your lookups. System Default stays plaintext.
+                  Used while connected. System Default stays unencrypted.{' '}
+                  <InfoTip label="About DNS" topic="dns">
+                    <p>Applied when VPN connects. Prevents DNS leaks to your ISP.</p>
+                    <p>On V2Ray nodes, a chosen resolver is queried over encrypted DNS (DoH), so the node can't see your lookups.</p>
+                  </InfoTip>
                 </p>
               </div>
 
@@ -414,7 +425,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                 {/* Why the save would be refused, said before it is clicked —
                     the whole list is rejected if one line is bad. */}
                 {splitTunnel.invalid.length > 0 && (
-                  <p className="text-danger text-xs">
+                  <p className="text-danger text-xs" data-full>
                     Not a valid IPv4 CIDR: {splitTunnel.invalid.map((r) => `"${r}"`).join(', ')}.
                     Each line needs an address and a prefix, like 192.168.1.0/24. Hostnames,
                     IPv6 and 0.0.0.0/x are not accepted.
@@ -454,8 +465,11 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                   {splitTunnelSaved && <span className="text-success text-xs">Saved</span>}
                 </div>
                 <p className="text-text-tertiary text-xs">
-                  CIDR routes (one per line) that bypass the VPN tunnel. Private networks are excluded by default.
-                  Applies to V2Ray, XRAY and Hysteria2 nodes, which route through tun2socks.
+                  Listed addresses skip the VPN. V2Ray, XRAY and Hysteria2 nodes only.{' '}
+                  <InfoTip label="About split tunneling">
+                    <p>CIDR routes, one per line, like 192.168.1.0/24. Private networks are excluded by default.</p>
+                    <p>Applies to V2Ray, XRAY and Hysteria2 nodes, which route through tun2socks.</p>
+                  </InfoTip>
                 </p>
               </div>
 
@@ -475,8 +489,10 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                 <div>
                   <span className="text-text-primary text-sm">Automatic Endpoint Selection</span>
                   <p className="text-text-tertiary text-xs mt-0.5">
-                    Picks the fastest healthy public endpoint at startup and switches away from one that
-                    fails. Choosing an endpoint below turns this off.
+                    Picks the fastest healthy public endpoint and switches away from one that fails.{' '}
+                    <InfoTip label="About automatic selection">
+                      It picks at startup. Choosing an endpoint below turns this off.
+                    </InfoTip>
                   </p>
                 </div>
                 <Toggle
@@ -512,19 +528,25 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                   clear it. Say what the pause is and what ends it. */}
               {rpcHealth.state === 'suspended' && (
                 <p className="text-text-tertiary text-xs">
-                  Paused while the VPN is connected. Chain data is served from the cache and nothing is
-                  queried through the tunnel. It resumes when you disconnect; changing endpoints will not
-                  resume it, though a new one is saved and used from then on.
+                  Paused while the VPN is connected. It resumes when you disconnect.{' '}
+                  <InfoTip label="Why it is paused">
+                    Chain data is served from the cache and nothing is queried through the tunnel. Changing
+                    endpoints will not resume it, though a new one is saved and used from then on.
+                  </InfoTip>
                 </p>
               )}
 
               {/* Same trap as the pause, one step further along: here the chain
                   really is unreachable, so the endpoint looks guilty. */}
               {rpcHealth.state === 'blocked' && (
-                <p className="text-text-tertiary text-xs">
-                  Blocked by the kill switch, which stayed on after your session ended so nothing leaves
-                  the machine untunnelled. Use “Restore internet” in the banner, or turn the kill switch
-                  off under General. Changing endpoints will not resume it.
+                // A blocker and its fix: stays on screen ([RN-15]).
+                <p className="text-text-tertiary text-xs" data-full>
+                  Blocked by the kill switch, which stayed on after your session ended. Use “Restore internet”
+                  in the banner, or turn the kill switch off under General.{' '}
+                  <InfoTip label="Why it is blocked" topic="kill-switch">
+                    The kill switch stays on so nothing leaves the machine untunnelled. Changing endpoints will
+                    not resume it.
+                  </InfoTip>
                 </p>
               )}
 
@@ -572,7 +594,7 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                     <button
                       onClick={() => void (rpcAuto ? reselect() : loadRpcs())}
                       className="text-text-secondary hover:text-accent text-xs transition-colors"
-                      title={rpcAuto ? 'Probe every endpoint again and let the automatic selection act on the result. It keeps your endpoint unless another is meaningfully better.' : undefined}
+                      title={rpcAuto ? 'Probes every endpoint again. Keeps yours unless another is meaningfully better.' : undefined}
                     >
                       {rpcAuto ? 'Retest and reselect' : 'Retest'}
                     </button>
@@ -660,9 +682,13 @@ export default function Settings({ initialTab, connected, onClose, onWalletSwitc
                   <>What this computer needs to bring a connection up: on Windows, the Katacomb VPN service,
                   which the installer sets up.</>
                 ) : (
-                  <>What this computer needs to bring a connection up. The app asks for anything
-                  missing when a connection needs it, so setting it up here first is optional.
-                  The .deb package installs the helper and WireGuard tools with the app.</>
+                  <>
+                    What this computer needs to bring a connection up.{' '}
+                    <InfoTip label="About system setup">
+                      The app asks for anything missing when a connection needs it, so setting it up here first
+                      is optional. The .deb package installs the helper and WireGuard tools with the app.
+                    </InfoTip>
+                  </>
                 )}
               </p>
               <SystemSetup connected={connected} />
@@ -697,9 +723,11 @@ function ProviderModeRow({ visible, disabled, onToggle }: {
       <div>
         <span className="text-text-primary text-sm">Provider Mode: this wallet</span>
         <p className="text-text-tertiary text-xs mt-0.5">
-          Show the Provider tab, where you can register as a provider, publish plans and lease nodes.
-          Applies to the selected wallet only. Turning it off only hides the tab: your provider,
-          plans and leases carry on exactly as they are on chain.
+          Show the Provider tab, where you can register as a provider, publish plans and lease nodes.{' '}
+          <InfoTip label="About provider mode" topic="provider">
+            Applies to the selected wallet only. Turning it off only hides the tab: your provider,
+            plans and leases carry on exactly as they are on chain.
+          </InfoTip>
         </p>
         {error && <p className="text-danger text-xs mt-1">{error}</p>}
       </div>
