@@ -120,10 +120,11 @@ export default function ConnectErrorActions({
 
       {dnsFailure && onRetryWithoutDns && (
         <div className="space-y-2">
-          <p className="text-text-tertiary text-xs">
+          {/* A blocker, and what its way round costs in privacy: on screen in full ([RN-15]). */}
+          <p className="text-text-tertiary text-xs" data-full>
             This system has no <span className="font-mono">resolvconf</span>, so the tunnel's DNS couldn't be
-            applied. You can connect anyway using your system DNS, but then DNS queries may leave the tunnel
-            and your provider can see which sites you look up.
+            applied. Connecting anyway uses your system DNS: queries may leave the tunnel, and your provider
+            can see which sites you look up.
           </p>
           <button onClick={onRetryWithoutDns} className="btn btn-primary w-full">
             Retry without VPN DNS

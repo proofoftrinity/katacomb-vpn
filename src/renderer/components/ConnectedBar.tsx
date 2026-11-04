@@ -6,29 +6,34 @@ import { formatDuration } from '../utils/format'
 import type { ConnectionStatus } from '../types'
 import CountryFlag from './CountryFlag'
 import CopyButton from './CopyButton'
+import InfoTip from './InfoTip'
 import IpDisplay from './IpDisplay'
 import Spinner from './Spinner'
+import Tooltip from './Tooltip'
 import { ChevronIcon, KeyIcon, RefreshIcon } from './Icons'
 
 const UNREACHABLE_TEXT = 'Could not reach the internet through the tunnel. It may be up but not passing traffic.'
 
 // The capsule only marks a signed reply (the teal key on the protocol chip). The
-// other cases are said in the panel, where there is room to say why they matter.
-const SIGNER_TEXT: Record<NonNullable<ConnectionStatus['handshakeSigner']>, { title: string; detail: string }> = {
+// other cases are said in the panel, one line each, with the reason in a "?" ([RN-15]).
+const SIGNER_TEXT: Record<NonNullable<ConnectionStatus['handshakeSigner']>, { title: string; detail: string; tip?: string }> = {
   node: {
     title: "Signed by the node's own key",
-    detail: 'The node signed its handshake reply with the key the chain knows it by, so the keys and addresses this connection uses came from that node.',
+    detail: 'The keys and addresses this connection uses came from that node.',
+    tip: 'The node signed its handshake reply with the key the chain knows it by.',
   },
   hotKey: {
     title: "Signed by a key the node's account authorised on chain",
-    detail: 'The node signed its handshake reply with a key its account authorised on chain, so the keys and addresses this connection uses came from that node.',
+    detail: 'The keys and addresses this connection uses came from that node.',
+    tip: 'The node signed its handshake reply with a key its account authorised on chain.',
   },
   unsigned: {
     title: 'Unsigned',
-    detail: 'The node did not sign its handshake reply (only dvpnd 9.4 and later do), so someone on your network could have posed as it during the handshake. The Signed filter in the node list shows only nodes that sign.',
+    detail: 'Someone on your network could have posed as the node during the handshake.',
+    tip: 'Only dvpnd 9.4 and later sign their handshake reply. The Signed filter in the node list shows only nodes that sign.',
   },
 }
-const NOT_CHECKED = { title: 'Not checked', detail: 'This tunnel was restored from a saved config, with no new handshake.' }
+const NOT_CHECKED: { title: string; detail: string; tip?: string } = { title: 'Not checked', detail: 'This tunnel was restored from a saved config, with no new handshake.' }
 
 // Capsule border by state. A tint rather than the full status colour while things
 // are fine, so the border only shouts when something is wrong.
@@ -60,6 +65,8 @@ function ConnectionCapsule({ status, exitIp }: { status: ConnectionStatus; exitI
   useEffect(() => {
     if (!open) return
     function handleClickOutside(e: MouseEvent) {
+      // A "?" panel is drawn on document.body: a press on its Learn more is not outside.
+      if ((e.target as Element).closest?.('[role="tooltip"]')) return
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false)
       }
@@ -128,12 +135,21 @@ function ConnectionCapsule({ status, exitIp }: { status: ConnectionStatus; exitI
       </button>
 
       {status.killSwitchFailed && (
-        <span
-          className="shrink-0 px-1.5 py-0.5 border border-danger text-danger text-xs rounded-sm whitespace-nowrap"
-          title="The kill switch could not be enabled, so your real IP is NOT protected if the tunnel drops. Try reconnecting; if it persists, check that the VPN helper/daemon is installed."
+        <Tooltip
+          content="The kill switch could not be enabled, so your real IP is NOT protected if the tunnel drops. Try reconnecting; if it persists, check that the VPN helper/daemon is installed."
+          topic="kill-switch"
+          className="shrink-0"
         >
-          ⚠ Kill switch inactive
-        </span>
+          {(_open, describedBy) => (
+            <span
+              tabIndex={0}
+              aria-describedby={describedBy}
+              className="px-1.5 py-0.5 border border-danger text-danger text-xs rounded-sm whitespace-nowrap cursor-help focus:outline-hidden focus-visible:border-border-focus"
+            >
+              ⚠ Kill switch inactive
+            </span>
+          )}
+        </Tooltip>
       )}
 
       {open && <DetailsPanel status={status} exitIp={exitIp} signed={signed} />}
@@ -225,6 +241,7 @@ function DetailsPanel({ status, exitIp, signed }: { status: ConnectionStatus; ex
           <div className={`flex items-center gap-1.5 ${signed ? 'text-info' : 'text-text-primary'}`}>
             {signed && <KeyIcon className="w-3.5 h-3.5 shrink-0" />}
             {signer.title}
+            {signer.tip && <InfoTip label="About the handshake" topic="signing">{signer.tip}</InfoTip>}
           </div>
           <p className="mt-0.5 leading-snug text-text-tertiary">
             {exit && 'This is the entry node\'s handshake. '}

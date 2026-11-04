@@ -3,6 +3,7 @@ import type { SetupStatus } from '../types'
 import { displayConnectError, type SetupItem } from '../utils/connect-errors'
 import Spinner from './Spinner'
 import DisconnectButton from './DisconnectButton'
+import InfoTip from './InfoTip'
 
 interface Props {
   /** Only these rows: what a refused connect named. Absent = all three (Settings, System). */
@@ -20,26 +21,28 @@ interface Props {
   onReadyChange?: (ready: boolean) => void
 }
 
-const ROWS: { item: SetupItem; label: string; detail: string }[] = [
+// One line per row on screen, the reason in `tip` ([RN-15]).
+const ROWS: { item: SetupItem; label: string; line: string; tip?: string }[] = [
   {
     item: 'helper',
     label: 'VPN helper',
-    detail: 'Brings the tunnel and firewall up as root. Needed for full-tunnel connections; local proxy mode works without it.',
+    line: 'Brings the tunnel and firewall up as root. Needed for full-tunnel connections; local proxy mode works without it.',
   },
-  { item: 'wireguard-tools', label: 'WireGuard tools', detail: 'Needed for WireGuard nodes.' },
+  { item: 'wireguard-tools', label: 'WireGuard tools', line: 'Needed for WireGuard nodes.' },
   {
     item: 'resolvconf',
     label: 'VPN DNS (resolvconf)',
-    detail: "Applies the VPN's DNS for WireGuard and AmneziaWG. Without it those connections can only use your system's DNS, outside the tunnel.",
+    line: "Applies the VPN's DNS for WireGuard and AmneziaWG.",
+    tip: "Without it those connections can only use your system's DNS, outside the tunnel.",
   },
 ]
 
 // Windows: the one thing a connect needs is the service the installer registered, and
 // the only fix the app can offer is the installer itself.
-const WINDOWS_ROW = {
-  item: 'helper' as const,
+const WINDOWS_ROW: (typeof ROWS)[number] = {
+  item: 'helper',
   label: 'VPN service',
-  detail: 'Brings the tunnel and firewall up for the app. Installed with Katacomb VPN. Needed for full-tunnel connections; local proxy mode works without it.',
+  line: 'Brings the tunnel and firewall up for the app. Needed for full-tunnel connections; local proxy mode works without it.',
 }
 
 function isReady(item: SetupItem, status: SetupStatus): boolean {
@@ -110,7 +113,7 @@ export default function SystemSetup({ only, connected = false, onReadyChange }: 
 
   return (
     <div className="space-y-2">
-      {rows.map(({ item, label, detail }) => {
+      {rows.map(({ item, label, line, tip }) => {
         const ready = isReady(item, status)
         const outdated = item === 'helper' && status.helper === 'outdated'
         const windows = status.platform === 'windows'
@@ -129,12 +132,19 @@ export default function SystemSetup({ only, connected = false, onReadyChange }: 
                 </span>
               </div>
               <p className="text-text-tertiary text-xs mt-0.5">
-                {outdated
-                  ? 'The installed helper is not the one this version of the app ships, and an older one can refuse configs this version builds.'
-                  : detail}
+                {outdated ? 'The installed helper does not match this version of the app.' : line}
+                {(outdated || tip) && (
+                  <>
+                    {' '}
+                    <InfoTip label={`About ${label}`}>
+                      {outdated ? 'An older helper can refuse configs this version builds.' : tip}
+                    </InfoTip>
+                  </>
+                )}
               </p>
+              {/* A blocker and its fix: stays on screen ([RN-15]). */}
               {!ready && manualOnly && item === 'resolvconf' && (
-                <p className="text-text-secondary text-xs mt-1">
+                <p className="text-text-secondary text-xs mt-1" data-full>
                   This system doesn't use systemd-resolved, so there is no one-click fix. Set up a resolvconf provider
                   (for example <span className="font-mono">openresolv</span>) the way your distribution documents, then press Recheck.
                 </p>

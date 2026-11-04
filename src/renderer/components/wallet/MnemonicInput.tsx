@@ -168,10 +168,9 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
                   <p className="text-accent">A decentralized VPN client</p>
                 </div>
               </div>
+              {/* The rest of the old paragraph is the "You hold the keys" highlight below ([RN-15]). */}
               <p className="text-text-secondary text-sm leading-relaxed max-w-xl">
-                Connect through independent nodes all over the world. There is no account and no
-                single provider: you buy bandwidth directly from the people who run the nodes, with a
-                wallet only you hold the keys to.
+                Connect through independent nodes all over the world, with no account and no single provider.
               </p>
             </header>
 
@@ -437,9 +436,10 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
               </div>
             </div>
 
+            {/* No "last time you see it" claim: Settings, Wallets, Recovery phrase shows the phrase again. */}
             <div className="bg-danger-subtle border border-danger p-3 rounded-md">
-              <p className="text-danger text-sm">
-                Write down these words in order and store them in a safe place. Anyone with this phrase can access your funds. You will not be shown this again.
+              <p className="text-danger text-sm" data-full>
+                Write down these words in order and store them in a safe place. Anyone with this phrase can access your funds.
               </p>
             </div>
 
@@ -567,7 +567,7 @@ function NetworkMap() {
         {figure ? (
           <span
             className="text-text-primary text-sm"
-            title="Active nodes that passed the node directory's latest health check, counted as the Nodes tab counts them. Refreshed every minute."
+            title="Active nodes that passed the node directory's latest health check, as the Nodes tab counts them. Refreshed every minute."
           >
             {figure}
           </span>

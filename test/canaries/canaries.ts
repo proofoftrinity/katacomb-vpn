@@ -870,8 +870,8 @@ export const CANARIES: Canary[] = [
   {
     name: '[SL-1] End is worded as an instant refund',
     file: 'src/renderer/components/ActiveSessions.tsx',
-    find: "          : 'You pay the node only for what it reports you used. Whatever is left of your deposit goes back to your wallet when the chain settles the session, about 2 hours from now.',",
-    replace: "          : 'You pay the node only for what it reports you used. Whatever is left of your deposit goes back to your wallet right away.',",
+    find: "          : ['You pay the node only for what it reports you used.', 'Whatever is left of your deposit goes back to your wallet when the chain settles the session, about 2 hours from now.']),",
+    replace: "          : ['You pay the node only for what it reports you used.', 'Whatever is left of your deposit goes back to your wallet right away.']),",
     run: ['test/static/renderer-rules.test.ts'],
   },
   {

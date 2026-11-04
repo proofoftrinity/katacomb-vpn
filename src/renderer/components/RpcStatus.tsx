@@ -2,6 +2,7 @@ import { degradedReason, rpcHealthLabel, rpcHostLabel } from '../../shared/rpc-h
 import { useRpcHealth } from '../hooks/useRpcHealth'
 import { useNavigation } from '../contexts/NavigationContext'
 import { useSettings } from '../contexts/SettingsContext'
+import Tooltip from './Tooltip'
 
 /** Shared with the Settings endpoint list, so one state never renders two colours. */
 export const STATE_DOT: Record<string, string> = {
@@ -19,7 +20,8 @@ export const STATE_DOT: Record<string, string> = {
  * Health of the blockchain endpoint, in the status bar. Everything the app knows
  * about balances, sessions and plans comes through it, so when it's unhealthy
  * that has to be visible rather than showing up as data that's quietly stale.
- * Click to go straight to the endpoint list.
+ * Click to go straight to the endpoint list. The details are a Tooltip, not a native
+ * title, so a keyboard user reaches them too ([RN-15]).
  */
 export default function RpcStatus() {
   const health = useRpcHealth()
@@ -27,14 +29,18 @@ export default function RpcStatus() {
   const { settings } = useSettings()
 
   const host = health.endpoint ? rpcHostLabel(health.endpoint) : 'not configured'
-  const tooltip = [
+  const healthTip = [
     `RPC: ${host}`,
     settings?.rpcMode === 'auto' ? 'Endpoint selected automatically at startup and on failure.' : null,
     health.state === 'suspended'
-      ? 'Paused while the VPN is connected: balances, sessions and plans come from the cache and no query is sent through the tunnel.\nIt resumes on disconnect. Switching endpoints will not clear it.'
+      ? 'Paused while the VPN is connected: balances, sessions and plans come from the cache and no query is sent through the tunnel.'
+      : null,
+    health.state === 'suspended' ? 'It resumes on disconnect. Switching endpoints will not clear it.' : null,
+    health.state === 'blocked'
+      ? 'The kill switch is still blocking all traffic after the session ended, so nothing reaches the chain.'
       : null,
     health.state === 'blocked'
-      ? 'The kill switch is still blocking all traffic after the session ended, so nothing reaches the chain.\nRestore internet from the banner, or turn the kill switch off. Switching endpoints will not clear it.'
+      ? 'Restore internet from the banner, or turn the kill switch off. Switching endpoints will not clear it.'
       : null,
     health.chainId ? `Chain: ${health.chainId}` : null,
     health.height !== null ? `Height: ${health.height.toLocaleString('en')}` : null,
@@ -42,18 +48,20 @@ export default function RpcStatus() {
     health.error,
     degradedReason(health) === 'lagging' ? 'This endpoint is behind the chain.' : null,
     'Click to change endpoint',
-  ]
-    .filter(Boolean)
-    .join('\n')
+  ].filter(Boolean)
 
   return (
-    <button
-      onClick={() => openSettings('network')}
-      title={tooltip}
-      className="flex items-center gap-1.5 text-text-secondary hover:text-text-primary transition-colors"
-    >
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATE_DOT[health.state]}`} aria-hidden />
-      <span className="font-mono">{rpcHealthLabel(health)}</span>
-    </button>
+    <Tooltip content={healthTip.map((line, i) => <p key={i}>{line}</p>)}>
+      {(_open, describedBy) => (
+        <button
+          onClick={() => openSettings('network')}
+          aria-describedby={describedBy}
+          className="flex items-center gap-1.5 text-text-secondary hover:text-text-primary transition-colors"
+        >
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATE_DOT[health.state]}`} aria-hidden />
+          <span className="font-mono">{rpcHealthLabel(health)}</span>
+        </button>
+      )}
+    </Tooltip>
   )
 }
