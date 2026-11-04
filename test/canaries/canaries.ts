@@ -28,6 +28,7 @@ const SINKS = 'src/main/vpn/vpn-manager.test.ts'
 const IPC_TS = 'src/main/ipc-handlers.ts'
 const VPN_TS = 'src/main/vpn/vpn-manager.ts'
 const PROTOCOLS = 'src/main/ipc-handlers.protocols.test.ts'
+const EXTEND = 'src/main/ipc-handlers.extend.test.ts'
 
 export const CANARIES: Canary[] = [
   // --- money --------------------------------------------------------------------
@@ -100,6 +101,34 @@ export const CANARIES: Canary[] = [
     find: '  if (!RECONNECTABLE_PROTOCOLS.has(saved.protocol)) {',
     replace: '  if (false) {',
     run: [LIFE],
+  },
+  {
+    name: '[REL-46] the session bought for a cancelled Extend is left open',
+    file: IPC_TS,
+    find: "          await withTimeout(endSession({ wallet, address, sessionId }), REFUND_TIMEOUT_MS, 'refund')\n          ended = true",
+    replace: '          ended = true',
+    run: [EXTEND],
+  },
+  {
+    name: '[REL-46] Extend buys without checking the live connection',
+    file: IPC_TS,
+    find: '    if (refusal) throw new Error(refusal)\n    extending = { switching: false }',
+    replace: '    extending = { switching: false }',
+    run: [EXTEND],
+  },
+  {
+    name: '[REL-46] Extend over WireGuard ignores a node that names itself dvpnd',
+    file: IPC_TS,
+    find: '        if (d3) throw new Error(d3)',
+    replace: '        void d3',
+    run: [EXTEND],
+  },
+  {
+    name: '[REL-46] the old session is stood down while Extend is replacing it',
+    file: IPC_TS,
+    find: '  const unsupervised = () => isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId || extending !== null\n  if (unsupervised()) return\n  // One read per tick',
+    replace: '  const unsupervised = () => isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId\n  if (unsupervised()) return\n  // One read per tick',
+    run: [EXTEND],
   },
 
   // --- one connection, the lock, the epoch ----------------------------------------
@@ -734,15 +763,15 @@ export const CANARIES: Canary[] = [
   {
     name: '[REL-9] the reconnect ladder puts the user back on the node\'s resolver',
     file: IPC_TS,
-    find: '        const withResolver = (cfg: string) => (wgDns ? replaceDnsLines(cfg, wgDns) : cfg)',
-    replace: '        const withResolver = (cfg: string) => (wgDns ? cfg : cfg)',
+    find: '  const withResolver = (cfg: string) => (wgDns ? replaceDnsLines(cfg, wgDns) : cfg)',
+    replace: '  const withResolver = (cfg: string) => (wgDns ? cfg : cfg)',
     run: [PROTOCOLS],
   },
   {
     name: '[PRO-7] a proxy-mode session comes back from a reconnect as a full tunnel',
     file: IPC_TS,
-    find: "          const proxyOnly = desiredMode === 'proxy'\n",
-    replace: '          const proxyOnly = false\n',
+    find: '        await bringUpFromConfig(saved.protocol, saved.configString, desiredMode, true)',
+    replace: "        await bringUpFromConfig(saved.protocol, saved.configString, 'tunnel', true)",
     run: [PROTOCOLS],
   },
   {
@@ -764,8 +793,8 @@ export const CANARIES: Canary[] = [
   {
     name: '[REL-12] the node purchase is left to open its own connection beside the flow',
     file: IPC_TS,
-    find: '        clients: { query: flow.query, signing: flow.signing },\n      }).catch(noteChainError)',
-    replace: '      }).catch(noteChainError)',
+    find: '        apiField: params.apiField,\n        type: params.type,\n        amount: params.amount,\n        denom: params.denom,\n        clients: { query: flow.query, signing: flow.signing },\n      }).catch(noteChainError)',
+    replace: '        apiField: params.apiField,\n        type: params.type,\n        amount: params.amount,\n        denom: params.denom,\n      }).catch(noteChainError)',
     run: [MONEY],
   },
   {

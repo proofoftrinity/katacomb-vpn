@@ -113,6 +113,7 @@ function defaults(tunnel: Tunnel, state: { nextSession: number; chainSessions: u
       listSessionsOwnedByOtherWallets: () => [],
       sendChainHopProgress: noop,
       sendPlanProgress: noop,
+      sendExtendProgress: noop,
       chainHopRoleOf: () => null,
       chainSigner: (a: unknown) => a,
     },
@@ -163,6 +164,7 @@ function defaults(tunnel: Tunnel, state: { nextSession: number; chainSessions: u
       fetchNodeServiceType: async () => 'wireguard',
       fetchNodeServiceMetadata: async () => [],
       fetchNodeSignsReplies: async () => true,
+      fetchNodeSoftware: async () => ({ name: '', tag: '' }),
       getAllCachedResults: () => [],
     },
     'net-fetch': {

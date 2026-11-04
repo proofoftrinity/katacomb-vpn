@@ -13,7 +13,9 @@ import ChainUnreachable from './ChainUnreachable'
 import RouteStrip from './RouteStrip'
 import { useConfirm } from './ConfirmModal'
 import { useNavigation } from '../contexts/NavigationContext'
-import type { SessionInfo } from '../types'
+import { useNodesContext } from '../contexts/NodesContext'
+import ConnectionModal from './ConnectionModal'
+import type { SentNode, SessionInfo } from '../types'
 import { cardState as cardStateOf, chainUsage, flooredUsage, quotaUsedUp as isQuotaUsedUp, timePercent, usagePercent, usageReading, type SessionUsage } from '../utils/session-card'
 import { effectiveCaps, nodeClockSeconds, paidTimeEndsAtMs } from '../../shared/node-quota'
 
@@ -100,6 +102,9 @@ export default function ActiveSessions({
   const reconnect = useReconnect()
   const { requestConfirm, confirmDialog } = useConfirm()
   const { setMainTab } = useNavigation()
+  const { allNodes } = useNodesContext()
+  // [REL-46] The node whose buy window is open on Extend, for the live session's card.
+  const [extendNode, setExtendNode] = useState<SentNode | null>(null)
   // The session the last reconnect tried. When main refused it for setup, that
   // card's Reconnect is held until every row the pane lists is Ready.
   const [setupSessionId, setSetupSessionId] = useState<string | null>(null)
@@ -657,6 +662,24 @@ export default function ActiveSessions({
                             {isBusy ? <Spinner /> : 'Reconnect'}
                           </button>
                         )}
+                        {/* [REL-46] The live single-hop session paid per GB or per hour.
+                            Its prices come from the node list, so a node missing there
+                            cannot be priced, and the window says the rest. */}
+                        {isConnectedSession && !isChain && !session.subscriptionId && (() => {
+                          const listed = allNodes.find((n) => n.address === session.nodeAddress)
+                          return (
+                            <button
+                              onClick={() => listed && setExtendNode(listed)}
+                              disabled={!listed || busy !== null || status.state !== 'connected'}
+                              className="btn btn-primary text-xs px-3 py-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={listed
+                                ? 'Buy more time or data on this node and move your connection onto it'
+                                : 'This node is not in the node list right now, so its prices are unknown'}
+                            >
+                              Extend
+                            </button>
+                          )
+                        })()}
                         <button
                           onClick={() => handleEndSession(session)}
                           disabled={isBusy || busy !== null}
@@ -853,6 +876,16 @@ export default function ActiveSessions({
         </div>
       )}
       {confirmDialog}
+      {extendNode && (
+        <ConnectionModal
+          node={extendNode}
+          startExtend
+          onClose={() => {
+            setExtendNode(null)
+            void refresh()
+          }}
+        />
+      )}
     </div>
   )
 }

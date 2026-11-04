@@ -812,6 +812,14 @@ export function sendPlanProgress(phase: 'rank' | 'buy' | 'session' | 'handshake'
 }
 
 /**
+ * Extend's two steps after the purchase's own 1/5..4/5, on the same channel: moving the
+ * tunnel onto the new session, then ending the old one.
+ */
+export function sendExtendProgress(phase: 'switch' | 'end-old', detail: string): void {
+  sendProgress(`extend:${phase}`, detail)
+}
+
+/**
  * Which hop of a chain an error came from. Recorded on the error object itself
  * (non-enumerable, so it never shows up in a serialized log line) rather than by
  * wrapping it, because the callers still need `err instanceof V2RayPolicyError` and

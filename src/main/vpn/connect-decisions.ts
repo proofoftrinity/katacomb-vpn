@@ -585,6 +585,103 @@ export function shouldRetrySessionHandshake(status: number | null, attempt: numb
 }
 
 /**
+ * [REL-46] Why Extend is refused, or null when it may go ahead. Extend buys a second
+ * session on the node the tunnel runs through and moves the tunnel onto it, so it needs
+ * exactly that: a live single-node connection paid per GB or per hour, still the one the
+ * user opened the window for, on a node whose answer to the new handshake can reach
+ * this device.
+ *
+ * The last is extendNodeRefusal, below.
+ */
+export function extendRefusal(c: {
+  /** A tunnel, or local-proxy mode, with a session behind it. */
+  live: boolean
+  reconnecting: boolean
+  /** The session and node the Extend window was opened for. */
+  requested: { sessionId: string; nodeAddress: string }
+  current: { sessionId: string | null; nodeAddress: string | null }
+  chain: boolean
+  /** The live session's chain row; null when the session list has no row for it. */
+  row: { subscriptionId?: string | null } | null
+  protocol: string | null
+  /** shared/node-signing.ts' nodeSoftware, from what is known before asking the node. */
+  software: 'dvpnd' | 'dvpnx' | null
+}): string | null {
+  if (c.reconnecting) return 'The connection is reconnecting. Try Extend again once it is back.'
+  if (!c.live || c.current.sessionId === null) {
+    return 'You are not connected, so there is no session to extend. Buy a new session instead.'
+  }
+  if (c.requested.sessionId !== c.current.sessionId || c.requested.nodeAddress !== c.current.nodeAddress) {
+    return 'Your connection changed since this window opened. Close it and open Extend again.'
+  }
+  if (c.chain) {
+    return 'A two-hop chain cannot be extended. When it runs out, build a new chain from the Multi-hop tab.'
+  }
+  if (c.row === null) {
+    return "This session's details have not loaded yet. Open the Sessions tab, then try again."
+  }
+  if (c.row.subscriptionId) {
+    return 'This session runs on a plan, and Extend is for sessions paid per GB or per hour. ' +
+      'When it runs out, start a new session from the plan.'
+  }
+  return extendNodeRefusal(c.protocol, c.software)
+}
+
+/**
+ * [REL-46] Decision D3 (2026-10-29): whether this node's software lets Extend set up the
+ * new session over this protocol. dvpnd drops the account's earlier peer when a new
+ * handshake arrives, before it replies. A WireGuard or AmneziaWG reply comes back through
+ * that peer's tunnel, so it never arrives: the handshake times out, and the refund has no
+ * way to the chain either. V2Ray, Xray and Hysteria2 route the node's own address outside
+ * the tunnel, so their reply arrives either way. Software that cannot be told is treated
+ * like dvpnd: refusing costs a click, a wrong guess a session. Asked twice: from the
+ * directory before anything else, then from the node's own root document before paying.
+ */
+export function extendNodeRefusal(protocol: string | null, software: 'dvpnd' | 'dvpnx' | null): string | null {
+  if ((protocol !== 'wireguard' && protocol !== 'amneziawg') || software === 'dvpnx') return null
+  const label = protocol === 'wireguard' ? 'WireGuard' : 'AmneziaWG'
+  return software === 'dvpnd'
+    ? `This node runs dvpnd, which closes your current ${label} tunnel as soon as a new session ` +
+      'is set up, before the node can answer you through it. Extend is not available on this ' +
+      'node yet. When this session runs out, buy a new one.'
+    : 'This app cannot tell which software this node runs. On some, extending a ' +
+      `${label} connection cuts it before the new session is set up, so Extend is off for ` +
+      'this node. When this session runs out, buy a new one.'
+}
+
+/**
+ * [REL-46] Extend bought the new session and handshaked it, then could not bring its
+ * tunnel up. The switch takes the old tunnel down first, so the user is now disconnected
+ * with both sessions open on the chain. Neither is lost: each can be reconnected or ended
+ * from the Sessions tab, and the message says which is which. Only the first paragraph of
+ * the reason is kept: a dead tunnel's own message goes on to advise a retry this one gives.
+ */
+export function extendSwitchFailedMessage(o: { reason: string; oldSessionId: string; newSessionId: string }): string {
+  return `Session #${o.newSessionId} was bought, but its tunnel did not come up: ` +
+    `${trimTrailingStop(o.reason.split('\n')[0])}.\n\n` +
+    'You are disconnected, and both sessions are still open. Reconnect ' +
+    `#${o.newSessionId} from the Sessions tab to use what you just bought. Session ` +
+    `#${o.oldSessionId} is open too: end it there when you no longer need it. Ending a ` +
+    'session returns what is left of its deposit when the chain settles it, about 2 hours later.'
+}
+
+/**
+ * [REL-46] The connection was closed while Extend ran: the user's Disconnect, or a
+ * stand-down that got in before Extend took the lock. Nothing is switched, and a session
+ * already bought for it is ended so its deposit comes back at settlement ([SL-1]: not at
+ * once, so the wording says when).
+ */
+export function extendCancelledMessage(o: { newSessionId: string | null; ended: boolean }): string {
+  if (o.newSessionId === null) return 'Extend stopped because the connection was closed. Nothing was bought.'
+  return o.ended
+    ? `Extend stopped because the connection was closed. Session #${o.newSessionId}, bought for it, was ` +
+      'ended: what is left of its deposit comes back to your wallet when the chain settles it, ' +
+      'about 2 hours from now.'
+    : `Extend stopped because the connection was closed, and session #${o.newSessionId}, bought for it, ` +
+      'could not be ended. End it from the Sessions tab.'
+}
+
+/**
  * What to do to the kill-switch chain after the user toggles Kill Switch or Local
  * Network Sharing mid-session. The ARMED MARKER decides, not the connection
  * state: the chain deliberately outlives the tunnel in the stand-down ("expired,

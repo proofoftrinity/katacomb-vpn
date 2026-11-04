@@ -10,8 +10,8 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   MUST run its resolve-endpoint + handshake through `establishSessionOrRefund`
   (`ipc-handlers.ts`), which auto-cancels (refunds) the just-created session on *any*
   failure. Never create a session and then handshake without that wrapper.
-- **[REL-2] Serialize tunnel ops.** `CONNECTION_CONNECT`, `performDisconnect`, and the reconnect
-  timer body run inside `withConnectionLock` (a mutex) and are guarded by
+- **[REL-2] Serialize tunnel ops.** `CONNECTION_CONNECT`, `performDisconnect`, the reconnect
+  timer body and Extend's purchase-and-switch ([REL-46]) run inside `withConnectionLock` (a mutex) and are guarded by
   `connectionEpoch` (bumped on disconnect, so an in-flight reconnect can't resurrect a
   tunnel the user tore down). Never add a tunnel bring-up/tear-down that bypasses both.
   That includes the reconnect give-up: it ran outside the lock until 2026-10-07, and the
@@ -25,7 +25,9 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   session or brings up a tunnel calls `assertNotConnected()` (ipc-handlers.ts):
   `CONNECTION_SUBSCRIBE`, `CONNECTION_SUBSCRIBE_CHAIN`, `CONNECTION_RECONNECT`,
   `CONNECTION_CONNECT` (inside the lock, so a queued connect sees the one before it),
-  `PLAN_SUBSCRIBE`, `PLAN_START_SESSION_FROM_SUB`, `PLAN_SMART_CONNECT`. It refuses while
+  `PLAN_SUBSCRIBE`, `PLAN_START_SESSION_FROM_SUB`, `PLAN_SMART_CONNECT`. One named exception
+  (decision D2, 2026-10-29): `CONNECTION_EXTEND` runs only WHILE connected, because it replaces
+  the live session in one step rather than standing a second one beside it ([REL-46]). It refuses while
   `getConnectionStatus().connected` OR `reconnectAttempt > 0` — deliberately broader
   than `isVpnActive()`, because local-proxy mode has a live paid session with routing
   untouched, and the reconnect window has a tunnel about to be resurrected. Without
@@ -743,6 +745,65 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   system mode (`SystemUsesLightTheme`), set apart from the apps' mode that `nativeTheme`
   reads (Windows 10's default pairs a dark taskbar with light apps), so
   `windowsTaskbarShade` reads that value; a failed read gets dark.
+- **[REL-46] Extend replaces the live session in one step, and nothing the user has
+  changes until the new session's handshake has answered.** `CONNECTION_EXTEND`
+  (`extendLiveSession`) buys a new session on the node the tunnel runs through, moves the
+  tunnel onto it and ends the old one, for a connected single-hop session paid per GB or
+  per hour; a chain or a plan session is refused (plans come later, through dvpnd). The
+  order is the safety:
+  - Under the connection lock, `extendRefusal` reads the live connection, which must still
+    be the session and node the window was opened for. Then the purchase's own preflight
+    ([REL-11]), and a balance check for the new deposit plus two fees, the purchase's and
+    the old session's End: the old deposit comes back only at settlement ([SL-1]).
+  - The purchase and the handshake go through `establishSessionOrRefund` ([REL-1]), so a
+    failure there is refunded and the old tunnel never noticed. The chain and the node's
+    API are reached through the live tunnel, measured 2026-11-04: dvpnx 8.3.1 WireGuard
+    answered its API inside the tunnel, and dvpnx 9.0.0 V2Ray's address routes outside the
+    tun.
+  - A Disconnect while it buys (or a stand-down queued before it took the lock) moves the
+    epoch, captured before the lock; the check after the handshake then ends the session
+    just bought, through the old tunnel the Disconnect is waiting on.
+  - The switch writes the old session's usage floor, stops its monitors, and `disconnect()`s
+    the tunnel only: the kill switch stays armed. `bringUpFromConfig`, the reconnect
+    ladder's bring-up, shared, brings the new config up, then the post-connect settings and
+    the traffic probe ([REL-17]). Only the new session's row joins the session cache: the
+    old row keeps the baseline its floor was just written against, or a fresher one would
+    count this connection's usage twice.
+  - If the switch fails anywhere, the old tunnel's teardown included (its monitors are
+    stopped by then, so nothing may stay up unwatched), both sessions stay open and the app
+    stands down as for a dropped tunnel; the message names both. Going back to the old tunnel was not
+    built: on dvpnd its peer is already gone, and on dvpnx a failure local enough to stop
+    the new tunnel would usually stop the old one too.
+  - Only once the new tunnel carries traffic is the old session ended, and a failed End is
+    tried once more: right after a WireGuard switch, a socket the RPC client kept through
+    the old peer is dead with nothing to say so (the new peer has a new address), and the
+    retry gets a new socket. An End that still fails is reported; the new tunnel stays.
+    Seen on mainnet 2026-11-04: the first End after a WireGuard switch hung for the whole
+    10 s RPC connect and the retry ended the session; after the V2Ray and Hysteria2
+    switches, whose tun keeps its address, the first End went through.
+
+  Measured on mainnet 2026-11-04, one 1 GB Extend each with the kill switch on: dvpnx 9.0.0
+  WireGuard lost traffic for under a second; dvpnx 8.3.1 V2Ray had no tun for under a
+  second and finished its switch 3.2 s after starting it; dvpnd 9.4.3 Hysteria2 lost
+  traffic for about 2 s, from the handshake (its [SL-8] eviction) to the new tunnel. No
+  probe got out while the tunnel was down. Buy plus handshake took 6–10 s, during which the
+  old tunnel carried traffic.
+
+  While it runs, `extending` holds off the old session's quota, stall, handshake and
+  liveness stand-downs and the V2Ray exit callback, since Extend decides how it ends; it
+  keeps the wallet frozen through the switch ([REL-4]), and the status reads
+  `reconnecting` while the tunnel is down. **D3:** over WireGuard and AmneziaWG, only on a
+  node known to run dvpnx (8.2.0 to 9.0.0, read and measured). dvpnd drops the account's
+  earlier peer when a new handshake arrives, before replying (its [SL-8], in every release
+  since it forked at 9.0.0), and a WireGuard reply comes back through that peer, so it
+  never arrives and the refund has no way to the chain. `nodeSoftware`
+  (`shared/node-signing.ts`) decides from the directory's version and a verified signature
+  first; before paying, the node's own root document must not name dvpnd (`version.name`),
+  because dvpnd 9.0.0 reports the version dvpnx 9.0.0 does. V2Ray, Xray and Hysteria2
+  route the node's address outside the tunnel, so their reply arrives either way, and
+  dvpnd is fine for them. Known limit: a WireGuard tunnel brought up with "Retry without
+  VPN DNS" is extended with the DNS lines put back, as the reconnect ladder replays it, so
+  on a machine with no resolvconf the switch fails and both sessions stay open.
 
 ## Windows (beta)
 

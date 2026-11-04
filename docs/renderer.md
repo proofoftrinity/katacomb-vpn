@@ -246,6 +246,19 @@ from `src/main/`; `src/shared/` is the only overlap.
   stated reason, and the Provider tab offers Resume after a Disconnect pressed there. A
   Sessions Reconnect on another card leaves the live one the same way. main's
   `assertNotConnected` [REL-3] is unchanged and stays the enforcement.
+- **Extend ([REL-46]) is a state of the buy window, not a window of its own.** The
+  "Connected to this node" panel offers it for a live single-hop session paid per GB or per
+  hour, and so does that session's card in Sessions (`startExtend`); both open
+  `ConnectionModal` on Extend, with the billing, amount, receipt and funds pieces of a
+  purchase. The billing starts as the live session's own, and the funds check counts a
+  second fee, the old session's End. Over WireGuard or AmneziaWG on a node not known to run
+  dvpnx the button stays, disabled, with the reason (D3), from the `nodeSoftware` main uses
+  too. Its steps are the purchase's four, then main's `extend:switch` and `extend:end-old`.
+  The connected capsule reads "Reconnecting" with no count during the switch. The expiry
+  banner's single-hop "ran out" wording offers "Buy again on <node>" (D4): App holds that
+  buy window so it outlives the banner, and while the kill switch blocks everything the
+  press restores the internet first, since the purchase needs the chain. main's 90% warning
+  names Extend only where it would go ahead.
 - **Encryption claims go through `v2rayEncryption`, never `v2rayConnectionCategory`
   alone.** The category helper predates XRAY and files every non-`tls` security under
   VLess-none, so asked directly it calls a Reality node unencrypted. 22 of the 23 XRAY

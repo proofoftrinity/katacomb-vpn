@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { SentNode, NodeProbeResult, PlanInfo } from '../types'
+import type { SentNode, NodeProbeResult, PlanInfo, ExtendResult } from '../types'
 import { useConnectFlow } from '../hooks/useConnectFlow'
 import { usePlansContext } from '../contexts/PlansContext'
 import ConnectErrorActions from './ConnectErrorActions'
@@ -17,15 +17,18 @@ import { useNavigation } from '../contexts/NavigationContext'
 import { useConnection } from '../hooks/useConnection'
 import { protocolMeta, isProtocolSupported, isProxyCapable } from '../utils/protocols'
 import { nodeStatusMeta, isNodeConnectable, hasDirectoryDetails } from '../utils/node-status'
-import { versionSignsReplies } from '../../shared/node-signing'
+import { nodeSoftware, versionSignsReplies } from '../../shared/node-signing'
 import { useBalance } from '../hooks/useBalance'
 import { checkFunds, formatP2p, formatP2pCeil, insufficientFundsMessage } from '../../shared/funds'
+import { displayConnectError } from '../utils/connect-errors'
 import InsufficientFunds from './InsufficientFunds'
 import { SOCKS_DISPLAY_ADDR } from '../../shared/socks'
 
 interface Props {
   node: SentNode
   onClose: () => void
+  /** Open on Extend ([REL-46]): a Sessions card's Extend, for the node it is connected to. */
+  startExtend?: boolean
 }
 
 function getUdvpnPrice(prices: { denom: string; value: string }[]): { raw: string; display: string } | null {
@@ -40,7 +43,7 @@ function getUdvpnPrice(prices: { denom: string; value: string }[]): { raw: strin
  * Route strip first (with what a single node sees, which is both ends), then the
  * checks, the cost and the limits, and a footer that always names what stops Pay.
  */
-export default function ConnectionModal({ node, onClose }: Props) {
+export default function ConnectionModal({ node, onClose, startExtend = false }: Props) {
   const nodeStatus = nodeStatusMeta(node)
   const connectable = isNodeConnectable(node)
   // The node list's health flag is third-party and can be hours stale, so an
@@ -82,6 +85,14 @@ export default function ConnectionModal({ node, onClose }: Props) {
   const walletName = useActiveWalletName()
   const settings = useReviewSettings()
   const otherVpns = useOtherVpns()
+  // [REL-46] Extend: buy a new session on this node and move the live connection onto it.
+  // One call to main does all of it; this window reviews it, shows the steps and the outcome.
+  const [extendOpen, setExtendOpen] = useState(startExtend)
+  const [extendRunning, setExtendRunning] = useState(false)
+  const [extendStep, setExtendStep] = useState<{ id: string; detail: string | null }>({ id: '1/5', detail: null })
+  const [extendFrom, setExtendFrom] = useState<string | null>(null)
+  const [extendError, setExtendError] = useState<string | null>(null)
+  const [extendResult, setExtendResult] = useState<ExtendResult | null>(null)
 
   // v2ray(2)/xray(4)/hysteria2(6) run a local SOCKS5 listener, so they can be used
   // as a plain proxy. WireGuard/AmneziaWG are the routing change — no proxy mode.
@@ -151,6 +162,48 @@ export default function ConnectionModal({ node, onClose }: Props) {
       cancelled = true
     }
   }, [node.address, node.api])
+
+  // Extend presets the billing to the live session's own: per GB when it has a data cap.
+  // While connected, main answers from its session cache, so this costs no chain read.
+  useEffect(() => {
+    if (!extendOpen || !status.sessionId) return
+    let cancelled = false
+    window.api.walletSessions()
+      .then((rows) => {
+        const live = rows.find((r) => r.id === status.sessionId)
+        if (!cancelled && live) setSubType(parseInt(live.maxBytes, 10) > 0 ? 'gigabytes' : 'hours')
+      })
+      .catch(() => { /* the billing shown stands */ })
+    return () => { cancelled = true }
+  }, [extendOpen, status.sessionId])
+
+  useEffect(() => {
+    if (!extendRunning) return
+    return window.api.onConnectionProgress((id, detail) => setExtendStep({ id, detail: detail ?? null }))
+  }, [extendRunning])
+
+  async function handleExtend() {
+    if (!selectedPrice || !status.sessionId) return
+    setExtendFrom(status.sessionId)
+    setExtendStep({ id: '1/5', detail: null })
+    setExtendError(null)
+    setExtendRunning(true)
+    try {
+      setExtendResult(await window.api.connectionExtend({
+        sessionId: status.sessionId,
+        nodeAddress: node.address,
+        type: subType,
+        amount,
+        denom: 'udvpn',
+        quoteValue: selectedPrice.raw,
+      }))
+    } catch (err) {
+      setExtendError(err instanceof Error ? err.message : 'Extend failed')
+    } finally {
+      setExtendRunning(false)
+      void refreshBalance()
+    }
+  }
 
   async function handleSubscribe() {
     if (!matchingAllocation && !selectedPrice) return
@@ -341,6 +394,21 @@ export default function ConnectionModal({ node, onClose }: Props) {
                 ? { text: `Not enough P2P: short by ${formatP2pCeil(funds.shortfall)}, fees included.`, tone: 'danger' }
                 : null
 
+  // ---- Extend ([REL-46]) ----
+  // The live single-hop session, paid per GB or per hour: what Extend works on. Main
+  // checks all of it again; this only decides what the window offers.
+  const extendable = onThisNode && status.state === 'connected' && !status.subscriptionId
+  // D3: over WireGuard or AmneziaWG, only on a node known to run dvpnx. dvpnd drops the
+  // current peer before its answer to the new session can come back through it.
+  const software = nodeSoftware({ version: node.version, signedReply: status.handshakeSigner === 'node' || status.handshakeSigner === 'hotKey' })
+  const wgLabel = node.type === 5 ? 'AmneziaWG' : 'WireGuard'
+  const extendNodeReason = (node.type === 1 || node.type === 5) && software !== 'dvpnx'
+    ? software === 'dvpnd'
+      ? `Extend is not available on this node yet: it runs dvpnd, which closes your current ${wgLabel} tunnel as soon as a new session is set up.`
+      : `Extend is off for this node: this app cannot tell which software it runs, and on some a new session cuts the current ${wgLabel} tunnel before it is set up.`
+    : null
+  const extendFunds = udvpn === null ? null : checkFunds(udvpn, costUdvpn, 2)
+
   const footer = reviewing ? (
     vpnWarning ? (
       <VpnConfirm vpns={vpnWarning} onContinue={() => void handleSubscribe()} onCancel={() => setVpnWarning(null)} disabled={cantAfford} />
@@ -361,22 +429,35 @@ export default function ConnectionModal({ node, onClose }: Props) {
       </>
     )
   ) : onThisNode && !connecting && !tunnelConnected ? (
-    <div className="flex gap-2">
-      <button
-        onClick={handleDisconnect}
-        disabled={disconnecting}
-        className="btn btn-danger flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {disconnecting ? 'Disconnecting…' : 'Disconnect'}
-      </button>
-      <button
-        onClick={onClose}
-        disabled={disconnecting}
-        className="btn btn-secondary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        Close
-      </button>
-    </div>
+    <>
+      {extendable && extendNodeReason && <FooterReason text={extendNodeReason} tone="muted" />}
+      <div className="flex gap-2">
+        {extendable && (
+          <button
+            onClick={() => setExtendOpen(true)}
+            disabled={disconnecting || extendNodeReason !== null}
+            className="btn btn-primary flex-1 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Buy more time or data on this node and move your connection onto it"
+          >
+            Extend
+          </button>
+        )}
+        <button
+          onClick={handleDisconnect}
+          disabled={disconnecting}
+          className="btn btn-danger flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+        </button>
+        <button
+          onClick={onClose}
+          disabled={disconnecting}
+          className="btn btn-secondary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Close
+        </button>
+      </div>
+    </>
   ) : tunnelConnected && sessionId ? (
     <button onClick={onClose} className="btn btn-primary w-full">Done</button>
   ) : undefined
@@ -389,6 +470,157 @@ export default function ConnectionModal({ node, onClose }: Props) {
     { id: '4/5', label: 'Handshaking with the node' },
     { id: '5/5', label: 'Starting the tunnel' },
   ]
+
+  if (extendOpen) {
+    const from = extendFrom ?? status.sessionId ?? '?'
+    const unit = subType === 'gigabytes' ? 'GB' : 'hr'
+    const blocker = !extendable
+      ? 'Extend works while you are connected to this node with a session paid per GB or per hour.'
+      : extendNodeReason
+        ?? (!selectedPrice
+          ? `This node has no P2P price for ${subType === 'gigabytes' ? 'data' : 'time'}. Switch the billing.`
+          : extendFunds && !extendFunds.ok
+            ? `Not enough P2P: short by ${formatP2pCeil(extendFunds.shortfall)}, both fees included.`
+            : null)
+    // The old tunnel carries the traffic until the switch, and the new one after it.
+    const extendStage: RouteStage = extendRunning && extendStep.id === 'extend:switch'
+      ? { kind: 'building', step: singleHopStep('5/5') }
+      : extendError && !onThisNode ? { kind: 'failed' } : { kind: 'active' }
+    const extendSteps = [
+      { id: '1/5', label: 'Preparing' },
+      { id: '2/5', label: 'Buying the new session on chain' },
+      { id: '3/5', label: 'Confirming the session' },
+      { id: '4/5', label: 'Handshaking with the node' },
+      { id: 'extend:switch', label: 'Moving your connection to the new session' },
+      { id: 'extend:end-old', label: `Ending session #${from}` },
+    ]
+    const extendFooter = extendRunning ? undefined : extendResult ? (
+      <button onClick={onClose} className="btn btn-primary w-full">Done</button>
+    ) : extendError ? (
+      <div className="flex gap-2">
+        <button onClick={() => setExtendError(null)} className="btn btn-secondary flex-1">Back</button>
+        <button onClick={onClose} className="btn btn-secondary flex-1">Close</button>
+      </div>
+    ) : (
+      <>
+        {blocker && <FooterReason text={blocker} tone={extendable ? 'danger' : 'muted'} />}
+        <div className="flex gap-2">
+          <button onClick={() => setExtendOpen(false)} className="btn btn-secondary">Back</button>
+          <button
+            onClick={() => void handleExtend()}
+            disabled={blocker !== null}
+            className="btn btn-primary flex-1 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            {`Pay ${selectedPrice ? formatP2p(costUdvpn) : '0.00'} P2P and extend`}
+          </button>
+        </div>
+      </>
+    )
+    return (
+      <ReviewModal
+        title={extendResult ? 'Extended' : extendRunning ? 'Extending' : extendError ? 'Extend did not finish' : 'Extend this session'}
+        closable={!extendRunning}
+        onClose={onClose}
+        footer={extendFooter}
+      >
+        <RouteStrip hops={[node]} stage={extendStage} />
+        {extendRunning ? (
+          <div className="space-y-4">
+            <StepList
+              stages={extendSteps}
+              current={Math.max(0, extendSteps.findIndex((st) => st.id === extendStep.id))}
+              detail={extendStep.detail}
+            />
+            <p className="text-text-tertiary text-xs">
+              Leave this open. If the new session's handshake fails, the new session is ended and your connection carries on.
+            </p>
+          </div>
+        ) : extendResult ? (
+          <div className="space-y-1.5 text-sm">
+            <p className="text-text-primary">Your connection now runs on session #{extendResult.sessionId}, on the same node.</p>
+            {extendResult.previousEnded ? (
+              <p className="text-text-tertiary text-xs">
+                Session #{extendResult.previousSessionId} has ended. What is left of its deposit comes back to your wallet when the chain settles it, about 2 hours from now.
+              </p>
+            ) : (
+              <p className="text-warning text-xs">
+                Session #{extendResult.previousSessionId} could not be ended
+                {extendResult.previousEndError ? `: ${displayConnectError(extendResult.previousEndError)}` : ''}. It no longer carries
+                your traffic. End it from the Sessions tab.
+              </p>
+            )}
+          </div>
+        ) : extendError ? (
+          <div className="bg-danger-subtle border border-danger p-2 rounded-md">
+            <p className="text-danger text-sm whitespace-pre-line">{displayConnectError(extendError)}</p>
+          </div>
+        ) : (
+          <>
+            <section className="space-y-2.5">
+              <SectionHead title="New session">
+                <Segmented
+                  label="Billing"
+                  value={subType}
+                  options={[['gigabytes', 'Per GB'], ['hours', 'Per hour']]}
+                  onChange={setSubType}
+                />
+              </SectionHead>
+              <AmountStepper
+                label="How much"
+                amount={amount}
+                onChange={setAmount}
+                unit={subType === 'gigabytes' ? 'GB' : amount === 1 ? 'hour' : 'hours'}
+                presets={subType === 'gigabytes' ? [1, 5, 10] : [1, 2, 5]}
+              />
+              <Receipt>
+                <ReceiptLine
+                  country={node.country}
+                  label={node.moniker || 'This node'}
+                  payer={walletName}
+                  detail={selectedPrice
+                    ? `${selectedPrice.display} per ${unit} × ${amount}`
+                    : <span className="text-warning">no P2P price for {subType === 'gigabytes' ? 'data' : 'time'}</span>}
+                  amount={selectedPrice ? `${formatP2p(costUdvpn)} P2P` : null}
+                  funds={extendFunds}
+                />
+              </Receipt>
+              {/* [SL-1]: nothing comes back at the click; the old deposit's rest comes back at settlement. */}
+              <p className="text-xs text-text-tertiary">
+                Paid now, with two network fees: one to buy the new session and one to end session #{from}. Session #{from} ends
+                once the new one carries your traffic, and what is left of its deposit comes back to your wallet when the chain
+                settles it, about 2 hours later.
+              </p>
+              {extendFunds && !extendFunds.ok && (
+                <InsufficientFunds
+                  message={insufficientFundsMessage(extendFunds)}
+                  onRefresh={refreshBalance}
+                  refreshing={refreshingBalance}
+                />
+              )}
+            </section>
+            <section className="space-y-1.5">
+              <SectionHead title="What happens" />
+              <p className="text-xs text-text-secondary">
+                {status.proxyMode
+                  ? 'The local proxy keeps working while the new session is bought. Then it stops for a few seconds while it moves to the new session on the same node.'
+                  : `Your connection stays up while the new session is bought. Then it pauses for a few seconds while it moves to the new session on the same node, and downloads or calls in progress restart. ${settings.killSwitch
+                    ? 'The kill switch stays on, so nothing leaves outside the tunnel during the pause.'
+                    : 'The kill switch is off, so apps that send anything during the pause reach the internet directly.'}`}
+              </p>
+            </section>
+            {subType === 'hours' && (
+              <LimitsSection title="Limits" limits={[{
+                key: 'hourly',
+                tone: 'warning',
+                label: 'Time runs between uses',
+                text: 'A node bills time from the start of the session to its last activity, including the gaps while you are disconnected. Measured on one session so far. For on-and-off use, paying per GB is the fairer deal.',
+              }]} />
+            )}
+          </>
+        )}
+      </ReviewModal>
+    )
+  }
 
   return (
     <ReviewModal title={title} closable={!connecting} onClose={onClose} footer={footer}>

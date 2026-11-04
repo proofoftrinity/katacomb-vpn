@@ -97,7 +97,8 @@ function ConnectionCapsule({ status, exitIp }: { status: ConnectionStatus; exitI
         <span className={`status-dot shrink-0 ${reconnecting ? 'status-dot-pending' : 'status-dot-active'}`} />
         {reconnecting && (
           <span className="text-warning whitespace-nowrap">
-            Reconnecting {status.reconnectAttempt}/{status.reconnectMaxAttempts}
+            {/* Extend's switch reads as reconnecting too, with no attempt to count ([REL-46]). */}
+            Reconnecting{status.reconnectAttempt ? ` ${status.reconnectAttempt}/${status.reconnectMaxAttempts}` : ''}
           </span>
         )}
         <NodeName status={status} />

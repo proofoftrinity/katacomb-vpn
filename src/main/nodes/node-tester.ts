@@ -215,6 +215,19 @@ export async function fetchNodeSignsReplies(remoteUrl: string, agent?: https.Age
   return (await fetchNodeRoot(remoteUrl, agent)).signsReplies
 }
 
+/**
+ * What the node software calls itself in its root document: `version.name` (dvpnd says
+ * "dvpnd" in every release; dvpnx sends no name, so '') and `version.tag`. Asked before
+ * an Extend pays ([REL-46] D3), off the document the preflight has just read.
+ */
+export async function fetchNodeSoftware(remoteUrl: string, agent?: https.Agent): Promise<{ name: string; tag: string }> {
+  const version = (await fetchNodeRoot(remoteUrl, agent)).version
+  return {
+    name: typeof version?.name === 'string' ? version.name : '',
+    tag: typeof version?.tag === 'string' ? version.tag : '',
+  }
+}
+
 /** One entry of a node's advertised `service_metadata`. */
 export interface NodeInboundListing {
   port: string | number
@@ -226,6 +239,7 @@ export interface NodeInboundListing {
 interface NodeRootInfo {
   service_type?: string | number
   service_metadata?: NodeInboundListing[]
+  version?: { name?: unknown; tag?: unknown }
   /** The node said it signs its handshake replies (a header, not the JSON). */
   signsReplies: boolean
 }
