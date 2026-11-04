@@ -130,6 +130,13 @@ export const CANARIES: Canary[] = [
     replace: '  const unsupervised = () => isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId\n  if (unsupervised()) return\n  // One read per tick',
     run: [EXTEND],
   },
+  {
+    name: '[REL-46] the End after a switch may reuse a socket the old tunnel took',
+    file: IPC_TS,
+    find: '        openChainFlow(wallet, { freshSockets: true }).then(async (flow) => {',
+    replace: '        openChainFlow(wallet).then(async (flow) => {',
+    run: [EXTEND],
+  },
 
   // --- one connection, the lock, the epoch ----------------------------------------
   {

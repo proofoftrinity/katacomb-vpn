@@ -425,12 +425,15 @@ export async function endSession(params: {
   wallet: DirectSecp256k1HdWallet
   address: string
   sessionId: string
+  /** A flow's signing client to use instead of a connection of its own; the caller closes it. */
+  client?: SigningSentinelClient
 }): Promise<void> {
   const { wallet, address, sessionId } = params
   // This is the money-recovery path (refunds + the user's End button): the
   // resolved base skips the endpoint's per-request redirect and the 1s poll
   // discovers the committed cancel ~2s sooner than CosmJS's default.
-  const client = await withTimeout(
+  const ownClient = !params.client
+  const client: SigningSentinelClient = params.client ?? await withTimeout(
     resolveRpcBase(getRpcEndpoint()).then((base) =>
       SigningSentinelClient.connectWithSigner(base, wallet, {
         gasPrice: GAS_PRICE,
@@ -467,7 +470,7 @@ export async function endSession(params: {
 
     retireSessionConfig(sessionId)
   } finally {
-    client.disconnect()
+    if (ownClient) client.disconnect()
   }
 }
 

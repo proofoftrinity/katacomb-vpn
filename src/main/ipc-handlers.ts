@@ -36,7 +36,7 @@ import {
 import { subscribeToNode, performHandshake, handshakeChainEntry, handshakeChainExit, finalizeChain, sendChainHopProgress, sendPlanProgress, sendExtendProgress, chainHopRoleOf, chainSigner, resolveNodeRemoteUrl, loadSessionConfig, rememberNodeCaps, listSessionsOwnedByOtherWallets, endSession, V2RayPolicyError } from './chain/chain-service'
 import type { ReplySigner } from './protocols/reply-signature'
 import { versionSignsReplies, nodeSoftware } from '../shared/node-signing'
-import { openChainFlow } from './chain/chain-clients'
+import { openChainFlow, openChainQuery } from './chain/chain-clients'
 import type { SentinelClient } from '@sentinel-official/sentinel-js-sdk'
 import type https from 'node:https'
 import { withTimeout } from './async-utils'
@@ -1974,7 +1974,18 @@ async function extendLiveSession(
   const endError = await endReplacedSession(bought.oldSessionId, wallet, address)
   // While connected the cache is the Sessions tab's answer: read the chain again so the
   // old card reads ended and the new one is listed. An empty read proves nothing ([REL-22]).
-  const rows = await withTimeout(readAllSessions(), REFUND_TIMEOUT_MS, 'session read').catch(() => null)
+  // New sockets, as for the End: a read that hung here left the old card reading active.
+  const rows = await withTimeout(
+    openChainQuery({ freshSockets: true }).then(async (q) => {
+      try {
+        return await readAllSessions(q.query)
+      } finally {
+        q.disconnect()
+      }
+    }),
+    REFUND_TIMEOUT_MS,
+    'session read',
+  ).catch(() => null)
   if (rows?.some((s) => s.id === bought.sessionId)) primeSessionsCache(rows)
   notifySessionsChanged()
   notifyTray()
@@ -1990,8 +2001,8 @@ async function extendLiveSession(
  * [REL-46] End the session Extend replaced, over the new tunnel. Right after a switch a
  * socket the RPC client kept from the old tunnel can be dead with nothing to say so: a
  * WireGuard peer's new address leaves the old one unanswered ([REL-28] is the same
- * hazard). One retry gets a new socket, since the dead one is either closed by its error
- * or still busy with the request that hung on it. Null when it ended, else why not.
+ * hazard). So every request here goes on a socket of its own (`freshSockets`), and a
+ * failure is tried once more. Null when it ended, else why not.
  */
 async function endReplacedSession(
   sessionId: string,
@@ -2001,7 +2012,17 @@ async function endReplacedSession(
   let last: unknown = null
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      await withTimeout(endSession({ wallet, address, sessionId }), REFUND_TIMEOUT_MS, 'end')
+      await withTimeout(
+        openChainFlow(wallet, { freshSockets: true }).then(async (flow) => {
+          try {
+            await endSession({ wallet, address, sessionId, client: flow.signing })
+          } finally {
+            flow.disconnect()
+          }
+        }),
+        REFUND_TIMEOUT_MS,
+        'end',
+      )
       return null
     } catch (err) {
       console.error(`[extend] ending replaced session #${sessionId} failed (attempt ${attempt + 1}):`, err)
@@ -2967,7 +2988,7 @@ export function stopNodeRefreshTimer(): void {
  * unreachable RPC does for the active wallet.
  */
 async function readAllSessions(client?: SentinelClient): Promise<SessionInfo[]> {
-  return [...await getActiveSessions(client), ...await getOtherWalletSessions()]
+  return [...await getActiveSessions(client), ...await getOtherWalletSessions(client)]
 }
 
 /**
@@ -2981,7 +3002,7 @@ async function readAllSessions(client?: SentinelClient): Promise<SessionInfo[]> 
  * half. Live: entry #55268780 (wallet Test) showed, exit #55268795 (wallet Third) did
  * not, both ACTIVE on chain throughout. Same trap as decorateSessionRow, one layer down.
  */
-async function getOtherWalletSessions(): Promise<SessionInfo[]> {
+async function getOtherWalletSessions(client?: SentinelClient): Promise<SessionInfo[]> {
   const owned = listSessionsOwnedByOtherWallets()
   if (owned.length === 0) return []
   const activeId = getActiveWalletId()
@@ -2996,7 +3017,7 @@ async function getOtherWalletSessions(): Promise<SessionInfo[]> {
       .filter((a): a is string => typeof a === 'string' && a !== ''),
   )
   const perAccount = await Promise.all(
-    [...addresses].map((a) => getSessionsForAddress(a).catch(() => [] as SessionInfo[])),
+    [...addresses].map((a) => getSessionsForAddress(a, client).catch(() => [] as SessionInfo[])),
   )
   return perAccount.flat().filter((s) => wanted.has(s.id))
 }
