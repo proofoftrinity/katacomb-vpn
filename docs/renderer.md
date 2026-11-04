@@ -218,7 +218,8 @@ from `src/main/`; `src/shared/` is the only overlap.
   connection is live, the switch row heads them, [RN-10]), the cost (one
   receipt line per payment, against the wallet that pays it), the limits, folded
   options, and a footer that never scrolls away and always names what stops Pay. Change
-  a shared piece there, not in one window. A single hop's strip says the node sees your
+  a shared piece there, not in one window. Every "?" and Limits panel in them links to
+  its Help topic ([RN-15]). A single hop's strip says the node sees your
   IP AND the sites, which is the case for a chain, and its "sees both ends" limit links
   to the Multi-hop tab (amber, not red: single hop is the everyday product). Single hop
   has no "I understand" box, by decision. The other-VPN confirm at Pay replaces the Pay
@@ -230,9 +231,10 @@ from `src/main/`; `src/shared/` is the only overlap.
   Multi-hop put an amber banner over the page before anything was picked, and the fix (the
   header's Disconnect) sat behind the window (2026-10-10). So a connect window offers the
   switch in place. A "Switches from X" row heads its checks (`switchCheck`, its words in
-  `utils/switch.ts`) and states both costs: the connection drops before the purchase, so
-  apps go out directly until the new one is up and the kill switch is off for that time;
-  and the session left behind stays open, to go back to or end from Sessions. Pay's verb
+  `utils/switch.ts`) and states both costs: on screen, that the connection drops before
+  the purchase, so apps go out directly until the new one is up and the kill switch is off
+  for that time; in its "?" and the footer ([RN-15]), that the session left behind stays
+  open, to go back to or end from Sessions. Pay's verb
   becomes "switch", and one press leaves through `leaveConnection()` (performDisconnect plus
   the 2 s path settle Sessions' End already waited), then buys: `switchThenBuy` never buys
   if the leave failed. A failure after the leave offers "Reconnect to X"
@@ -253,7 +255,11 @@ from `src/main/`; `src/shared/` is the only overlap.
   purchase. The billing starts as the live session's own, and the funds check counts a
   second fee, the old session's End. Over WireGuard or AmneziaWG on a node not known to run
   dvpnx the button stays, disabled, with the reason (D3), from the `nodeSoftware` main uses
-  too. Its steps are the purchase's four, then main's `extend:switch` and `extend:end-old`.
+  too. Its window shows three steps (buy the new session, move onto it, end the old one)
+  before Pay, while it runs and after, so it is one picture throughout ([RN-15]): the
+  purchase's four markers light the first, main's `extend:switch` and `extend:end-old` the
+  other two. The fees and the settlement are said in the steps' tips, and the kill switch
+  only when it is off.
   The connected capsule reads "Reconnecting" with no count during the switch. The expiry
   banner's single-hop "ran out" wording offers "Buy again on <node>" (D4): App holds that
   buy window so it outlives the banner, and while the kill switch blocks everything the
@@ -389,10 +395,39 @@ from `src/main/`; `src/shared/` is the only overlap.
   on screen: the question is what a subscriber sees. It rides
   `NavigationContext.goToPlanInCatalog` (the `goToPlansForNode` pattern, and it drops any
   node filter); Show it anyway turns on exactly the chips that hid the plan.
-- **A modal's honesty paragraphs can sit behind chips when they sit mid-row.** `InfoTip`
-  must be at a row's right end (it has no positioning logic), so each connect window's
-  limits are toggle chips that open one shared panel below them (`LimitsSection`). The
-  figures a decision turns on (the 20x, the 2 h) stay on the chips themselves.
+- **A connect window's limits are toggle chips that open one shared panel below them**
+  (`LimitsSection`): a panel stays open while it is read, which a tooltip does not, and it
+  ends with Learn more when its Limit names a topic ([RN-15]). The figures a decision
+  turns on (the 20x, the 2 h) stay on the chips themselves.
+- **[RN-15] One line per fact on screen; the reason is one press away.** A user who just
+  wants to connect was reading paragraphs: the Extend window had two before its Pay
+  button, and an inventory on 2026-11-04 counted about 200 passages of two sentences or
+  more in the renderer, about 100 always on screen and about 37 only in native `title`s,
+  with the same explanations repeated across screens ("This is an on-chain transaction"
+  about 14 times). So a line on screen says the consequence or the action in one
+  sentence, and the why, the measurement and the edge cases go behind a "?" (`InfoTip`,
+  or `Tooltip` around any trigger), whose panel ends with "Learn more" when it names a
+  topic. Learn more opens the **Help panel** (`HelpPanel.tsx`; topics in
+  `utils/help-topics.ts`; `NavigationContext.openHelp`, also the header's Help button),
+  where an explanation the app repeats is written once and every screen links to it. A
+  topic adds no claim of its own: its sentences come from the screens. The normal case
+  stays quiet and the exception gets an amber line (Extend's "kill switch is off"). Never
+  behind a press: a blocker and its fix, money that cannot come back, the
+  recovery-phrase warnings, errors and fault banners; they are shortened where they can
+  be and carry `data-full` where they cannot. The test (`renderer-rules.test.ts`) fails
+  any line over 120 characters in the screens rewritten so far (`SHORT_COPY_FILES`, which
+  grows as screens are rewritten), counting a JSX element's own text and every other
+  string at its outermost expression. The press-away part is text in a `tip:` or
+  `detail:`, a `{ label, text }` object (a tip or a Limit's panel), a variable named
+  `…Tip`, an `InfoTip` or `Tooltip`, or a `data-full` element. There is no verbose
+  setting: short is the default for everyone. `Tooltip` draws in a portal at fixed
+  coordinates, so it opens anywhere in a row or a virtualized table, flips above near the
+  bottom and is clamped to the window; since a portal sits at the end of the page, Tab is
+  steered from the trigger into Learn more and on to whatever follows the trigger. The
+  Help panel sits above the windows (z-60 against z-50), and a `ReviewModal` or a confirm
+  moves left of it (`useHelpAside`) instead of being covered, which at the 960px minimum
+  would hide half the window. Escape closes the panel first (caught in the capture phase),
+  then the window.
 - BIP-39 validation lives in `src/shared/mnemonic.ts` (`checkMnemonic`, pure + unit-tested):
   word list, word count and **checksum**, re-run on every keystroke so the Import button
   only enables on a phrase that will actually import. It uses `@scure/bip39` — the package

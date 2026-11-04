@@ -7,7 +7,7 @@ import CopyButton from './CopyButton'
 import ProtocolIcon from './ProtocolIcon'
 import RouteStrip, { singleHopStep, type RouteStage } from './RouteStrip'
 import {
-  AmountStepper, ChecksSection, FooterReason, LimitsSection, ModeField, OptionsSection,
+  AmountStepper, ChecksSection, FooterReason, LimitsSection, ModeField, Note, OptionsSection,
   Receipt, ReceiptLine, ReviewModal, SectionHead, Segmented, StepList, VpnConfirm,
   dnsCheck, encryptionCheck, keysLimit, modeSummary, otherVpnCheck, seesBothLimit, signingCheck, switchCheck, useActiveWalletName, useOtherVpns, useReviewSettings,
   type CheckSpec, type Limit,
@@ -22,6 +22,9 @@ import { useBalance } from '../hooks/useBalance'
 import { checkFunds, formatP2p, formatP2pCeil, insufficientFundsMessage } from '../../shared/funds'
 import { displayConnectError } from '../utils/connect-errors'
 import InsufficientFunds from './InsufficientFunds'
+import InfoTip from './InfoTip'
+import Spinner from './Spinner'
+import { AlertIcon, CheckIcon } from './Icons'
 import { SOCKS_DISPLAY_ADDR } from '../../shared/socks'
 
 interface Props {
@@ -305,6 +308,7 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
     tone: 'danger',
     text: 'The node directory has no details for this node',
     tip: "Its protocol, address and location are unknown, so there is nothing to connect with. The node may be working; the directory just hasn't read it.",
+    topic: 'health',
   } : !isProtocolSupported(node.type) ? {
     id: 'health',
     tone: 'danger',
@@ -316,12 +320,14 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
     text: 'Not active on chain',
     tipLabel: 'Why an inactive node cannot be tried',
     tip: 'The chain itself refuses a session with a node that is not registered as active, so there is nothing to override.',
+    topic: 'health',
   } : nodeStatus.state === 'unhealthy' ? {
     id: 'health',
     tone: 'warning',
     text: 'Failed the last network health check',
     tipLabel: 'About the health check',
     tip: 'That check runs elsewhere, by the node list, and can be hours out of date. The node may well be working, so connecting is only off until you say to try.',
+    topic: 'health',
     body: (
       <>
         <p>{nodeStatus.detail}{probeLine ? ` ${probeLine}` : ''}</p>
@@ -346,12 +352,14 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
     text: `Active and reachable, ${probeResult.latencyMs} ms`,
     tipLabel: 'What was measured',
     tip: probeTip,
+    topic: 'health',
   } : {
     id: 'health',
     tone: 'warning',
     text: "Active, but it didn't answer this app's probe",
     tipLabel: 'What was measured',
     tip: probeTip,
+    topic: 'health',
     body: probeResult?.error || live
       ? <p>{[probeResult?.error && `${probeResult.error}.`, live && 'Sent through your current connection.'].filter(Boolean).join(' ')}</p>
       : undefined,
@@ -375,6 +383,7 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
       tone: 'warning' as const,
       label: 'Time runs between uses',
       text: 'A node bills time from the start of the session to its last activity, including the gaps while you are disconnected. Measured on one session so far. For on-and-off use, paying per GB is the fairer deal.',
+      topic: 'billing' as const,
     }] : []),
   ]
 
@@ -404,8 +413,8 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
   const wgLabel = node.type === 5 ? 'AmneziaWG' : 'WireGuard'
   const extendNodeReason = (node.type === 1 || node.type === 5) && software !== 'dvpnx'
     ? software === 'dvpnd'
-      ? `Extend is not available on this node yet: it runs dvpnd, which closes your current ${wgLabel} tunnel as soon as a new session is set up.`
-      : `Extend is off for this node: this app cannot tell which software it runs, and on some a new session cuts the current ${wgLabel} tunnel before it is set up.`
+      ? `Extend is not available on this node yet: dvpnd closes your ${wgLabel} tunnel as soon as a new session is set up.`
+      : `Extend is off: this app cannot tell what the node runs, and on some a new session cuts the current ${wgLabel} tunnel.`
     : null
   const extendFunds = udvpn === null ? null : checkFunds(udvpn, costUdvpn, 2)
 
@@ -486,14 +495,7 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
     const extendStage: RouteStage = extendRunning && extendStep.id === 'extend:switch'
       ? { kind: 'building', step: singleHopStep('5/5') }
       : extendError && !onThisNode ? { kind: 'failed' } : { kind: 'active' }
-    const extendSteps = [
-      { id: '1/5', label: 'Preparing' },
-      { id: '2/5', label: 'Buying the new session on chain' },
-      { id: '3/5', label: 'Confirming the session' },
-      { id: '4/5', label: 'Handshaking with the node' },
-      { id: 'extend:switch', label: 'Moving your connection to the new session' },
-      { id: 'extend:end-old', label: `Ending session #${from}` },
-    ]
+    const proxy = Boolean(status.proxyMode)
     const extendFooter = extendRunning ? undefined : extendResult ? (
       <button onClick={onClose} className="btn btn-primary w-full">Done</button>
     ) : extendError ? (
@@ -526,23 +528,23 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
         <RouteStrip hops={[node]} stage={extendStage} />
         {extendRunning ? (
           <div className="space-y-4">
-            <StepList
-              stages={extendSteps}
-              current={Math.max(0, extendSteps.findIndex((st) => st.id === extendStep.id))}
-              detail={extendStep.detail}
-            />
+            <ExtendSteps marker={extendStep.id} detail={extendStep.detail} from={from} proxy={proxy} killSwitch={settings.killSwitch} />
             <p className="text-text-tertiary text-xs">
               Leave this open. If the new session's handshake fails, the new session is ended and your connection carries on.
             </p>
           </div>
         ) : extendResult ? (
-          <div className="space-y-1.5 text-sm">
+          <div className="space-y-3 text-sm">
+            <ExtendSteps
+              marker={null}
+              detail={null}
+              done={extendResult.previousEnded ? 'ended' : 'end-failed'}
+              from={extendResult.previousSessionId}
+              proxy={proxy}
+              killSwitch={settings.killSwitch}
+            />
             <p className="text-text-primary">Your connection now runs on session #{extendResult.sessionId}, on the same node.</p>
-            {extendResult.previousEnded ? (
-              <p className="text-text-tertiary text-xs">
-                Session #{extendResult.previousSessionId} has ended. What is left of its deposit comes back to your wallet when the chain settles it, about 2 hours from now.
-              </p>
-            ) : (
+            {!extendResult.previousEnded && (
               <p className="text-warning text-xs">
                 Session #{extendResult.previousSessionId} could not be ended
                 {extendResult.previousEndError ? `: ${displayConnectError(extendResult.previousEndError)}` : ''}. It no longer carries
@@ -578,18 +580,12 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
                   label={node.moniker || 'This node'}
                   payer={walletName}
                   detail={selectedPrice
-                    ? `${selectedPrice.display} per ${unit} × ${amount}`
+                    ? `${selectedPrice.display} per ${unit} × ${amount} + 2 network fees`
                     : <span className="text-warning">no P2P price for {subType === 'gigabytes' ? 'data' : 'time'}</span>}
                   amount={selectedPrice ? `${formatP2p(costUdvpn)} P2P` : null}
                   funds={extendFunds}
                 />
               </Receipt>
-              {/* [SL-1]: nothing comes back at the click; the old deposit's rest comes back at settlement. */}
-              <p className="text-xs text-text-tertiary">
-                Paid now, with two network fees: one to buy the new session and one to end session #{from}. Session #{from} ends
-                once the new one carries your traffic, and what is left of its deposit comes back to your wallet when the chain
-                settles it, about 2 hours later.
-              </p>
               {extendFunds && !extendFunds.ok && (
                 <InsufficientFunds
                   message={insufficientFundsMessage(extendFunds)}
@@ -598,15 +594,9 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
                 />
               )}
             </section>
-            <section className="space-y-1.5">
+            <section>
               <SectionHead title="What happens" />
-              <p className="text-xs text-text-secondary">
-                {status.proxyMode
-                  ? 'The local proxy keeps working while the new session is bought. Then it stops for a few seconds while it moves to the new session on the same node.'
-                  : `Your connection stays up while the new session is bought. Then it pauses for a few seconds while it moves to the new session on the same node, and downloads or calls in progress restart. ${settings.killSwitch
-                    ? 'The kill switch stays on, so nothing leaves outside the tunnel during the pause.'
-                    : 'The kill switch is off, so apps that send anything during the pause reach the internet directly.'}`}
-              </p>
+              <ExtendSteps marker={null} detail={null} from={from} proxy={proxy} killSwitch={settings.killSwitch} />
             </section>
             {subType === 'hours' && (
               <LimitsSection title="Limits" limits={[{
@@ -614,6 +604,7 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
                 tone: 'warning',
                 label: 'Time runs between uses',
                 text: 'A node bills time from the start of the session to its last activity, including the gaps while you are disconnected. Measured on one session so far. For on-and-off use, paying per GB is the fairer deal.',
+                topic: 'billing',
               }]} />
             )}
           </>
@@ -630,6 +621,7 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
         info={reviewing ? {
           label: 'What this node can see',
           text: 'Your device connects straight to this node, so it sees your IP address. Your traffic also leaves for the internet from it, so it sees which sites you visit. HTTPS keeps what you send from it, not where you send it.',
+          topic: 'node-sees',
         } : undefined}
       />
 
@@ -684,10 +676,15 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
                 {/* Buying more than needed is safe: settlement pays the node for what it
                     metered and returns the rest of the deposit (session-lifecycle.md). */}
                 {selectedPrice && (
-                  <p className="text-xs text-text-tertiary">
+                  <p className="text-xs text-text-tertiary flex items-center gap-1.5">
                     {subType === 'gigabytes'
-                      ? 'You pay only for the data you send and receive. End the session when you\'re done, and what you didn\'t use comes back to your wallet when the chain settles it, about 2 hours later.'
-                      : 'You pay for the time from your first connect to your last use. End the session when you\'re done, and the hours you didn\'t use come back to your wallet when the chain settles it, about 2 hours later.'}
+                      ? 'You pay only for the data you use. The rest comes back about 2 h after you end it.'
+                      : 'You pay for the time from first connect to last use. The rest comes back about 2 h after you end it.'}
+                    <InfoTip label="About what you pay" topic="sessions">
+                      {subType === 'gigabytes'
+                        ? 'You pay only for the data you send and receive. End the session when you\'re done, and what you didn\'t use comes back to your wallet when the chain settles it, about 2 hours later.'
+                        : 'You pay for the time from your first connect to your last use. End the session when you\'re done, and the hours you didn\'t use come back to your wallet when the chain settles it, about 2 hours later.'}
+                    </InfoTip>
                   </p>
                 )}
                 {compatiblePlans && compatiblePlans.length > 0 && (
@@ -810,5 +807,85 @@ export default function ConnectionModal({ node, onClose, startExtend = false }: 
         </div>
       )}
     </ReviewModal>
+  )
+}
+
+/**
+ * Extend's three steps ([REL-46], [RN-15]): the same rows before Pay, while it runs and
+ * after it, so the window shows one picture throughout. `marker` is the progress marker
+ * main last sent, null before Pay: the purchase's four (1/5..4/5) all belong to the
+ * first row, which names them in plain words. The reasons sit behind each row's "?".
+ */
+function ExtendSteps({ marker, detail, done, from, proxy, killSwitch }: {
+  marker: string | null
+  detail: string | null
+  /** After it finished: whether the old session's End went through. */
+  done?: 'ended' | 'end-failed'
+  from: string
+  proxy: boolean
+  killSwitch: boolean
+}) {
+  const buyStep = marker ? ['1/5', '2/5', '3/5', '4/5'].indexOf(marker) : -1
+  const buyLabel = ['Preparing', 'Buying the new session on chain', 'Confirming the session', 'Handshaking with the node'][buyStep]
+  const active = done ? 3 : marker === null ? -1 : marker === 'extend:switch' ? 1 : marker === 'extend:end-old' ? 2 : 0
+  const rows = [
+    {
+      label: 'Buy the new session',
+      sub: proxy ? 'The local proxy keeps working' : 'You stay connected',
+      now: buyLabel ? `${buyLabel} (${buyStep + 1} of 4)` : null,
+      tip: 'The new session is bought on chain while your current one keeps carrying your traffic. This is the first of two network fees.',
+    },
+    {
+      label: 'Move onto it',
+      sub: proxy ? 'The local proxy stops for a few seconds' : 'Pauses for a few seconds',
+      now: marker === 'extend:switch' ? detail : null,
+      tip: proxy
+        ? 'The local proxy moves to the new session on the same node.'
+        : `Your connection moves to the new session on the same node, and downloads or calls in progress restart. ${killSwitch
+          ? 'The kill switch stays on, so nothing leaves outside the tunnel during the pause.'
+          : 'The kill switch is off, so apps that send anything during the pause reach the internet directly.'}`,
+      // Said only when it is the exception: with the kill switch on, the pause is quiet.
+      note: !proxy && !killSwitch ? 'The kill switch is off, so apps go direct during the pause.' : null,
+    },
+    {
+      label: done === 'ended' ? `Ended session #${from}` : `End session #${from}`,
+      // [SL-1]: nothing comes back at the click; the old deposit's rest comes back at settlement.
+      sub: done === 'end-failed' ? 'Not ended' : 'What is left of its deposit returns in about 2 h',
+      now: null,
+      tip: `The second network fee. Session #${from} ends once the new one carries your traffic. What is left of its deposit comes back to your wallet when the chain settles it, about 2 hours later.`,
+    },
+  ]
+  return (
+    <ol>
+      {rows.map((row, i) => {
+        const failed = done === 'end-failed' && i === 2
+        const state = failed ? 'failed' : i < active ? 'done' : i === active ? 'active' : marker === null && !done ? 'plan' : 'pending'
+        return (
+          <li key={i} className="relative grid grid-cols-[24px_minmax(0,1fr)_14px] gap-x-3 pb-3.5 last:pb-0">
+            {i < rows.length - 1 && <span aria-hidden className="absolute left-3 top-7 bottom-1 w-px bg-border" />}
+            <span className={`w-6 h-6 rounded-full border grid place-items-center bg-bg-secondary font-mono text-[11px] ${
+              state === 'done' ? 'border-success text-success'
+                : state === 'active' ? 'border-accent text-accent'
+                  : state === 'failed' ? 'border-warning text-warning'
+                    : state === 'pending' ? 'border-border text-text-tertiary' : 'border-border text-text-secondary'
+            }`}>
+              {state === 'done' ? <CheckIcon className="w-3 h-3" />
+                : state === 'failed' ? <AlertIcon className="w-3 h-3" />
+                  : state === 'active' ? <Spinner className="text-accent" />
+                    : i + 1}
+            </span>
+            <div className="min-w-0">
+              <div className={`text-sm leading-6 ${state === 'pending' ? 'text-text-tertiary' : 'text-text-primary'}`}>{row.label}</div>
+              <div className="text-xs text-text-tertiary">{row.sub}</div>
+              {state === 'active' && row.now && <div className="text-xs text-text-secondary mt-0.5">{row.now}</div>}
+              {row.note && <div className="mt-2"><Note>{row.note}</Note></div>}
+            </div>
+            <span className="pt-[5px]">
+              <InfoTip label="More about this step" topic={i === 2 ? 'sessions' : 'extend'}>{row.tip}</InfoTip>
+            </span>
+          </li>
+        )
+      })}
+    </ol>
   )
 }

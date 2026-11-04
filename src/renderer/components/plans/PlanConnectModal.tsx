@@ -16,6 +16,7 @@ import ConnectErrorActions from '../ConnectErrorActions'
 import InsufficientFunds from '../InsufficientFunds'
 import CountryFlag from '../CountryFlag'
 import Spinner from '../Spinner'
+import InfoTip from '../InfoTip'
 import RouteStrip, { singleHopStep, type RouteHop, type RouteStage } from '../RouteStrip'
 import {
   ChecksSection, FooterReason, LimitsSection, ModeField, Note, OptionsSection,
@@ -402,6 +403,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
         info={showForm ? {
           label: 'What the node can see',
           text: 'Your device connects straight to the node, so it sees your IP address. Your traffic also leaves for the internet from it, so it sees which sites you visit. HTTPS keeps what you send from it, not where you send it.',
+          topic: 'node-sees',
         } : undefined}
       />
 
@@ -417,9 +419,12 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
               />
             </SectionHead>
             {!manual ? (
-              <p className="text-text-tertiary text-xs">
-                Smart connect checks the plan's nodes and picks the fastest healthy one. If the
-                first choice fails, the next is tried without paying the plan price again.
+              <p className="text-text-tertiary text-xs flex items-center gap-1.5">
+                Picks the fastest healthy node in the plan.
+                <InfoTip label="How a node is picked" topic="plans">
+                  Smart connect checks the plan's nodes and picks the fastest healthy one. If the
+                  first choice fails, the next is tried without paying the plan price again.
+                </InfoTip>
               </p>
             ) : manualRows === null ? (
               <div className="flex items-center gap-2 text-text-tertiary text-sm">
@@ -429,7 +434,7 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
               <p className="text-text-secondary text-sm">
                 {planNodesUnknown
                   ? (tunnelUp
-                    ? "The plan's node list can't be read through the VPN, and none was saved earlier. Pick for me reads it after disconnecting."
+                    ? "The plan's node list can't be read through the VPN, and none was saved. Pick for me reads it after disconnecting."
                     : "Could not read the plan's node list right now.")
                   : 'No nodes are linked to this plan right now.'}
               </p>
@@ -469,18 +474,23 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
                   })}
                 </div>
                 {manualRows.some((r) => r.node && nodeStatusMeta(r.node).state === 'unhealthy') && (
-                  <label className="flex items-start gap-2 cursor-pointer text-xs text-text-secondary">
-                    <input
-                      type="checkbox"
-                      checked={healthAcknowledged}
-                      onChange={(e) => setHealthAcknowledged(e.target.checked)}
-                      className="accent-accent mt-0.5"
-                    />
-                    <span>
-                      Allow nodes that last failed the network health check. That check can be
-                      hours out of date; a failed handshake is cancelled and refunded automatically.
+                  <div className="flex items-start gap-1.5">
+                    <label className="flex items-start gap-2 cursor-pointer text-xs text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={healthAcknowledged}
+                        onChange={(e) => setHealthAcknowledged(e.target.checked)}
+                        className="accent-accent mt-0.5"
+                      />
+                      <span>Allow nodes that failed the last network health check.</span>
+                    </label>
+                    {/* Outside the label, so a press on the "?" never ticks the box. */}
+                    <span className="pt-px">
+                      <InfoTip label="About the health check" topic="health">
+                        That check can be hours out of date; a failed handshake is cancelled and refunded automatically.
+                      </InfoTip>
                     </span>
-                  </label>
+                  </div>
                 )}
               </>
             )}
@@ -527,8 +537,8 @@ export default function PlanConnectModal({ plan, subscriptionId, startManual = f
             )}
             {!isReuse && price.udvpn === null && price.amount && (
               <Note>
-                This plan is priced in {price.denomLabel}, which this app cannot check your balance
-                for. The chain will reject the purchase if the wallet cannot pay.
+                Priced in {price.denomLabel}: this app cannot check that balance, and the chain refuses the
+                purchase if the wallet cannot pay.
               </Note>
             )}
             {cantAfford && funds && (

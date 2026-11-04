@@ -7,6 +7,9 @@ import { v2rayEncryption } from '../utils/v2ray-connection'
 import { IS_WINDOWS, protocolMeta } from '../utils/protocols'
 import { versionSignsReplies } from '../../shared/node-signing'
 import { switchFacts, type PreviousConnection } from '../utils/switch'
+import { HELP_TOPICS, type TopicId } from '../utils/help-topics'
+import { useNavigation } from '../contexts/NavigationContext'
+import { useHelpAside } from './HelpPanel'
 import CountryFlag from './CountryFlag'
 import InfoTip from './InfoTip'
 import Spinner from './Spinner'
@@ -24,6 +27,7 @@ export type Tone = 'success' | 'warning' | 'danger' | 'busy'
  * The window: a header, a body that scrolls, and a footer that does not. Escape and a
  * click outside close it only while `closable`, which a window turns off for as long
  * as a purchase is in flight, so the purchase cannot outlive the window showing it.
+ * While the Help panel is open the window moves left of it rather than under it.
  */
 export function ReviewModal({ title, subtitle, closable, onClose, footer, className = 'max-w-xl', children }: {
   title: string
@@ -41,9 +45,13 @@ export function ReviewModal({ title, subtitle, closable, onClose, footer, classN
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [closable, onClose])
+  const aside = useHelpAside()
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={closable ? onClose : undefined}>
+    <div
+      className={`fixed inset-0 bg-black/40 flex items-center justify-center z-50 transition-[padding] duration-200 ${aside}`}
+      onClick={closable ? onClose : undefined}
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -88,6 +96,8 @@ export interface CheckSpec {
   text: string
   tip?: string
   tipLabel?: string
+  /** The Help topic behind the tip ([RN-15]). */
+  topic?: TopicId
   /** A fix on the same line, e.g. "Use encrypted DNS". */
   action?: ReactNode
   /** Whatever the row needs under it: a picker, a guide, an override. */
@@ -117,10 +127,10 @@ export function ChecksSection({ title, checks }: { title: string; checks: CheckS
 
 /**
  * One check: a graded icon, a short claim, an optional fix on the same line, the
- * reasoning behind a "?" at the row's right end (where InfoTip must sit), and the
- * body underneath. Only a row that needs attention is tinted.
+ * reasoning behind a "?" at the row's right end, and the body underneath. Only a row
+ * that needs attention is tinted.
  */
-function CheckRow({ tone, text, tip, tipLabel, action, body }: Omit<CheckSpec, 'id'>) {
+function CheckRow({ tone, text, tip, tipLabel, topic, action, body }: Omit<CheckSpec, 'id'>) {
   const icon = tone === 'success' ? <CheckIcon className="w-4 h-4 text-success" />
     : tone === 'warning' ? <AlertIcon className="w-4 h-4 text-warning" />
       : tone === 'danger' ? <CloseIcon className="w-4 h-4 text-danger" />
@@ -135,7 +145,7 @@ function CheckRow({ tone, text, tip, tipLabel, action, body }: Omit<CheckSpec, '
         {action}
       </div>
       <span className="pt-[3px]">
-        {tip && <InfoTip label={tipLabel ?? 'Why'}>{tip}</InfoTip>}
+        {tip && <InfoTip label={tipLabel ?? 'Why'} topic={topic}>{tip}</InfoTip>}
       </span>
       {body && <div className="col-start-2 text-xs text-text-secondary space-y-2 min-w-0">{body}</div>}
     </div>
@@ -302,15 +312,18 @@ export interface Limit {
   tone: 'danger' | 'warning'
   label: string
   text: ReactNode
+  /** The Help topic that says it in full: the panel ends with "Learn more" ([RN-15]). */
+  topic?: TopicId
 }
 
 /**
- * What no check can fix: toggle chips that open one shared panel below them. Chips,
- * not InfoTips, because an InfoTip must sit at a row's right end and these sit
- * mid-row. The figure a decision turns on belongs in the label, not only the panel.
+ * What no check can fix: toggle chips that open one shared panel below them. A panel
+ * stays open while the user reads it, which a tooltip would not. The figure a decision
+ * turns on belongs in the label, not only the panel.
  */
 export function LimitsSection({ title, limits }: { title: string; limits: Limit[] }) {
   const [open, setOpen] = useState<string | null>(null)
+  const { openHelp } = useNavigation()
   const shown = limits.find((l) => l.key === open)
   return (
     <section>
@@ -339,6 +352,15 @@ export function LimitsSection({ title, limits }: { title: string; limits: Limit[
       {shown && (
         <div id="connect-limit-panel" className="mt-2 border border-border rounded-md bg-bg-primary px-3 py-2.5 text-xs text-text-secondary">
           {shown.text}
+          {shown.topic && (
+            <button
+              type="button"
+              onClick={() => shown.topic && openHelp(shown.topic)}
+              className="block mt-1.5 text-accent font-medium hover:underline"
+            >
+              Learn more: {HELP_TOPICS[shown.topic].title}
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -365,6 +387,7 @@ export function keysLimit({ subject, signs }: { subject: 'node' | 'chain'; signs
     key: 'keys',
     tone: 'warning',
     label: 'Keys are self-signed',
+    topic: 'signing',
     text: (
       <>
         <p>
@@ -396,6 +419,7 @@ export function signingCheck(node: SentNode): CheckSpec | null {
     tone: 'success',
     text: 'Signs its handshake replies',
     tipLabel: 'What a signed reply proves',
+    topic: 'signing',
     tip: 'Its version (dvpnd 9.4 or later) signs the keys and addresses it hands this app. The signature is checked against the key the chain knows the node by, and a reply without one is refused, so nobody on your network can answer in its place. A node that does not say it signs is refused before anything is bought.',
   }
 }
@@ -410,6 +434,7 @@ export function seesBothLimit(onOpenMultihop: () => void): Limit {
     key: 'sees-both',
     tone: 'warning',
     label: 'This node sees both ends',
+    topic: 'multihop',
     text: (
       <>
         <p>
@@ -577,7 +602,8 @@ export function switchCheck(prev: PreviousConnection | null, s: ReturnType<typeo
     text: facts.text,
     tipLabel: 'Why the connection drops first',
     tip: facts.tip,
-    body: <>{facts.lines.map((l) => <p key={l}>{l}</p>)}</>,
+    topic: 'switching',
+    body: <p>{facts.line}</p>,
   }
 }
 
@@ -595,6 +621,7 @@ export function dnsCheck(s: ReturnType<typeof useReviewSettings>, mode: 'tunnel'
       tone: 'warning',
       text: `Only apps you point at ${SOCKS_DISPLAY_ADDR} use ${through}`,
       tipLabel: 'More about local proxy mode',
+      topic: 'proxy-mode',
       tip: `${IS_WINDOWS ? 'Nothing' : 'No admin password is needed, because nothing'} about your routing changes. Everything you do not point at the proxy leaves your device as normal, and there is no kill switch.`,
     }
   }
@@ -604,6 +631,7 @@ export function dnsCheck(s: ReturnType<typeof useReviewSettings>, mode: 'tunnel'
       tone: 'warning',
       text: 'DNS would go to your own network',
       tipLabel: 'Why DNS escapes the tunnel',
+      topic: 'dns',
       tip: `DNS is set to System Default, which is usually your router. That lookup is not routed through ${through}, so your provider still sees every domain you visit even though your traffic does not go near them.`,
       action: (
         <button
@@ -624,6 +652,7 @@ export function dnsCheck(s: ReturnType<typeof useReviewSettings>, mode: 'tunnel'
     tone: 'success',
     text: `DNS goes to ${s.dnsResolver}, encrypted`,
     tipLabel: 'About the DNS setting',
+    topic: 'dns',
     tip: `A chosen resolver is queried over encrypted DNS inside ${through}, so neither your network nor the node can read the names you look up. It is an app-wide setting, in Settings.`,
     body: error,
   }

@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { useHelpAside } from './HelpPanel'
 
 export interface ConfirmOptions {
   /** The question, e.g. "End session #42?". */
@@ -26,6 +27,8 @@ interface PendingConfirm extends ConfirmOptions {
  */
 export function useConfirm() {
   const [pending, setPending] = useState<PendingConfirm | null>(null)
+  // Moves left of the Help panel while it is open, like the review windows.
+  const aside = useHelpAside()
 
   const requestConfirm = useCallback(
     (options: ConfirmOptions) =>
@@ -43,7 +46,7 @@ export function useConfirm() {
   // on click, and a bubbled click would trigger those underneath the question.
   const confirmDialog = pending ? (
     <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6"
+      className={`fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6 transition-[padding] duration-200 ${aside}`}
       onClick={(e) => { e.stopPropagation(); settle(false) }}
     >
       <div
