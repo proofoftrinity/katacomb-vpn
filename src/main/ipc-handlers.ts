@@ -3113,7 +3113,12 @@ export function registerIpcHandlers(): void {
     // would otherwise skip and cannot make things worse - the alternative is
     // showing nothing - and the chain does answer through a tunnel often enough
     // to be worth asking (verified through a live v2ray node the same day).
-    if (isVpnActive() && lastKnownSessions.length > 0) return lastKnownSessions
+    // While Extend runs ([REL-46]) the cache is the answer too, though its switch has
+    // no tunnel up for a moment: the status reads reconnecting then, so the tab asks
+    // again, and the read the kill switch drops comes back empty ([REL-22]) and would
+    // replace the list. Seen live: the tab read "0 active" until the Extend window
+    // closed. Extend reads the chain itself once the old session is ended.
+    if ((isVpnActive() || extending !== null) && lastKnownSessions.length > 0) return lastKnownSessions
     // On app startup this can run before the wallet is restored (it races the
     // first walletGetAddress); restore it here too so sessions auto-load instead
     // of returning [] until a manual Refresh.

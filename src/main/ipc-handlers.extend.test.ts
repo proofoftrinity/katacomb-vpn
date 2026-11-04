@@ -429,6 +429,35 @@ describe('[REL-46] while Extend runs it owns the connection', () => {
     await h.settle(extending)
     assert.equal((await status(h)).state, 'connected')
   })
+
+  test('[REL-46] [REL-22] the Sessions tab keeps both sessions through the switch, though the chain cannot be read', async (t) => {
+    // The status reading reconnecting makes the tab ask again mid-switch, with no tunnel
+    // and the kill switch dropping the read, and after a WireGuard switch the next read
+    // can hang on a socket the old peer took with it. Each comes back as an empty list.
+    const held = gate()
+    let bringUps = 0
+    let chainReadable = true
+    const h = ipc.fresh(world({ fakes: {
+      'vpn/vpn-manager': {
+        connectWireGuardFromConfig: async () => {
+          if (bringUps++ > 0) await held.wait
+          h.tunnel.bringUp('wireguard')
+        },
+      },
+      'chain/wallet': { getActiveSessions: async () => (chainReadable ? [row('1001'), row('1002')] : []) },
+    } }))
+    t.after(() => h.dispose())
+    await connected(h)
+    const extending = h.invoke('CONNECTION_EXTEND', EXTEND)
+    await h.advance(1_000)
+    assert.equal(h.tunnel.up, false, 'mid-switch: the old tunnel is down')
+    chainReadable = false
+    const ids = async () => (await h.settle(h.invoke('WALLET_SESSIONS')) as { id: string }[]).map((s) => s.id).sort()
+    assert.deepEqual(await ids(), ['1001', '1002'], 'mid-switch')
+    held.open()
+    await h.settle(extending)
+    assert.deepEqual(await ids(), ['1001', '1002'], 'after the switch, before the chain answers again')
+  })
 })
 
 describe('[REL-46] the 90% warning points at Extend where Extend would go ahead', () => {
