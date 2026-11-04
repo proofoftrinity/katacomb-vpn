@@ -1,4 +1,14 @@
-import { connectComet, type CometClient } from '@cosmjs/tendermint-rpc'
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
+import { isJsonRpcErrorResponse, parseJsonRpcResponse, type JsonRpcRequest, type JsonRpcSuccessResponse } from '@cosmjs/json-rpc'
+import {
+  Comet1Client,
+  Comet38Client,
+  Tendermint37Client,
+  connectComet,
+  type CometClient,
+  type RpcClient,
+} from '@cosmjs/tendermint-rpc'
 import {
   GasPrice,
   QueryClient,
@@ -16,6 +26,8 @@ import { GAS_PRICE_STR } from './chain-constants'
 const GAS_PRICE = GasPrice.fromString(GAS_PRICE_STR)
 const RPC_CONNECT_TIMEOUT_MS = 10_000
 const REDIRECT_PROBE_TIMEOUT_MS = 3_000
+const FRESH_REQUEST_TIMEOUT_MS = 10_000
+const FRESH_MAX_REDIRECTS = 3
 /**
  * How often the signing client re-checks whether a broadcast tx has committed.
  * CosmJS's default is 3000ms and it sleeps BEFORE the first check, so with
@@ -71,6 +83,95 @@ async function discoverRedirect(endpoint: string): Promise<string> {
   }
 }
 
+/**
+ * JSON-RPC over a new socket for every request, for the chain calls right after Extend
+ * moves the tunnel ([REL-46]). CosmJS's HttpClient posts through the global fetch, whose
+ * keep-alive pool can hand it a socket opened through the tunnel that just went. After a
+ * WireGuard switch the peer has a new address, so that socket's packets get no answer
+ * and nothing closes it: the request hangs until the caller gives up. Seen on mainnet
+ * 2026-11-04, the first End after a WireGuard switch hung for its whole 10 s connect.
+ * The same trap as fetchFreshSocket's (net-fetch.ts). Errors read as HttpClient's do,
+ * since callers match on them (isSessionNotActive, isRpcConnectivityError).
+ */
+class FreshSocketRpcClient implements RpcClient {
+  private readonly url: string
+
+  constructor(url: string) {
+    this.url = url
+  }
+
+  disconnect(): void {
+    // Nothing is kept open between requests.
+  }
+
+  async execute(request: JsonRpcRequest): Promise<JsonRpcSuccessResponse> {
+    const response = parseJsonRpcResponse(await postFreshSocket(this.url, JSON.stringify(request), FRESH_MAX_REDIRECTS))
+    if (isJsonRpcErrorResponse(response)) throw new Error(JSON.stringify(response.error))
+    return response
+  }
+}
+
+/**
+ * POST on a socket of its own (`agent: false`). Follows a 307/308 as fetch does, since
+ * resolveRpcBase is fail-open and the default endpoint redirects every request, but
+ * never from https down to plain http.
+ */
+function postFreshSocket(url: string, body: string, redirectsLeft: number): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url)
+    const send = target.protocol === 'http:' ? httpRequest : httpsRequest
+    const req = send(target, {
+      method: 'POST',
+      agent: false,
+      signal: AbortSignal.timeout(FRESH_REQUEST_TIMEOUT_MS),
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      const status = res.statusCode ?? 0
+      const location = res.headers.location
+      if ((status === 307 || status === 308) && location && redirectsLeft > 0) {
+        const next = new URL(location, target)
+        if (next.protocol === 'https:' || next.protocol === target.protocol) {
+          res.resume()
+          resolve(postFreshSocket(next.href, body, redirectsLeft - 1))
+          return
+        }
+      }
+      let text = ''
+      res.setEncoding('utf8')
+      res.on('data', (chunk: string) => { text += chunk })
+      res.on('error', reject)
+      res.on('end', () => {
+        if (status >= 400) {
+          reject(new Error(`Bad status on response: ${status}`, { cause: { status, body: text } }))
+          return
+        }
+        try {
+          resolve(JSON.parse(text))
+        } catch (err) {
+          reject(err)
+        }
+      })
+    })
+    req.on('error', reject)
+    req.end(body)
+  })
+}
+
+/** connectComet's version detection, over FreshSocketRpcClient. */
+async function connectCometFresh(base: string): Promise<CometClient> {
+  const rpc = new FreshSocketRpcClient(base)
+  const tm37Client = Tendermint37Client.create(rpc)
+  const version = (await tm37Client.status()).nodeInfo.version
+  if (version.startsWith('0.38.')) return Comet38Client.create(rpc)
+  if (version.startsWith('1.')) return Comet1Client.create(rpc)
+  return tm37Client
+}
+
+/** `freshSockets`: every request on a socket of its own (FreshSocketRpcClient). */
+interface ChainFlowOptions {
+  freshSockets?: boolean
+}
+
 // The SDK's constructors are protected (its static factories are the public
 // surface), but the factories create one CometBFT connection each — and a
 // connect flow needs a query client AND a signing client, which would cost two
@@ -121,9 +222,9 @@ export interface ChainQuery {
   disconnect: () => void
 }
 
-export async function openChainQuery(): Promise<ChainQuery> {
+export async function openChainQuery(options: ChainFlowOptions = {}): Promise<ChainQuery> {
   const base = await resolveRpcBase(getRpcEndpoint())
-  const tmClient = await withTimeout(connectComet(base), RPC_CONNECT_TIMEOUT_MS, 'RPC connect')
+  const tmClient = await withTimeout(options.freshSockets ? connectCometFresh(base) : connectComet(base), RPC_CONNECT_TIMEOUT_MS, 'RPC connect')
   return {
     query: new FlowQueryClient(tmClient),
     protobufRpc: createProtobufRpcClient(QueryClient.withExtensions(tmClient)),
@@ -131,9 +232,9 @@ export async function openChainQuery(): Promise<ChainQuery> {
   }
 }
 
-export async function openChainFlow(wallet: OfflineSigner): Promise<ChainFlow> {
+export async function openChainFlow(wallet: OfflineSigner, options: ChainFlowOptions = {}): Promise<ChainFlow> {
   const base = await resolveRpcBase(getRpcEndpoint())
-  const tmClient = await withTimeout(connectComet(base), RPC_CONNECT_TIMEOUT_MS, 'RPC connect')
+  const tmClient = await withTimeout(options.freshSockets ? connectCometFresh(base) : connectComet(base), RPC_CONNECT_TIMEOUT_MS, 'RPC connect')
   return {
     query: new FlowQueryClient(tmClient),
     signing: new FlowSigningClient(tmClient, wallet, {

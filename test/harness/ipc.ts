@@ -102,6 +102,7 @@ function defaults(tunnel: Tunnel, state: { nextSession: number; chainSessions: u
     },
     'chain/chain-clients': {
       openChainFlow: async () => ({ query: { fake: 'query' }, signing: { fake: 'signing' }, disconnect: noop }),
+      openChainQuery: async () => ({ query: { fake: 'query' }, protobufRpc: { fake: 'rpc' }, disconnect: noop }),
     },
     'chain/chain-service': {
       subscribeToNode: async () => ({ sessionId: String(state.nextSession++), remoteUrl: 'https://203.0.113.7:8585' }),

@@ -340,6 +340,38 @@ describe('[REL-46] a failed Extend loses nothing', () => {
     assert.deepEqual(ended(h), ['1001', '1001'])
   })
 
+  test('[REL-46] after the switch the End and the session read go on sockets of their own, which the old tunnel cannot have taken', async (t) => {
+    // A socket pooled through the old WireGuard peer: once the tunnel has moved, a chain
+    // call that may reuse it hangs, as the first End did on mainnet 2026-11-04.
+    let switched = false
+    const fresh = (o?: { freshSockets?: boolean }) => ({ fresh: o?.freshSockets === true })
+    const onSocket = <T>(client: unknown, answer: () => T): Promise<T> =>
+      switched && (client as { fresh?: boolean } | undefined)?.fresh !== true ? new Promise<never>(() => undefined) : Promise.resolve(answer())
+    const h = ipc.fresh(world({ fakes: {
+      'chain/chain-clients': {
+        openChainFlow: async (_w, o) => ({ query: fresh(o), signing: fresh(o), disconnect: () => undefined }) as never,
+        openChainQuery: async (o) => ({ query: fresh(o), protobufRpc: {}, disconnect: () => undefined }) as never,
+      },
+      'chain/chain-service': { endSession: (p) => onSocket(p.client, () => undefined) },
+      'chain/wallet': {
+        getActiveSessions: (c) => onSocket(c, () => (switched ? [row('1001', { status: 'inactive_pending' }), row('1002')] : [row('1001'), row('1002')]) as never),
+      },
+      'vpn/vpn-manager': {
+        connectWireGuardFromConfig: async () => {
+          if (h.tunnel.bringUps > 0) switched = true
+          h.tunnel.bringUp('wireguard')
+        },
+      },
+    } }))
+    t.after(() => h.dispose())
+    await connected(h)
+    const res = await h.settle(h.invoke('CONNECTION_EXTEND', EXTEND))
+    assert.deepEqual(res, { sessionId: '1002', previousSessionId: '1001', previousEnded: true })
+    assert.deepEqual(ended(h), ['1001'], 'the first End went through')
+    const listed = await h.settle(h.invoke('WALLET_SESSIONS')) as { id: string; status: string }[]
+    assert.equal(listed.find((s) => s.id === '1001')?.status, 'inactive_pending', 'the old card reads ended')
+  })
+
   test('[REL-46] when the old session cannot be ended, the new tunnel stays and the reply says so', async (t) => {
     const h = ipc.fresh(world({ fakes: { 'chain/chain-service': {
       endSession: async () => { throw new Error('RPC connect timed out') },

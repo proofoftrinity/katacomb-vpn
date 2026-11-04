@@ -774,13 +774,17 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     stands down as for a dropped tunnel; the message names both. Going back to the old tunnel was not
     built: on dvpnd its peer is already gone, and on dvpnx a failure local enough to stop
     the new tunnel would usually stop the old one too.
-  - Only once the new tunnel carries traffic is the old session ended, and a failed End is
-    tried once more: right after a WireGuard switch, a socket the RPC client kept through
-    the old peer is dead with nothing to say so (the new peer has a new address), and the
-    retry gets a new socket. An End that still fails is reported; the new tunnel stays.
-    Seen on mainnet 2026-11-04: the first End after a WireGuard switch hung for the whole
-    10 s RPC connect and the retry ended the session; after the V2Ray and Hysteria2
-    switches, whose tun keeps its address, the first End went through.
+  - Only once the new tunnel carries traffic is the old session ended. Right after a
+    WireGuard switch, a socket the global fetch pool kept through the old peer is dead with
+    nothing to say so (the new peer has a new address), and CosmJS's HttpClient posts
+    through that pool. Seen on mainnet 2026-11-04: the first End after a WireGuard switch
+    hung for the whole 10 s RPC connect and its retry ended the session; after the V2Ray
+    and Hysteria2 switches, whose tun keeps its address, the first End went through. So
+    the End and the session read after it open their flow with `freshSockets`
+    (`chain-clients.ts`): every request on a socket of its own, a 307 followed as fetch
+    does, errors worded as HttpClient's. Checked read-only against mainnet the same day,
+    the redirect included. A failed End is still tried once more; one that still fails is
+    reported, and the new tunnel stays.
 
   Measured on mainnet 2026-11-04, one 1 GB Extend each with the kill switch on: dvpnx 9.0.0
   WireGuard lost traffic for under a second; dvpnx 8.3.1 V2Ray had no tun for under a
