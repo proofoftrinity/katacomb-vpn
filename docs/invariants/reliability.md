@@ -778,6 +778,16 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     tried once more: right after a WireGuard switch, a socket the RPC client kept through
     the old peer is dead with nothing to say so (the new peer has a new address), and the
     retry gets a new socket. An End that still fails is reported; the new tunnel stays.
+    Seen on mainnet 2026-11-04: the first End after a WireGuard switch hung for the whole
+    10 s RPC connect and the retry ended the session; after the V2Ray and Hysteria2
+    switches, whose tun keeps its address, the first End went through.
+
+  Measured on mainnet 2026-11-04, one 1 GB Extend each with the kill switch on: dvpnx 9.0.0
+  WireGuard lost traffic for under a second; dvpnx 8.3.1 V2Ray had no tun for under a
+  second and finished its switch 3.2 s after starting it; dvpnd 9.4.3 Hysteria2 lost
+  traffic for about 2 s, from the handshake (its [SL-8] eviction) to the new tunnel. No
+  probe got out while the tunnel was down. Buy plus handshake took 6–10 s, during which the
+  old tunnel carried traffic.
 
   While it runs, `extending` holds off the old session's quota, stall, handshake and
   liveness stand-downs and the V2Ray exit callback, since Extend decides how it ends; it
