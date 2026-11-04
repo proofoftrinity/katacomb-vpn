@@ -80,8 +80,8 @@ export interface ChainRowState {
   /** The short text in the eligibility column. */
   badge: string
   tone: 'success' | 'warning' | 'danger' | 'muted'
-  /** The full explanation, for the row's `title`. */
-  title: string
+  /** The full explanation, for the row's tooltip. */
+  tip: string
 }
 
 /**
@@ -100,7 +100,7 @@ export function chainRowState(
       selectable: false,
       badge: conflict.badge,
       tone: 'danger',
-      title: `${conflict.title} A chain needs its two hops in different countries and on different networks.`,
+      tip: `${conflict.title} A chain needs its two hops in different countries and on different networks.`,
     }
   }
 
@@ -111,7 +111,7 @@ export function chainRowState(
       selectable: false,
       badge: `v${node.version || '8.x'}`,
       tone: 'muted',
-      title: `This node runs ${node.version || 'a pre-9.0.0 version'}, which does not publish its inbound list, so it cannot be checked before you pay. Almost none of them offer TLS, so this will very likely be refused at the handshake and refunded.`,
+      tip: `This node runs ${node.version || 'a pre-9.0.0 version'}, which does not publish its inbound list, so it cannot be checked before you pay. Almost none of them offer TLS, so this will very likely be refused at the handshake and refunded.`,
     }
   }
 
@@ -120,7 +120,7 @@ export function chainRowState(
       selectable: false,
       badge: 'checking…',
       tone: 'muted',
-      title: 'Asking this node which inbounds it serves.',
+      tip: 'Asking this node which inbounds it serves.',
     }
   }
 
@@ -129,7 +129,7 @@ export function chainRowState(
       selectable: false,
       badge: 'unknown',
       tone: 'warning',
-      title: grade.error ?? 'No inbound listing',
+      tip: grade.error ?? 'No inbound listing',
     }
   }
 
@@ -143,7 +143,7 @@ export function chainRowState(
       selectable: true,
       badge: `${role === 'exit' ? 'TCP + ' : ''}${wrapping}`,
       tone: 'success',
-      title: `Serves ${served}. This hop would be wrapped in ${wrapping}.`,
+      tip: `Serves ${served}. This hop would be wrapped in ${wrapping}.`,
     }
   }
 
@@ -151,7 +151,7 @@ export function chainRowState(
     selectable: false,
     badge: role === 'exit' ? 'no TLS/TCP' : 'no TLS',
     tone: 'danger',
-    title: role === 'exit'
+    tip: role === 'exit'
       ? `Serves ${served || 'nothing usable'}. A chain exit needs a plain-TCP inbound wrapped in TLS or Reality.`
       : `Serves ${served || 'nothing usable'}, but none of it is wrapped in TLS or Reality. Still fine for an ordinary single-hop connection.`,
   }
@@ -191,11 +191,11 @@ export function isVerifiedFor(grade: ChainEligibility | undefined, role: ChainRo
  * usable: a click puts the node in this hop. picked: it is there, a click takes it out.
  * clash: refused by the pair rule, which the row states in words (`badge`) rather than
  * behind a hover, the way the rows that cannot show chips already do. refused: any
- * other refusal, explained by `title`.
+ * other refusal, explained by `tip`.
  */
 export type HopChipState =
-  | { kind: 'usable' | 'picked' | 'refused'; title: string }
-  | { kind: 'clash'; badge: PairConflict['badge']; title: string }
+  | { kind: 'usable' | 'picked' | 'refused'; tip: string }
+  | { kind: 'clash'; badge: PairConflict['badge']; tip: string }
 
 /**
  * One of the two role chips on a row ("Entry", "Exit"), so a node can go straight into
@@ -207,7 +207,7 @@ export type HopChipState =
  * is usable exactly when that row would be selectable for that role: the same positive
  * evidence, never a looser rule for the shortcut.
  *
- * A usable chip for a hop that is already filled REPLACES that hop, and its title says
+ * A usable chip for a hop that is already filled REPLACES that hop, and its tip says
  * so. Without it, an Australian row next to an Australian entry offered a green "Entry"
  * that read as "this one is fine" when all it could do was swap out the entry.
  */
@@ -219,16 +219,16 @@ export function hopChipState(
   other: SentNode | null,
   conflict: PairConflict | null,
 ): HopChipState {
-  if (picked?.address === node.address) return { kind: 'picked', title: `Your ${role}. Click to remove it.` }
+  if (picked?.address === node.address) return { kind: 'picked', tip: `Your ${role}. Click to remove it.` }
   if (other?.address === node.address) {
-    return { kind: 'refused', title: `Already your ${role === 'entry' ? 'exit' : 'entry'}.` }
+    return { kind: 'refused', tip: `Already your ${role === 'entry' ? 'exit' : 'entry'}.` }
   }
   const state = chainRowState(node, grade, role, conflict)
-  if (conflict !== null) return { kind: 'clash', badge: conflict.badge, title: state.title }
-  if (!state.selectable) return { kind: 'refused', title: state.title }
+  if (conflict !== null) return { kind: 'clash', badge: conflict.badge, tip: state.tip }
+  if (!state.selectable) return { kind: 'refused', tip: state.tip }
   return {
     kind: 'usable',
-    title: picked ? `Replaces ${picked.moniker || picked.address} as your ${role}. ${state.title}` : state.title,
+    tip: picked ? `Replaces ${picked.moniker || picked.address} as your ${role}. ${state.tip}` : state.tip,
   }
 }
 

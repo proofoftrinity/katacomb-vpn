@@ -250,7 +250,7 @@ function MoneyFigures({ economics, stale, onRetry }: {
         value={noIncome ? 'None' : formatUdvpnAmount(economics.estimatedRevenueUdvpn)}
         title={`${economics.subscriptions} subscription${economics.subscriptions === 1 ? '' : 's'} sold`}
       >
-        <InfoTip label="how these figures are computed">
+        <InfoTip label="how these figures are computed" topic="leases">
           Income is subscriptions sold, times the plan price, less the share the chain keeps. It is
           a floor: renewals may charge again without creating a new subscription. You pay nodes by
           the hour whether or not anyone connects, but sell plans by the gigabyte, so extra
@@ -278,10 +278,10 @@ function activateQuestion() {
   return {
     title: 'Activate this provider?',
     body: [
-      'Your active plans become visible to subscribers, and the chain will start accepting plan and lease transactions from you.',
-      'This is an on-chain transaction.',
+      'Your active plans become visible to subscribers, and the chain accepts your plan and lease transactions.',
     ],
     confirmLabel: 'Activate',
+    fee: true,
   }
 }
 
@@ -316,10 +316,11 @@ function deactivateQuestion(plans: MyPlan[], leases: LeaseSummary[]) {
         ? `The chain does this for you, all in the same block: ${consequences.join(', ')}.`
         : 'You have no leases or active plans, so nothing else changes.',
       'Reactivating later costs no new deposit, but every lease has to be bought again and every node linked again.',
-      'The registration deposit went to the community pool and is not returned. There is no way to remove a provider from the chain, so this is as close to cancelling as it gets.',
-      'This is an on-chain transaction.',
+      'The registration deposit went to the community pool and is not returned.',
+      'There is no way to remove a provider from the chain, so this is as close to cancelling as it gets.',
     ],
     confirmLabel: 'Deactivate',
     danger: true,
+    fee: true,
   }
 }

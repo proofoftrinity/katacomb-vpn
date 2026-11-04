@@ -5,6 +5,7 @@ import { isTestPlan } from '../../../shared/test-plan'
 import { displayConnectError } from '../../utils/connect-errors'
 import { usePlansContext } from '../../contexts/PlansContext'
 import { FooterReason, ReviewModal, SectionHead } from '../ConnectReview'
+import InfoTip from '../InfoTip'
 import Spinner from '../Spinner'
 import ProviderDetailsFields from './ProviderDetailsFields'
 
@@ -92,8 +93,11 @@ export default function ProviderDetailsModal({ provider, readOnly, onClose, onSa
           {busy ? 'Saving…' : 'Save to chain'}
         </button>
       </div>
-      <p className="text-text-tertiary text-[11px]">
-        This is an on-chain transaction, and costs the network fee only.
+      <p className="flex items-center gap-1.5 text-text-tertiary text-[11px]">
+        On-chain transaction · network fee
+        <InfoTip label="About network fees" topic="fees">
+          Saving costs the network fee only. The funds check before you pay counts it.
+        </InfoTip>
       </p>
     </>
   )

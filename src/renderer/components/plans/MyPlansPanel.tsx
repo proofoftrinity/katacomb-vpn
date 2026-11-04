@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react'
 import type { PlanAllocation, PlanInfo, ProviderInfo, SubscriptionSummary } from '../../types'
 import { usePlansContext } from '../../contexts/PlansContext'
 import { useConnection } from '../../hooks/useConnection'
+import { useNavigation } from '../../contexts/NavigationContext'
 import { formatBytes, formatDuration, formatDateUntil, UNLIMITED_BYTES_THRESHOLD } from '../../utils/format'
 import { dataUsed, timeUsed } from '../../utils/plan-value'
 import { RefreshIcon } from '../Icons'
 import DisconnectButton from '../DisconnectButton'
+import InfoTip from '../InfoTip'
 import PlanConnectModal from './PlanConnectModal'
 import SubscriptionActionModal from './SubscriptionActionModal'
 
@@ -25,11 +27,14 @@ const STATUS_META: Record<number, { label: string; dot: string; text: string }> 
 }
 
 /** One usage bar in the Sessions tab's idiom: info, then warning past 70%, danger past 90%. */
-function Meter({ label, title, pct }: { label: React.ReactNode; title: string; pct: number }) {
+function Meter({ label, tip, pct }: { label: React.ReactNode; tip: string; pct: number }) {
   return (
     <div className="mt-3">
       <div className="flex items-center justify-between text-xs mb-1">
-        <span className="text-text-secondary" title={title}>{label}</span>
+        <span className="flex items-center gap-1.5 text-text-secondary">
+          <span>{label}</span>
+          <InfoTip label="What this counts">{tip}</InfoTip>
+        </span>
         <span className={`font-mono ${pct > 90 ? 'text-danger' : pct > 70 ? 'text-warning' : 'text-text-secondary'}`}>
           {pct >= 100 ? 'Used up' : `${pct.toFixed(0)}%`}
         </span>
@@ -44,7 +49,7 @@ function Meter({ label, title, pct }: { label: React.ReactNode; title: string; p
   )
 }
 
-const DATA_TITLE =
+const dataTip =
   'What the chain has counted for this wallet on this subscription. Nodes report usage ' +
   'as a session runs, so it can trail a live session by one report.'
 
@@ -61,6 +66,7 @@ const DATA_TITLE =
 export default function MyPlansPanel({ providers, onBrowse }: { providers: ProviderInfo[]; onBrowse: () => void }) {
   const { overview, loading } = usePlansContext()
   const { status } = useConnection()
+  const { openHelp } = useNavigation()
   const tunnelUp = status.state === 'connected' || status.state === 'reconnecting'
   const [connectTarget, setConnectTarget] = useState<{ row: MyPlanRow; manual: boolean } | null>(null)
   const [manageTarget, setManageTarget] = useState<MyPlanRow | null>(null)
@@ -109,11 +115,13 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8">
         <p className="text-text-primary text-sm font-medium">No plans yet</p>
         <p className="text-text-secondary text-sm text-center max-w-sm">
-          A plan is a prepaid bundle from a provider: one purchase covers every node the
-          provider links to it, usually cheaper than paying a single node per GB.
+          One purchase covers every node a provider links to its plan.
         </p>
         <button onClick={onBrowse} className="btn btn-primary text-sm">
           Browse the catalog
+        </button>
+        <button type="button" onClick={() => openHelp('plans')} className="text-accent text-xs hover:underline">
+          What is a plan?
         </button>
       </div>
     )
@@ -173,7 +181,7 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
             {validity ? (
               <Meter
                 pct={validity.fraction * 100}
-                title="Calendar time since the subscription was bought, out of its validity. It runs whether or not you connect."
+                tip="Calendar time since the subscription was bought, out of its validity. It runs whether or not you connect."
                 label={<>
                   Validity used: {formatDuration(validity.usedDays * 86400)} of {formatDuration(validity.totalDays * 86400)}
                   <span className="text-text-tertiary"> · until {formatDateUntil(sub.inactiveAt)}</span>
@@ -190,11 +198,11 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
               data && !data.unlimited ? (
                 <Meter
                   pct={data.fraction * 100}
-                  title={DATA_TITLE}
+                  tip={dataTip}
                   label={<>Data used: {formatBytes(data.utilised)} of {formatBytes(data.granted)}</>}
                 />
               ) : (
-                <div className="text-xs mt-2.5" title={DATA_TITLE}>
+                <div className="flex items-center gap-1.5 text-xs mt-2.5">
                   {data ? (
                     <span className="text-text-secondary">
                       Data used: {formatBytes(data.utilised)}
@@ -203,6 +211,7 @@ export default function MyPlansPanel({ providers, onBrowse }: { providers: Provi
                   ) : (
                     <span className="text-text-tertiary">Data used could not be read from the chain.</span>
                   )}
+                  <InfoTip label="What this counts">{dataTip}</InfoTip>
                 </div>
               )
             )}

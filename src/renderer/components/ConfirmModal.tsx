@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useHelpAside } from './HelpPanel'
+import InfoTip from './InfoTip'
 
 export interface ConfirmOptions {
   /** The question, e.g. "End session #42?". */
@@ -10,6 +11,8 @@ export interface ConfirmOptions {
   confirmLabel: string
   /** Style the confirming button as destructive. */
   danger?: boolean
+  /** An on-chain transaction: one muted line under the body says it costs a network fee ([RN-15]). */
+  fee?: boolean
 }
 
 interface PendingConfirm extends ConfirmOptions {
@@ -57,6 +60,14 @@ export function useConfirm() {
         {pending.body.map((paragraph, i) => (
           <p key={i} className="text-text-secondary text-sm">{paragraph}</p>
         ))}
+        {pending.fee && (
+          <p className="flex items-center gap-1.5 text-text-tertiary text-xs">
+            On-chain transaction · network fee
+            <InfoTip label="About network fees" topic="fees">
+              Each on-chain transaction costs a network fee. The funds check before you pay counts it as well as the price.
+            </InfoTip>
+          </p>
+        )}
         <div className="flex gap-2 pt-1">
           <button type="button" onClick={() => settle(false)} className="btn btn-secondary text-xs py-2 flex-1">
             Cancel

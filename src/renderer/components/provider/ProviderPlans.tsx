@@ -13,6 +13,7 @@ import { usePlansContext } from '../../contexts/PlansContext'
 import { useConfirm, type ConfirmOptions } from '../ConfirmModal'
 import { ChecksSection, FooterReason, Segmented, type CheckSpec } from '../ConnectReview'
 import CountryFlag from '../CountryFlag'
+import InfoTip from '../InfoTip'
 import Spinner from '../Spinner'
 import { ValueStrip } from '../plans/PlanDetailPane'
 import { ChartIcon, EyeIcon, PlusIcon } from '../Icons'
@@ -220,8 +221,7 @@ export default function ProviderPlans({
         <div className="flex-1 overflow-y-auto">
           {plans.length === 0 && (
             <p className="px-4 py-2 text-text-tertiary text-xs">
-              No plans yet. A plan is what subscribers buy: gigabytes over a period, at your price,
-              served by the nodes you link to it.
+              No plans yet. A plan is gigabytes over a period, at your price, served by the nodes you link.
             </p>
           )}
           {plans.map((plan) => {
@@ -523,9 +523,9 @@ function Overview({ plans, leases, stats, statsUnknown, economics, onSelectPlan 
             </div>
           )}
           {income !== null && income.some((r) => r.sold > 0) && (
-            <p className="text-text-tertiary text-[11px] mt-3">
-              Subscriptions sold times the price, after the chain's share. A minimum: renewals can charge
-              again without a new subscription.
+            <p className="flex items-center gap-1.5 text-text-tertiary text-[11px] mt-3">
+              Subscriptions sold times the price, after the chain's share.
+              <InfoTip label="Why at least">Renewals can charge again without a new subscription.</InfoTip>
             </p>
           )}
         </section>
@@ -600,13 +600,14 @@ function PlanWorkspace({
     const next = !plan.private
     if (!(await requestConfirm({
       title: next ? `Make plan #${plan.id} private?` : `Make plan #${plan.id} public?`,
-      body: [
-        next
-          ? 'It stays active and existing subscriptions are unaffected, but it drops out of the catalog for anyone who has not chosen to show private plans.'
-          : 'It appears in the catalog for every subscriber browsing plans.',
-        'This is an on-chain transaction.',
-      ],
+      body: next
+        ? [
+            'It drops out of the catalog for anyone who has not chosen to show private plans.',
+            'It stays active, and existing subscriptions are unaffected.',
+          ]
+        : ['It appears in the catalog for every subscriber browsing plans.'],
       confirmLabel: next ? 'Make private' : 'Make public',
+      fee: true,
     }))) return
     setBusy({ kind: 'private', target: next })
     setError(null)
@@ -627,14 +628,16 @@ function PlanWorkspace({
       active
         ? {
             title: `Deactivate plan #${plan.id}?`,
-            body: ['It stops being offered to new subscribers. This is an on-chain transaction.'],
+            body: ['It stops being offered to new subscribers.'],
             confirmLabel: 'Deactivate',
             danger: true,
+            fee: true,
           }
         : {
             title: `Activate plan #${plan.id}?`,
             body: activateBody(plan, stats, providerName),
             confirmLabel: 'Activate',
+            fee: true,
           },
     ))) return
     setBusy({ kind: 'status', target: !active })
@@ -857,6 +860,7 @@ function visibilityChecks({ plan, stats, statsUnknown, providerName, providerAct
         text: 'Private: only buyers who tick the Private filter see it.',
         tipLabel: 'About private plans',
         tip: 'Private is a flag on chain, so other Sentinel apps should hide the plan too. Existing subscriptions are unaffected either way.',
+        topic: 'catalog-visibility',
         action: action('Make public', onMakePublic),
       }
     : { id: 'private', tone: 'success', text: 'Public: listed for everyone browsing plans.' })
@@ -869,6 +873,7 @@ function visibilityChecks({ plan, stats, statsUnknown, providerName, providerAct
           text: 'No nodes linked, so the catalog hides it by default and a buyer would have nothing to connect to.',
           tipLabel: 'Why no nodes hides it',
           tip: 'The catalog\'s "Ready to connect" filter is on by default and drops any plan counted at zero nodes. Lease and link a node below; you can do that without deactivating.',
+          topic: 'catalog-visibility',
         })
   } else if (stats === undefined && !statsUnknown) {
     checks.push({ id: 'nodes', tone: 'busy', text: 'Counting linked nodes' })
@@ -882,6 +887,7 @@ function visibilityChecks({ plan, stats, statsUnknown, providerName, providerAct
       text: `"${providerName}" reads as a test account, so the catalog files the plan under Test plans, hidden by default.`,
       tipLabel: 'Why the name matters',
       tip: 'This is a guess this app makes from the provider name, not anything the chain records. Renaming the provider with Edit details, at the top, changes it.',
+      topic: 'catalog-visibility',
     })
   }
   return checks
@@ -983,6 +989,7 @@ function CreatePlanForm({ price: tokenPrice, economics, providerName, readOnly, 
           text: 'Private: only buyers who tick the Private filter will see it.',
           tipLabel: 'About private plans',
           tip: 'Private is a flag on chain, so other Sentinel apps should hide the plan too. You can change it later from the plan\'s page.',
+          topic: 'catalog-visibility',
           action: (
             <button type="button" onClick={() => setIsPrivate(false)} className="btn btn-secondary text-xs px-2.5 py-1">
               Make public
@@ -998,6 +1005,7 @@ function CreatePlanForm({ price: tokenPrice, economics, providerName, readOnly, 
       text: `"${providerName}" reads as a test account, so the catalog files the plan under Test plans, hidden by default.`,
       tipLabel: 'Why the name matters',
       tip: 'This is a guess this app makes from the provider name, not anything the chain records. Renaming the provider with Edit details, at the top, changes it.',
+      topic: 'catalog-visibility',
     })
   }
   checks.push({
@@ -1006,14 +1014,16 @@ function CreatePlanForm({ price: tokenPrice, economics, providerName, readOnly, 
     text: 'No nodes linked yet, so the catalog hides it by default until you link one.',
     tipLabel: 'Why no nodes hides it',
     tip: 'The catalog\'s "Ready to connect" filter is on by default and drops any plan counted at zero nodes. You lease and link nodes on the plan\'s own page once it exists.',
+    topic: 'catalog-visibility',
   })
 
   async function handleCreate() {
     if (!valid || priceUdvpn === null) return
     if (!(await requestConfirm({
       title: `Create a plan for ${gb} GB over ${dayCount} days at ${formatUdvpnAmount(priceUdvpn)}?`,
-      body: ['It is created inactive, and you activate it afterwards. This is an on-chain transaction.'],
+      body: ['It is created inactive, and you activate it afterwards.'],
       confirmLabel: 'Create plan',
+      fee: true,
     }))) return
     setBusy(true)
     setError(null)
@@ -1083,8 +1093,8 @@ function CreatePlanForm({ price: tokenPrice, economics, providerName, readOnly, 
               {overview.fetchedAt === null
                 ? 'The plan catalog has not been read yet, so this compares against nodes only. Opening the Plans tab reads it.'
                 : listedPerGb.length === 0
-                  ? `No plan a subscriber is shown with the catalog's default filters has a price per GB, so this compares against nodes only (catalog scan ${formatTimeAgo(overview.fetchedAt)}).`
-                  : `Other listed plans: the ${listedPerGb.length.toLocaleString('en-US')} with a price per GB that a subscriber is shown with the catalog's default filters, from its scan ${formatTimeAgo(overview.fetchedAt)}.`}
+                  ? `No plan in the catalog's default view has a price per GB, so this compares against nodes only (scan ${formatTimeAgo(overview.fetchedAt)}).`
+                  : `Other listed plans: the ${listedPerGb.length.toLocaleString('en-US')} with a price per GB in the catalog's default view, from its scan ${formatTimeAgo(overview.fetchedAt)}.`}
             </p>}
           </section>
         </div>
@@ -1101,7 +1111,6 @@ function CreatePlanForm({ price: tokenPrice, economics, providerName, readOnly, 
               : termsProblem && <FooterReason text={termsProblem} />}
           <p className="text-text-tertiary text-[11px]">
             It is created inactive, and you link nodes and activate it from its page afterwards.
-            This is an on-chain transaction, and costs the network fee only.
           </p>
         </div>
         <div className="flex gap-2">
@@ -1154,27 +1163,22 @@ function activateBody(plan: MyPlan, stats: PlanStats | null | undefined, provide
 
   const body = [
     hidden
-      ? 'The chain will let subscribers buy it. Whether they can find it is a separate matter, and right now this app keeps it out of the default catalog view:'
+      ? 'Subscribers can buy it, but this app keeps it out of the default catalog view:'
       : 'It appears in the plan catalog and subscribers can buy it.',
   ]
 
   if (plan.private) {
-    body.push(
-      'It is private, so only subscribers who tick the "Private" filter will see it. That flag is on chain, so other Sentinel clients should honour it too.',
-    )
+    body.push('It is private, so only subscribers who tick the "Private" filter will see it.')
   }
   if (looksLikeTest) {
-    body.push(
-      `This app reads your provider name ("${providerName}") as a test account, so it files the plan under "Test plans" and hides it by default. That is a local guess from the name, not anything the chain records.`,
-    )
+    body.push(`Your provider name ("${providerName}") reads as a test account, so this app files the plan under "Test plans", hidden by default.`)
   }
   if (nodeless) {
     body.push(
-      'It has no nodes linked, so anyone who does buy it has nothing to connect to, and the default "Ready to connect" filter drops it. You can lease and link nodes afterwards without deactivating.',
+      'It has no nodes linked, so a buyer has nothing to connect to, and the default "Ready to connect" filter drops it.',
+      'You can lease and link nodes afterwards without deactivating.',
     )
   }
-
-  body.push('This is an on-chain transaction.')
   return body
 }
 
@@ -1203,9 +1207,12 @@ function BreakEvenHint({ net, burnDailyUdvpn, result }: {
 
   if (result.kind === 'never') {
     return (
-      <p className="text-warning text-xs">
-        At this price you keep nothing per subscription, so this plan can never cover the{' '}
-        {formatUdvpnAmount(burnDailyUdvpn)}/day your nodes cost. That is allowed, just make sure it&apos;s deliberate.
+      <p className="flex items-center gap-1.5 text-warning text-xs">
+        <span>
+          At this price you keep nothing per subscription, so this plan can never cover the{' '}
+          {formatUdvpnAmount(burnDailyUdvpn)}/day your nodes cost.
+        </span>
+        <InfoTip label="Is that allowed">It is allowed, just make sure it&apos;s deliberate. Nothing here blocks Create.</InfoTip>
       </p>
     )
   }
