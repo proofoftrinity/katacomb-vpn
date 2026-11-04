@@ -77,6 +77,30 @@ export interface ReconnectParams {
   sessionId: string
 }
 
+/**
+ * [REL-46] Buy a new session on the node the tunnel runs through and move the tunnel
+ * onto it. `sessionId` and `nodeAddress` are the live connection the window was opened
+ * for: main refuses when the connection has changed since.
+ */
+export interface ExtendParams {
+  sessionId: string
+  nodeAddress: string
+  type: 'gigabytes' | 'hours'
+  amount: number
+  denom: string
+  quoteValue: string
+}
+
+export interface ExtendResult {
+  /** The new session, now carrying the tunnel. */
+  sessionId: string
+  /** The session it replaced. */
+  previousSessionId: string
+  /** Whether ending the replaced session worked; when not, `previousEndError` says why. */
+  previousEnded: boolean
+  previousEndError?: string
+}
+
 /** One hop of a multihop chain. `nodeType` must be 2 (V2Ray) or 4 (XRAY). */
 export interface ChainHopParams {
   nodeAddress: string
@@ -284,6 +308,8 @@ export interface ConnectionStatus {
   expired?: {
     sessionId: string
     nodeMoniker: string
+    /** The node that session was on: the banner offers to buy there again ([REL-46] D4). */
+    nodeAddress?: string
     /** 'hop-closed': MULTIHOP, the chain closed the exit hop on its deadline. */
     reason: 'time' | 'data' | 'stalled' | 'dropped' | 'hop-closed'
     trafficBlocked: boolean
@@ -777,6 +803,7 @@ export interface ElectronAPI {
   connectionSubscribe: (params: SubscribeParams) => Promise<SubscribeResult>
   connectionSubscribeChain: (params: SubscribeChainParams) => Promise<SubscribeChainResult>
   connectionReconnect: (params: ReconnectParams) => Promise<ReconnectResult>
+  connectionExtend: (params: ExtendParams) => Promise<ExtendResult>
   connectionCheckVpn: () => Promise<{ type: string; name: string; iface?: string }[]>
   connectionConnect: (params: ConnectParams) => Promise<{ protocol: string }>
   connectionDisconnect: () => Promise<void>

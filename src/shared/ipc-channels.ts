@@ -32,6 +32,7 @@ export const IPC = {
   CONNECTION_SUBSCRIBE: 'connection:subscribe',
   CONNECTION_SUBSCRIBE_CHAIN: 'connection:subscribe-chain',
   CONNECTION_RECONNECT: 'connection:reconnect',
+  CONNECTION_EXTEND: 'connection:extend',
   CONNECTION_CONNECT: 'connection:connect',
   CONNECTION_CHECK_VPN: 'connection:check-vpn',
   CONNECTION_DISCONNECT: 'connection:disconnect',

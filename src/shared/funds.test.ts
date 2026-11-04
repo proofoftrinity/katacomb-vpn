@@ -97,3 +97,12 @@ test('registrationDepositCost fails closed on an unparseable amount, never prici
   assert.throws(() => registrationDepositCost({ denom: 'udvpn', amount: '12.5' }), /could not be read/)
   assert.throws(() => registrationDepositCost({ denom: 'udvpn', amount: '999999999999999999999' }), /could not be read/)
 })
+
+test('[REL-46] two fees: Extend also ends the old session, and the message says ~0.10 in fees', () => {
+  const c = checkFunds(5_000_000 + 2 * FEE_RESERVE_UDVPN - 1, 5_000_000, 2)
+  assert.equal(c.ok, false)
+  assert.equal(c.shortfall, 1)
+  assert.equal(checkFunds(5_000_000 + 2 * FEE_RESERVE_UDVPN, 5_000_000, 2).ok, true)
+  const msg = insufficientFundsMessage(c)
+  assert.match(msg, /this costs 5\.00 plus ~0\.10 in network fees \(5\.10 total\)/)
+})

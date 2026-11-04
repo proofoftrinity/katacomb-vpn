@@ -25,7 +25,7 @@ import { getRpcHealth, reportRpcFailure } from './rpc-monitor'
  * someone from ending a session because we couldn't reach an RPC is worse than the
  * on-chain failure, which `assertTxSucceeded` now reports readably anyway.
  */
-export async function assertSufficientFunds(costUdvpn: number, client?: SentinelClient): Promise<void> {
+export async function assertSufficientFunds(costUdvpn: number, client?: SentinelClient, fees = 1): Promise<void> {
   let balances: { denom: string; amount: string }[]
   try {
     balances = await getBalance(client)
@@ -33,7 +33,7 @@ export async function assertSufficientFunds(costUdvpn: number, client?: Sentinel
     reportRpcFailure()
     return
   }
-  const check = checkFunds(udvpnOf(balances), costUdvpn)
+  const check = checkFunds(udvpnOf(balances), costUdvpn, fees)
   if (!check.ok) throw new Error(`${INSUFFICIENT_FUNDS}: ${insufficientFundsMessage(check)}`)
 }
 

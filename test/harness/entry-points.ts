@@ -16,6 +16,15 @@ export const SPEND = [
 /** Handlers that bring a tunnel or a proxy core up. */
 export const TUNNEL = ['CONNECTION_CONNECT'] as const
 
+/**
+ * [REL-3]'s one named exception (D2, [REL-46]): Extend buys a session AND brings its tunnel
+ * up, but only while connected, replacing the live session in one step. So it is in
+ * neither list above, whose matrices start from idle and require a refusal while
+ * connected; the static rules name it instead, and its own tests are in
+ * src/main/ipc-handlers.extend.test.ts.
+ */
+export const EXTEND = ['CONNECTION_EXTEND'] as const
+
 /** Handlers that change which wallet is active, or remove the one that is. */
 export const WALLET_MUTATORS = [
   'WALLET_IMPORT',

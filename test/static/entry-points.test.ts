@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 import { calleeName, calls, ipcKey, nodes, parse, sources, where } from '../harness/source.ts'
 import {
-  ACTIVE_WALLET_CALLS, BRING_UP_CALLS, PROVIDER_WRITE_CALLS, PROVIDER_WRITES, PURCHASE_CALLS, SPEND, TUNNEL, WALLET_MUTATORS,
+  ACTIVE_WALLET_CALLS, BRING_UP_CALLS, EXTEND, PROVIDER_WRITE_CALLS, PROVIDER_WRITES, PURCHASE_CALLS, SPEND, TUNNEL, WALLET_MUTATORS,
 } from '../harness/entry-points.ts'
 
 // The money and tunnel rules are about which handlers reach which calls, so they can
@@ -85,9 +85,9 @@ function enclosingFn(m: FileModel, node: ts.Node): string | null {
   return null
 }
 
-test('the SPEND / TUNNEL / WALLET_MUTATORS lists are exactly the handlers that buy, bring up, or change the wallet', () => {
-  assert.deepEqual(reaching(PURCHASE_CALLS), [...SPEND].sort(), 'update test/harness/entry-points.ts, and so every test looping over it')
-  assert.deepEqual(reaching(BRING_UP_CALLS), [...TUNNEL].sort())
+test('the SPEND / TUNNEL / EXTEND / WALLET_MUTATORS lists are exactly the handlers that buy, bring up, or change the wallet', () => {
+  assert.deepEqual(reaching(PURCHASE_CALLS), [...SPEND, ...EXTEND].sort(), 'update test/harness/entry-points.ts, and so every test looping over it')
+  assert.deepEqual(reaching(BRING_UP_CALLS), [...TUNNEL, ...EXTEND].sort())
   assert.deepEqual(reaching(ACTIVE_WALLET_CALLS), [...WALLET_MUTATORS].sort())
 })
 
@@ -97,7 +97,7 @@ test('[PC-7] [PC-10] PROVIDER_WRITES is exactly the handlers that broadcast a pr
 })
 
 test('[REL-1] every purchase handler routes its handshake through a refunding wrapper', () => {
-  const missing = SPEND.filter((k) => !reaches(k, 'establishSessionOrRefund') && !reaches(k, 'establishChainOrRefund'))
+  const missing = [...SPEND, ...EXTEND].filter((k) => !reaches(k, 'establishSessionOrRefund') && !reaches(k, 'establishChainOrRefund'))
   assert.deepEqual(missing, [])
 })
 
@@ -124,6 +124,18 @@ test('[REL-3] every purchase, bring-up and reconnect handler refuses while conne
   const connect = byKey.get('CONNECTION_CONNECT')!.fn
   const unlocked = calls(connect).filter((c) => calleeName(c) === 'assertNotConnected' && !insideCallTo(c, 'withConnectionLock'))
   assert.deepEqual(unlocked.map(where), [], 'CONNECTION_CONNECT must check inside the lock')
+})
+
+test('[REL-3] [REL-46] the one exception, Extend, refuses anything but the live single-hop session, inside the lock', () => {
+  // D2: Extend runs only WHILE connected, so assertNotConnected is the wrong check for it.
+  // extendRefusal is its check, and it has to read the connection the lock leaves.
+  for (const key of EXTEND) {
+    assert.ok(reaches(key, 'extendRefusal'), `${key} must check extendRefusal`)
+    assert.ok(!reaches(key, 'assertNotConnected'), `${key} runs while connected`)
+  }
+  const checks = calls(ipc.fns.get('extendLiveSession')!).filter((c) => calleeName(c) === 'extendRefusal')
+  assert.equal(checks.length, 1)
+  assert.ok(insideCallTo(checks[0], 'withConnectionLock'), 'Extend must check inside the lock')
 })
 
 test('[REL-4] the active wallet cannot change while a session is live', () => {
@@ -175,8 +187,9 @@ test('[REL-2] every tunnel bring-up and tear-down runs under the connection lock
 
 test('[REL-11] every purchase handler runs the preflight before its first purchase', () => {
   const problems: string[] = []
-  for (const key of SPEND) {
-    const fn = byKey.get(key)!.fn
+  for (const key of [...SPEND, ...EXTEND]) {
+    // Extend's handler only validates; its purchase is in extendLiveSession.
+    const fn = key === 'CONNECTION_EXTEND' ? ipc.fns.get('extendLiveSession')! : byKey.get(key)!.fn
     if (!reaches(key, 'preflightConnect')) { problems.push(`${key}: no preflightConnect`); continue }
     const own = calls(fn)
     const firstPreflight = own.find((c) => calleeName(c) === 'preflightConnect')

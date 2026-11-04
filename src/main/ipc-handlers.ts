@@ -33,14 +33,14 @@ import {
   logout,
   type SessionInfo,
 } from './chain/wallet'
-import { subscribeToNode, performHandshake, handshakeChainEntry, handshakeChainExit, finalizeChain, sendChainHopProgress, sendPlanProgress, chainHopRoleOf, chainSigner, resolveNodeRemoteUrl, loadSessionConfig, rememberNodeCaps, listSessionsOwnedByOtherWallets, endSession, V2RayPolicyError } from './chain/chain-service'
+import { subscribeToNode, performHandshake, handshakeChainEntry, handshakeChainExit, finalizeChain, sendChainHopProgress, sendPlanProgress, sendExtendProgress, chainHopRoleOf, chainSigner, resolveNodeRemoteUrl, loadSessionConfig, rememberNodeCaps, listSessionsOwnedByOtherWallets, endSession, V2RayPolicyError } from './chain/chain-service'
 import type { ReplySigner } from './protocols/reply-signature'
-import { versionSignsReplies } from '../shared/node-signing'
+import { versionSignsReplies, nodeSoftware } from '../shared/node-signing'
 import { openChainFlow } from './chain/chain-clients'
 import type { SentinelClient } from '@sentinel-official/sentinel-js-sdk'
 import type https from 'node:https'
 import { withTimeout } from './async-utils'
-import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, evaluateQuota, serviceTypeToNodeType, stripDnsLines, replaceDnsLines, isTunnelOneWay, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs, chainDeadlineStep, CHAIN_DEADLINE_RECHECK_MS, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, shouldRetrySessionHandshake, HANDSHAKE_RETRY_DELAY_MS, REFUND_FAILED_TAIL, type QuotaVerdict } from './vpn/connect-decisions'
+import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, evaluateQuota, serviceTypeToNodeType, stripDnsLines, replaceDnsLines, isTunnelOneWay, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs, chainDeadlineStep, CHAIN_DEADLINE_RECHECK_MS, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, shouldRetrySessionHandshake, HANDSHAKE_RETRY_DELAY_MS, REFUND_FAILED_TAIL, extendRefusal, extendNodeRefusal, extendSwitchFailedMessage, extendCancelledMessage, type QuotaVerdict } from './vpn/connect-decisions'
 import { discoverPlans, listCachedPlans, listNodesForPlan, listPlansForNode, subscribeToPlan, startSessionWithExistingSubscription, cancelSubscription, renewSubscription, updateSubscriptionPolicy, getPlanOverview, getCachedPlanNodes, TX_TIMEOUT_MESSAGE as PLAN_TX_TIMEOUT_MESSAGE, type PlanOverview } from './plans/plan-service'
 import { rankPlanCandidates, shouldTryNextCandidate, isFreeFailure, MAX_FREE_FAILURES, ladderNextTx, smartConnectFailureSummary, type PlanNodeCandidate, type SmartConnectFailure } from './plans/plan-connect'
 import { getCachedPlans } from './plans/plan-cache'
@@ -85,7 +85,7 @@ import { isAllowedBypassCidr, isAllowedDnsResolver } from './config-guard'
 import { enableKillSwitch, disableKillSwitch, isKillSwitchArmed } from './vpn/kill-switch'
 import { trafficStatsFrom, resetTrafficStats, maxUsageBytes } from './vpn/traffic-stats'
 import { IS_WINDOWS } from './platform'
-import { probeNode, getAllCachedResults, fetchNodeServiceType, fetchNodeServiceMetadata, fetchNodeSignsReplies, NODE_PROTOCOL_CHECK_TIMEOUT_MS } from './nodes/node-tester'
+import { probeNode, getAllCachedResults, fetchNodeServiceType, fetchNodeServiceMetadata, fetchNodeSignsReplies, fetchNodeSoftware, NODE_PROTOCOL_CHECK_TIMEOUT_MS } from './nodes/node-tester'
 import { classifyHopEligibility, buildEntryOnlyConfig, type HopMetadataEntry } from './protocols/multihop-config'
 import { SocksHttpsAgent } from './socks-agent'
 import { assertString, assertNumber, assertSentAddress, assertIntRange } from './ipc/validate'
@@ -359,6 +359,11 @@ let isIntentionalDisconnect = false
 // isIntentionalDisconnect alone is insufficient — it's reset to false at the end
 // of performDisconnect, so a reconnect body resolving afterward would miss it.
 let connectionEpoch = 0
+// [REL-46] Set while CONNECTION_EXTEND owns the connection; `switching` while its tunnel
+// is down between the old session and the new one. Extend decides how that ends, so
+// meanwhile the old session's stand-downs and the reconnect ladder hold off, the status
+// reads 'reconnecting' rather than 'idle', and the wallet stays frozen ([REL-4]).
+let extending: { switching: boolean } | null = null
 
 // Serializes the tunnel-affecting ops (connect / disconnect / reconnect) so they
 // can't interleave and orphan a child process (finding M1). Composes with
@@ -418,7 +423,7 @@ function startRootTunnelMonitor(): void {
 }
 
 async function checkTunnelLiveness(): Promise<void> {
-  const unsupervised = () => isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId
+  const unsupervised = () => isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId || extending !== null
   if (unsupervised()) return
   if (isRootTunnelProtocol(desiredProtocol)) {
     if (!isWireGuardUp()) {
@@ -492,6 +497,8 @@ let connectedAtMs: number | null = null
 let lastExpiry: {
   sessionId: string
   nodeMoniker: string
+  /** The node that session was on, so the banner can offer to buy there again. */
+  nodeAddress?: string
   reason: 'time' | 'data' | 'stalled' | 'dropped' | 'hop-closed'
   trafficBlocked: boolean
   /** MULTIHOP: which end of the chain ran out. Absent for an ordinary session. */
@@ -655,7 +662,7 @@ function startQuotaWatchdog(): void {
 }
 
 async function quotaTick(): Promise<void> {
-  const unsupervised = () => isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId
+  const unsupervised = () => isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId || extending !== null
   if (unsupervised()) return
   // One read per tick, for both checks. On Windows it is a round trip to the service,
   // so the tunnel it was read from must still be the supervised one when it lands.
@@ -681,7 +688,11 @@ async function quotaTick(): Promise<void> {
   }
   if (verdict.level === 'warn' && !quotaWarned) {
     quotaWarned = true
-    notify('Katacomb VPN', `About ${describeRemaining(verdict.reason, verdict.remaining)} of your session left.`)
+    // [REL-46] Named only where Extend would go ahead, as far as main can tell here.
+    const extendable = activeSessionId !== null && activeNodeInfo !== null &&
+      extendRefusal(extendInputs({ sessionId: activeSessionId, nodeAddress: activeNodeInfo.address })) === null
+    notify('Katacomb VPN', `About ${describeRemaining(verdict.reason, verdict.remaining)} of your session left.` +
+      (extendable ? ' Extend it from the Sessions tab.' : ''))
     // Nudge the renderer to re-poll so the Sessions gauges catch up with the warning.
     sendStateChange('connected')
   }
@@ -815,7 +826,7 @@ async function checkWireGuardHandshake(): Promise<void> {
     const age = await daemonWireguardHandshakeAge()
     // Disconnected, or a newer lifecycle began, while the probe was in flight: the
     // answer belongs to a tunnel that is no longer this one.
-    if (connectionEpoch !== myEpoch || isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId) return
+    if (connectionEpoch !== myEpoch || isIntentionalDisconnect || reconnectAttempt > 0 || !activeSessionId || extending !== null) return
     // "Cannot know" resets the count rather than pausing it: a flaky daemon must not
     // let two stale samples accumulate across a gap it could not vouch for.
     if (age === null || !isWireGuardPeerGone(age)) {
@@ -968,6 +979,7 @@ async function standDownSession(
   const isExitHop = endedSessionId !== undefined && endedSessionId === activeExitSessionId
   const sessionId = isExitHop ? endedSessionId : activeSessionId
   const nodeMoniker = (isExitHop ? activeExitNodeInfo?.moniker : activeNodeInfo?.moniker) || ''
+  const nodeAddress = isExitHop ? activeExitNodeInfo?.address : activeNodeInfo?.address
   // Only claim a hop when one was actually identified. A stall carries no session id
   // (nothing can attribute it to one end), and naming a hop there would be a guess
   // dressed up as a fact.
@@ -1029,7 +1041,7 @@ async function standDownSession(
     // idempotent click to clear) rather than under-reporting it (user stranded). If
     // arming truly failed, the Restore button runs killswitch-off (idempotent) and
     // everything self-corrects.
-    lastExpiry = { sessionId, nodeMoniker, reason, trafficBlocked: isKillSwitchArmed(), chainRole, chain }
+    lastExpiry = { sessionId, nodeMoniker, nodeAddress, reason, trafficBlocked: isKillSwitchArmed(), chainRole, chain }
     isIntentionalDisconnect = false
     sendStateChange('idle')
   })
@@ -1403,7 +1415,7 @@ function sendReconnecting(attempt: number, maxAttempts: number): void {
  * deposit is stranded until expiry). `action` only changes the second sentence.
  */
 function connectionIsLive(): boolean {
-  return reconnectAttempt > 0 || getConnectionStatus().connected
+  return reconnectAttempt > 0 || getConnectionStatus().connected || extending !== null
 }
 
 function assertNotConnected(action = 'starting a new connection'): void {
@@ -1754,6 +1766,249 @@ async function establishSessionOrRefund(params: {
       policyRejected: err instanceof V2RayPolicyError,
     }))
   }
+}
+
+/**
+ * [REL-46] What extendRefusal weighs, read off the live connection, for the session and
+ * node a request names. The node's software is the directory's word here; Extend asks the
+ * node itself before paying.
+ */
+function extendInputs(requested: { sessionId: string; nodeAddress: string }): Parameters<typeof extendRefusal>[0] {
+  const version = cachedNodes.find((n) => n.address === activeNodeInfo?.address)?.version ?? ''
+  return {
+    live: getConnectionStatus().connected && desiredProtocol !== null,
+    reconnecting: reconnectAttempt > 0,
+    requested,
+    current: { sessionId: activeSessionId, nodeAddress: activeNodeInfo?.address ?? null },
+    chain: activeExitSessionId !== null,
+    row: (lastKnownSessions as SessionInfo[]).find((s) => s?.id === activeSessionId) ?? null,
+    protocol: desiredProtocol,
+    software: nodeSoftware({ version, signedReply: activeNodeInfo?.signer === 'node' || activeNodeInfo?.signer === 'hotKey' }),
+  }
+}
+
+/** What CONNECTION_EXTEND is asked for: the live session it replaces, and what to buy. */
+interface ExtendRequest {
+  sessionId: string
+  nodeAddress: string
+  type: 'gigabytes' | 'hours'
+  amount: number
+  denom: string
+  quoteValue: string
+}
+
+/**
+ * [REL-46] Extend: buy a new session on the node the tunnel runs through, move the tunnel
+ * onto it, then end the session it replaced. The order is what keeps the money safe:
+ *
+ *   preflight + funds -> buy + handshake (refunded on failure, [REL-1]) -> switch -> end the old
+ *
+ * Nothing the user has changes until the new session's handshake has answered, so a
+ * failure up to there costs at most a refunded session and the old tunnel carries on. The
+ * switch takes only the tunnel down (the kill switch stays armed) and brings the new one
+ * up the way the reconnect ladder does. The old session ends only once the new tunnel
+ * carries traffic: until then it is the one the user can go back to.
+ *
+ * [REL-3]'s one named exception (D2): it runs only WHILE connected, because it replaces
+ * the live session in one step instead of standing a second one beside it. Everything up
+ * to the switch runs under the connection lock ([REL-2]); while it runs, `extending` holds
+ * off the old session's stand-downs and the reconnect ladder.
+ */
+async function extendLiveSession(
+  params: ExtendRequest,
+  signer: { wallet: NonNullable<ReturnType<typeof getWallet>>; address: string; privKey: Uint8Array },
+): Promise<{ sessionId: string; previousSessionId: string; previousEnded: boolean; previousEndError?: string }> {
+  const { wallet, address, privKey } = signer
+  // Taken before the lock: a stand-down or a Disconnect that comes while this waits for
+  // the lock moves it, and the check before buying then stops here.
+  const epoch = connectionEpoch
+  const bought = await withConnectionLock(async (): Promise<{ sessionId: string; oldSessionId: string; switchFailure: string | null }> => {
+    // Inside the lock: a stand-down or Disconnect queued ahead of this has run, and
+    // what is read here is the connection that is left.
+    const refusal = extendRefusal(extendInputs({ sessionId: params.sessionId, nodeAddress: params.nodeAddress }))
+    if (refusal) throw new Error(refusal)
+    extending = { switching: false }
+    const node = activeNodeInfo!
+    const protocol = desiredProtocol!
+    const mode = desiredMode
+    const oldSessionId = activeSessionId!
+
+    // Before money moves, as for every purchase ([REL-11]): the node's protocol, this
+    // machine, and the balance. The balance must cover the new deposit and two fees,
+    // the purchase's and the old session's End, all at once: the old deposit comes
+    // back only when the chain settles it, about two hours after the End ([SL-1]).
+    const flowPromise = openChainFlow(wallet)
+    let apiField = cachedNodes.find((n) => n.address === node.address)?.api ?? ''
+    try {
+      if (!apiField) apiField = await flowPromise.then((f) => resolveNodeRemoteUrl(node.address, '', f.query))
+      await Promise.all([
+        preflightConnect(node.address, node.type, apiField, mode === 'tunnel'),
+        flowPromise.then((f) => assertSufficientFunds(
+          params.denom === 'udvpn' ? parseInt(params.quoteValue, 10) * params.amount : 0,
+          f.query,
+          2,
+        )),
+      ])
+      // D3 again, from the node itself: dvpnd 9.0.0 reports the version dvpnx 9.0.0 does,
+      // and only its root document's name tells them apart. The preflight has just read
+      // that document, so this costs no request.
+      if (protocol === 'wireguard' || protocol === 'amneziawg') {
+        const own = await fetchNodeSoftware(apiField)
+        const listed = cachedNodes.find((n) => n.address === node.address)?.version ?? ''
+        const signedReply = node.signer === 'node' || node.signer === 'hotKey'
+        const d3 = extendNodeRefusal(protocol, nodeSoftware({ version: own.tag || listed, name: own.name, signedReply }))
+        if (d3) throw new Error(d3)
+      }
+    } catch (err) {
+      flowPromise.then((f) => f.disconnect(), () => {})
+      throw err
+    }
+    const flow = await flowPromise
+    try {
+      if (connectionEpoch !== epoch) throw new Error(extendCancelledMessage({ newSessionId: null, ended: false }))
+
+      const { sessionId, remoteUrl } = await subscribeToNode({
+        wallet,
+        address,
+        nodeAddress: node.address,
+        apiField,
+        type: params.type,
+        amount: params.amount,
+        denom: params.denom,
+        clients: { query: flow.query, signing: flow.signing },
+      }).catch(noteChainError)
+      // The new row, read while the handshake runs, as a purchase does.
+      const sessionsPromise = readAllSessions(flow.query).catch(() => null)
+      const result = await establishSessionOrRefund({
+        sessionId,
+        nodeAddress: node.address,
+        nodeType: node.type,
+        apiField,
+        nodeMoniker: node.moniker,
+        nodeCountry: node.country,
+        wallet,
+        address,
+        privKey,
+        isDeposit: true,
+        remoteUrl,
+      })
+      const handshakeAtMs = Date.now()
+      const sessions = await sessionsPromise
+
+      // The connection was closed while this ran: switch nothing, and end the session
+      // bought for it. Through the old tunnel, which a Disconnect is still waiting on.
+      if (connectionEpoch !== epoch) {
+        let ended = false
+        try {
+          await withTimeout(endSession({ wallet, address, sessionId }), REFUND_TIMEOUT_MS, 'refund')
+          ended = true
+          notifySessionsChanged()
+        } catch (refundErr) {
+          console.error('[extend] ending the unused session failed:', refundErr)
+        }
+        throw new Error(extendCancelledMessage({ newSessionId: sessionId, ended }))
+      }
+
+      // The switch. The old session's usage floor is written while its tunnel still
+      // counts ([REL-30]'s order: before the watchdog stops), then only the tunnel goes.
+      extending = { switching: true }
+      sendExtendProgress('switch', `Moving to session #${sessionId}`)
+      try {
+        await rememberSessionUsage()
+        stopRootTunnelMonitor()
+        stopQuotaWatchdog()
+        await disconnect()
+
+        applySession(sessionId, node.address, node.moniker, node.country, node.type, result)
+        // Only the new row joins the cache. The old row keeps the baseline its floor was
+        // just written against: a fresher one would count this connection's usage twice.
+        const newRow = sessions?.find((s) => s.id === sessionId)
+        if (newRow) primeSessionsCache([...(lastKnownSessions as SessionInfo[]).filter((s) => s?.id !== sessionId), newRow])
+        setQuota(newRow)
+        if (!activeQuota) {
+          activeQuota = {
+            sessionId,
+            maxDurationSeconds: params.type === 'hours' ? params.amount * 3600 : null,
+            baselineDurationSeconds: 0,
+            maxBytes: params.type === 'gigabytes' ? params.amount * 1e9 : 0,
+            baselineBytes: 0,
+          }
+        }
+        recordNodeCaps(handshakeAtMs, activeQuota)
+
+        await bringUpFromConfig(protocol, result.configString, mode, false)
+        if (mode !== 'proxy') {
+          await applyPostConnectSettings(protocol)
+          await assertTunnelCarriesTraffic()
+        }
+      } catch (err) {
+        // Anywhere in the switch, the old tunnel's teardown included: the monitors are
+        // stopped by now, so whatever is up must not stay unwatched. Both sessions stay
+        // open, and the stand-down runs once the lock is free.
+        console.error('[extend] the switch failed:', err)
+        return { sessionId, oldSessionId, switchFailure: err instanceof Error ? err.message : String(err) }
+      }
+      finalizeTunnelConnect(protocol, mode)
+      // The new tunnel is supervised like any other from here on.
+      extending = null
+      return { sessionId, oldSessionId, switchFailure: null }
+    } finally {
+      flow.disconnect()
+    }
+  }).catch((err: unknown) => {
+    extending = null
+    throw err
+  })
+
+  if (bought.switchFailure !== null) {
+    // As a dropped tunnel ends: the kill switch follows the user's setting, and the
+    // banner points at the Sessions tab, where both sessions are listed. Cleared in the
+    // tick the stand-down starts in, which sets its own guards first (the epoch,
+    // isIntentionalDisconnect), so nothing runs in between.
+    extending = null
+    await standDownSession('dropped')
+    throw new Error(extendSwitchFailedMessage({ reason: bought.switchFailure, oldSessionId: bought.oldSessionId, newSessionId: bought.sessionId }))
+  }
+
+  sendExtendProgress('end-old', `Ending session #${bought.oldSessionId}`)
+  const endError = await endReplacedSession(bought.oldSessionId, wallet, address)
+  // While connected the cache is the Sessions tab's answer: read the chain again so the
+  // old card reads ended and the new one is listed. An empty read proves nothing ([REL-22]).
+  const rows = await withTimeout(readAllSessions(), REFUND_TIMEOUT_MS, 'session read').catch(() => null)
+  if (rows?.some((s) => s.id === bought.sessionId)) primeSessionsCache(rows)
+  notifySessionsChanged()
+  notifyTray()
+  return {
+    sessionId: bought.sessionId,
+    previousSessionId: bought.oldSessionId,
+    previousEnded: endError === null,
+    ...(endError === null ? {} : { previousEndError: endError }),
+  }
+}
+
+/**
+ * [REL-46] End the session Extend replaced, over the new tunnel. Right after a switch a
+ * socket the RPC client kept from the old tunnel can be dead with nothing to say so: a
+ * WireGuard peer's new address leaves the old one unanswered ([REL-28] is the same
+ * hazard). One retry gets a new socket, since the dead one is either closed by its error
+ * or still busy with the request that hung on it. Null when it ended, else why not.
+ */
+async function endReplacedSession(
+  sessionId: string,
+  wallet: NonNullable<ReturnType<typeof getWallet>>,
+  address: string,
+): Promise<string | null> {
+  let last: unknown = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await withTimeout(endSession({ wallet, address, sessionId }), REFUND_TIMEOUT_MS, 'end')
+      return null
+    } catch (err) {
+      console.error(`[extend] ending replaced session #${sessionId} failed (attempt ${attempt + 1}):`, err)
+      last = err
+    }
+  }
+  return last instanceof Error ? last.message : String(last)
 }
 
 /** One hop's purchase inputs for a multihop chain. */
@@ -2445,40 +2700,9 @@ async function attemptReconnect(): Promise<void> {
         // same as the manual fallback path.
         nodeIssuedFreshPeer = false
 
-        // Re-establish the tunnel. The saved config is the handshake's, so a WireGuard
-        // one still carries the node's DNS list: the user's resolver replaces it here
-        // exactly as on connect, or every drop put them back on the node's resolver.
-        // Never the resolvconf fallback: auto-reconnect does not strip DNS on its own.
-        const wgDns = wireguardResolverIp(loadSettings())
-        const withResolver = (cfg: string) => (wgDns ? replaceDnsLines(cfg, wgDns) : cfg)
-        if (saved.protocol === 'wireguard') {
-          await connectWireGuardFromConfig(withResolver(saved.configString))
-        } else if (saved.protocol === 'amneziawg') {
-          await connectAmneziaWgFromConfig(withResolver(saved.configString))
-        } else {
-          // v2ray, xray and hysteria2 share the child-process + tun2socks bring-up.
-          // Replay the mode the user connected with — a proxy-mode session must
-          // not silently come back as a full tunnel (that would take root).
-          const proxyOnly = desiredMode === 'proxy'
-          if (saved.protocol === 'hysteria2') {
-            await connectHysteria2FromConfig(saved.configString, { proxyOnly }) // no DoH (see connectHysteria2FromConfig)
-          } else {
-            const dohIp = effectiveV2RayResolverIp(loadSettings())
-            if (saved.protocol === 'xray') {
-              await connectXRayFromConfig(saved.configString, dohIp, { proxyOnly })
-            } else {
-              await connectV2RayFromConfig(saved.configString, dohIp, { proxyOnly })
-            }
-          }
-          // A reconnect replays a saved config, so the detailed failure + the
-          // "node may have changed configuration" hint apply here too (this
-          // used to say only 'Proxy failed to start on reconnect').
-          await assertProxyChildStarted(
-            saved.protocol === 'hysteria2' ? 'Hysteria2' : saved.protocol === 'xray' ? 'Xray' : 'V2Ray',
-            true,
-          )
-          if (!proxyOnly) await bringUpV2RayTunnel()
-        }
+        // Re-establish the tunnel, in the mode the user connected with: a proxy-mode
+        // session must not silently come back as a full tunnel (that would take root).
+        await bringUpFromConfig(saved.protocol, saved.configString, desiredMode, true)
 
         // The user disconnected while we were bringing the tunnel up — undo it and
         // stay silent (performDisconnect already broadcast idle). Never resurrect a
@@ -2533,6 +2757,50 @@ async function attemptReconnect(): Promise<void> {
 // ---- Shared bring-up helpers ----------------------------------------------
 
 type ConnectProtocol = 'wireguard' | 'amneziawg' | 'v2ray' | 'xray' | 'hysteria2'
+
+/**
+ * Bring a tunnel (or, in proxy mode, the core alone) up from a config a node issued at
+ * a handshake: the reconnect ladder replays a saved one, Extend's switch the one it has
+ * just bought. Callers hold the connection lock. A WireGuard config still carries the
+ * node's DNS list, so the user's resolver replaces it here exactly as on connect, or
+ * every drop put them back on the node's resolver ([REL-9]). Never the resolvconf
+ * fallback: nothing here strips DNS on its own.
+ */
+async function bringUpFromConfig(
+  protocol: ConnectProtocol,
+  configString: string,
+  mode: 'tunnel' | 'proxy',
+  /** A saved config, which gets the "node may have changed its configuration" hint. */
+  fromSavedConfig: boolean,
+): Promise<void> {
+  const wgDns = wireguardResolverIp(loadSettings())
+  const withResolver = (cfg: string) => (wgDns ? replaceDnsLines(cfg, wgDns) : cfg)
+  if (protocol === 'wireguard') {
+    await connectWireGuardFromConfig(withResolver(configString))
+  } else if (protocol === 'amneziawg') {
+    await connectAmneziaWgFromConfig(withResolver(configString))
+  } else {
+    // v2ray, xray and hysteria2 share the child-process + tun2socks bring-up.
+    const proxyOnly = mode === 'proxy'
+    if (protocol === 'hysteria2') {
+      await connectHysteria2FromConfig(configString, { proxyOnly }) // no DoH (see connectHysteria2FromConfig)
+    } else {
+      const dohIp = effectiveV2RayResolverIp(loadSettings())
+      if (protocol === 'xray') {
+        await connectXRayFromConfig(configString, dohIp, { proxyOnly })
+      } else {
+        await connectV2RayFromConfig(configString, dohIp, { proxyOnly })
+      }
+    }
+    // The detailed failure, with the saved-config hint on a replay (a reconnect used
+    // to say only 'Proxy failed to start on reconnect').
+    await assertProxyChildStarted(
+      protocol === 'hysteria2' ? 'Hysteria2' : protocol === 'xray' ? 'Xray' : 'V2Ray',
+      fromSavedConfig,
+    )
+    if (!proxyOnly) await bringUpV2RayTunnel()
+  }
+}
 
 /**
  * The invariant tail of every successful bring-up: record intent
@@ -3684,6 +3952,26 @@ export function registerIpcHandlers(): void {
     }
   }))
 
+  // Connection: Extend the live session (extendLiveSession, [REL-46]). An opening step,
+  // so it is refused while another connect is in flight and refuses them in turn ([REL-34]).
+  handle(IPC.CONNECTION_EXTEND, connectStep('opens', async (_event, params: ExtendRequest) => {
+    assertString(params?.sessionId, 'sessionId')
+    if (!/^\d+$/.test(params.sessionId)) throw new Error('Invalid session ID')
+    assertSentAddress(params.nodeAddress, 'nodeAddress')
+    if (params.type !== 'gigabytes' && params.type !== 'hours') throw new Error('Invalid type')
+    assertNumber(params.amount, 'amount', 1, 1000)
+    assertString(params.denom, 'denom')
+    assertString(params.quoteValue, 'quoteValue')
+    if (!/^\d+$/.test(params.quoteValue)) throw new Error('Invalid quoteValue')
+    const wallet = getWallet()
+    const address = getAddress()
+    const privKey = getPrivKey()
+    if (!wallet || !address || !privKey) {
+      throw new Error('Wallet not loaded. Please re-import your mnemonic.')
+    }
+    return extendLiveSession(params, { wallet, address, privKey })
+  }))
+
   // Network: public IP lookup with geolocation (see override below)
 
   // Connection: Check for other active VPNs
@@ -3857,7 +4145,9 @@ export function registerIpcHandlers(): void {
   // Connection: Status
   handle(IPC.CONNECTION_STATUS, async () => {
     const vpnStatus = getConnectionStatus()
-    const state = reconnectAttempt > 0 ? 'reconnecting' : vpnStatus.connected ? 'connected' : 'idle'
+    // Extend's switch is a reconnect to the user: the tunnel is down for seconds and
+    // comes back on the same node, with no attempt count to show.
+    const state = reconnectAttempt > 0 || extending?.switching ? 'reconnecting' : vpnStatus.connected ? 'connected' : 'idle'
     return {
       state,
       nodeAddress: activeNodeInfo?.address,
@@ -4611,7 +4901,7 @@ export function registerIpcHandlers(): void {
 
   // Register V2Ray unexpected exit handler for auto-reconnect
   onV2RayUnexpectedExit(() => {
-    if (!isIntentionalDisconnect && activeSessionId) {
+    if (!isIntentionalDisconnect && activeSessionId && extending === null) {
       console.log('[vpn] V2Ray exited unexpectedly, attempting reconnect...')
       attemptReconnect()
     }

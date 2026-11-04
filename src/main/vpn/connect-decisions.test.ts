@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, backoffDelayMs, serviceTypeToNodeType, isDnsProvisionError, stripDnsLines, replaceDnsLines, evaluateQuota, isTunnelOneWay, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, isChildProxyCarryingTraffic, shouldRetrySessionHandshake, HANDSHAKE_RETRY_MAX_RETRIES, ONE_WAY_TX_FLOOR_BYTES, ONE_WAY_SILENCE_MS, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs, chainDeadlineStep, CHAIN_DEADLINE_WARN_MS, CHAIN_DEADLINE_SLACK_MS } from './connect-decisions.ts'
+import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, backoffDelayMs, serviceTypeToNodeType, isDnsProvisionError, stripDnsLines, replaceDnsLines, evaluateQuota, isTunnelOneWay, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, isChildProxyCarryingTraffic, shouldRetrySessionHandshake, HANDSHAKE_RETRY_MAX_RETRIES, ONE_WAY_TX_FLOOR_BYTES, ONE_WAY_SILENCE_MS, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs, chainDeadlineStep, CHAIN_DEADLINE_WARN_MS, CHAIN_DEADLINE_SLACK_MS, extendSwitchFailedMessage, extendCancelledMessage } from './connect-decisions.ts'
 
 // --- isChildProxyCarryingTraffic (the spawn-to-tun-up window) ---
 
@@ -642,6 +642,26 @@ test('[SL-1] deadTunnelMessage: neither wording promises money back', () => {
   for (const msg of [deadTunnelMessage(true), deadTunnelMessage(false)]) {
     assert.equal(/refund|reclaim|deposit back/i.test(msg), false)
   }
+})
+
+test('[REL-46] [SL-1] Extend\'s messages say money comes back only when the chain settles', () => {
+  const msgs = [
+    extendSwitchFailedMessage({ reason: 'wg-quick failed', oldSessionId: '1001', newSessionId: '1002' }),
+    extendCancelledMessage({ newSessionId: null, ended: false }),
+    extendCancelledMessage({ newSessionId: '1002', ended: true }),
+    extendCancelledMessage({ newSessionId: '1002', ended: false }),
+  ]
+  for (const msg of msgs) assert.equal(/refund|right away|immediately|at once/i.test(msg), false, msg)
+  for (const msg of msgs.filter((m) => /deposit/.test(m))) assert.match(msg, /when the chain settles it, about 2 hours/, msg)
+})
+
+test('[REL-46] a failed switch keeps only the first paragraph of the reason', () => {
+  const msg = extendSwitchFailedMessage({
+    reason: 'The tunnel came up but no traffic is getting through.\n\nYour session is still open and paid for, so retry the connection.',
+    oldSessionId: '1001', newSessionId: '1002',
+  })
+  assert.match(msg, /did not come up: The tunnel came up but no traffic is getting through\./)
+  assert.doesNotMatch(msg, /retry the connection/, 'the dead-tunnel advice is for a different situation')
 })
 
 // --- decideFirewallAction ---

@@ -3,7 +3,7 @@ import { useWallet } from './hooks/useWallet'
 import { useConnection } from './hooks/useConnection'
 import { useSessions } from './hooks/useSessions'
 import { useReconnect } from './hooks/useReconnect'
-import type { ConnectionStatus } from './types'
+import type { ConnectionStatus, SentNode } from './types'
 import MnemonicInput from './components/wallet/MnemonicInput'
 import WalletPicker from './components/wallet/WalletPicker'
 import MapView from './components/map/MapView'
@@ -15,6 +15,7 @@ import DisconnectButton from './components/DisconnectButton'
 import StatusBar from './components/StatusBar'
 import RpcBanner from './components/RpcBanner'
 import ActiveSessions from './components/ActiveSessions'
+import ConnectionModal from './components/ConnectionModal'
 import PlansView from './components/plans/PlansView'
 import ProviderConsole from './components/provider/ProviderConsole'
 import { useProvider } from './hooks/useProvider'
@@ -39,11 +40,22 @@ import AppLogo from './components/AppLogo'
  * it must not read as cosmetic. It is its own component only because dismissing needs
  * local state.
  */
-function SessionExpiredBanner({ expired }: { expired: ConnectionStatus['expired'] }) {
+function SessionExpiredBanner({ expired, onBuyAgain }: {
+  expired: ConnectionStatus['expired']
+  /** Open the buy window for this node (D4, [REL-46]). */
+  onBuyAgain: (node: SentNode) => void
+}) {
   const [dismissed, setDismissed] = useState(false)
   const [restoring, setRestoring] = useState(false)
   const { setMainTab } = useNavigation()
+  const { allNodes } = useNodesContext()
   if (!expired || dismissed) return null
+  // A single-hop session that ran out, on a node the list can price: offer the same node
+  // again. While the kill switch blocks everything the chain is out of reach too, so the
+  // press restores the internet first, as Restore does.
+  const again = (expired.reason === 'time' || expired.reason === 'data') && expired.chainRole === undefined && !expired.chain
+    ? allNodes.find((n) => n.address === expired.nodeAddress) ?? null
+    : null
 
   const node = expired.nodeMoniker || 'the node'
   // Every wording that sends the user to the Sessions tab also takes them there. Only
@@ -106,6 +118,28 @@ function SessionExpiredBanner({ expired }: { expired: ConnectionStatus['expired'
         )}
         {expired.trafficBlocked && ' The kill switch is still blocking all traffic.'}
       </span>
+      {again && (
+        <button
+          onClick={async () => {
+            if (expired.trafficBlocked) {
+              setRestoring(true)
+              try {
+                await window.api.connectionDisconnect()
+              } catch {
+                // The buy window's own checks say what is wrong with the path.
+              } finally {
+                setRestoring(false)
+              }
+            }
+            onBuyAgain(again)
+          }}
+          disabled={restoring}
+          className="btn btn-primary text-xs px-2 py-0.5 disabled:opacity-40"
+          title={expired.trafficBlocked ? 'Restores your internet to reach the blockchain, then opens the buy window' : undefined}
+        >
+          Buy again on {again.moniker || 'this node'}
+        </button>
+      )}
       {pointsAtSessions && (
         <button
           onClick={() => setMainTab('sessions')}
@@ -239,6 +273,8 @@ function AppInner() {
   const chainFrozen = isConnected && !connStatus.proxyMode
   const { mainTab, setMainTab, settingsTab, openSettings, closeSettings } = useNavigation()
   const [showAbout, setShowAbout] = useState(false)
+  // The expiry banner's "Buy again on <node>": its buy window, held here so it outlives the banner.
+  const [buyAgainNode, setBuyAgainNode] = useState<SentNode | null>(null)
   // Show the import/create screen even though wallets are already stored:
   // "Add another wallet" from the picker, or Add Wallet from Settings while one
   // is active.
@@ -415,7 +451,7 @@ function AppInner() {
       <RpcBanner />
 
       {/* Keyed by session so a dismissal never hides the NEXT session's expiry. */}
-      <SessionExpiredBanner key={connStatus.expired?.sessionId} expired={connStatus.expired} />
+      <SessionExpiredBanner key={connStatus.expired?.sessionId} expired={connStatus.expired} onBuyAgain={setBuyAgainNode} />
 
       {connStatus.killSwitchTeardownFailed && <KillSwitchStuckBanner />}
 
@@ -490,6 +526,7 @@ function AppInner() {
       <StatusBar onShowAbout={() => setShowAbout(true)} />
 
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+      {buyAgainNode && <ConnectionModal node={buyAgainNode} onClose={() => setBuyAgainNode(null)} />}
 
       {settingsTab && (
         <Settings

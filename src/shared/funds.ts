@@ -66,18 +66,21 @@ export interface FundsCheck {
   available: number
   /** udvpn the operation itself costs; 0 for a gas-only tx. */
   cost: number
-  /** cost + FEE_RESERVE_UDVPN. */
+  /** How many transactions it takes, each with its fee: 2 for Extend, which also ends the old session. */
+  fees: number
+  /** cost + one FEE_RESERVE_UDVPN per fee. */
   required: number
   /** udvpn still missing; 0 when `ok`. */
   shortfall: number
 }
 
-export function checkFunds(available: number, costUdvpn: number): FundsCheck {
-  const required = costUdvpn + FEE_RESERVE_UDVPN
+export function checkFunds(available: number, costUdvpn: number, fees = 1): FundsCheck {
+  const required = costUdvpn + fees * FEE_RESERVE_UDVPN
   return {
     ok: available >= required,
     available,
     cost: costUdvpn,
+    fees,
     required,
     shortfall: Math.max(0, required - available),
   }
@@ -96,7 +99,7 @@ export function insufficientFundsMessage(c: FundsCheck): string {
     )
   }
   return (
-    `Not enough P2P: this costs ${formatP2p(c.cost)} plus ~${formatP2p(FEE_RESERVE_UDVPN)} ` +
+    `Not enough P2P: this costs ${formatP2p(c.cost)} plus ~${formatP2p(c.fees * FEE_RESERVE_UDVPN)} ` +
     `in network fees (${formatP2p(c.required)} total), and your wallet has ${formatP2p(c.available)}. ` +
     `Add ${formatP2pCeil(c.shortfall)} P2P and try again.`
   )
