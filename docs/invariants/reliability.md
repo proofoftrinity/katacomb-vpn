@@ -792,7 +792,12 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   While it runs, `extending` holds off the old session's quota, stall, handshake and
   liveness stand-downs and the V2Ray exit callback, since Extend decides how it ends; it
   keeps the wallet frozen through the switch ([REL-4]), and the status reads
-  `reconnecting` while the tunnel is down. **D3:** over WireGuard and AmneziaWG, only on a
+  `reconnecting` while the tunnel is down. That status makes the Sessions tab ask for its
+  list mid-switch, with no tunnel up, so `WALLET_SESSIONS` answers from the session cache
+  while `extending` is set, as it does while a tunnel is up: the chain read the kill
+  switch drops comes back empty ([REL-22]) and replaced the list, and the tab read
+  "0 active" until the Extend window closed (seen on mainnet 2026-11-04, a WireGuard
+  Extend). Extend reads the chain itself once the old session is ended. **D3:** over WireGuard and AmneziaWG, only on a
   node known to run dvpnx (8.2.0 to 9.0.0, read and measured). dvpnd drops the account's
   earlier peer when a new handshake arrives, before replying (its [SL-8], in every release
   since it forked at 9.0.0), and a WireGuard reply comes back through that peer, so it
