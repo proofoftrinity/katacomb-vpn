@@ -791,7 +791,11 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   second and finished its switch 3.2 s after starting it; dvpnd 9.4.3 Hysteria2 lost
   traffic for about 2 s, from the handshake (its [SL-8] eviction) to the new tunnel. No
   probe got out while the tunnel was down. Buy plus handshake took 6–10 s, during which the
-  old tunnel carried traffic.
+  old tunnel carried traffic. On Windows, in the VM on 2026-11-05 (dvpnx 9.0.0 WireGuard,
+  kill switch on), traffic stopped for about 11 s while one adapter went and the next
+  came up, and no probe got out. Windows maintenance (Defender, TiWorker, defragsvc) then
+  stalled the whole VM for about 20 s, so both End attempts timed out. The window said
+  so, and the old session ended from the Sessions tab a few minutes later.
 
   While it runs, `extending` holds off the old session's quota, stall, handshake and
   liveness stand-downs and the V2Ray exit callback, since Extend decides how it ends; it
