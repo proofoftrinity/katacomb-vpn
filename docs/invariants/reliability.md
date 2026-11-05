@@ -860,6 +860,13 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     again. Ending the session that carries the connection still disconnects first: that
     End is a disconnect.
 
+  Measured in the Windows VM on 2026-11-05 (dvpnx 9.0.0 WireGuard, two 1 GB sessions on one
+  node, kill switch on): the older session ended through the live tunnel of the newer one
+  in about 20 s, from the confirm to its card reading ended. The tunnel and the firewall
+  stayed up, and no probe got out on the real IP. With the endpoint set to a closed port,
+  both attempts were refused at once and the confirm to go around came up after about 8 s.
+  Declining it left the connection and the kill switch as they were.
+
 ## Windows (beta)
 
 The Windows helper builds the kill switch and DNS protection from the Windows Filtering
