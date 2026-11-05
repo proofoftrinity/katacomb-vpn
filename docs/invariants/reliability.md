@@ -813,6 +813,20 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   dvpnd is fine for them. Known limit: a WireGuard tunnel brought up with "Retry without
   VPN DNS" is extended with the DNS lines put back, as the reconnect ladder replays it, so
   on a machine with no resolvconf the switch fails and both sessions stay open.
+- **[REL-48] Our byte count runs behind the node's, so data is judged early.** The node
+  counts the bytes it sends, and this app counts the bytes that arrive at the interface.
+  On a lossy link the difference is the packets lost on the way. In the Windows VM on
+  2026-11-05, with its uplink losing about a third of its pings, the node billed 18-24%
+  more than our count over two connects. It cut a 1 GB session when our count read 86%,
+  so the 90% warning never came, and the banner said "Your session is still open".
+  - `evaluateQuota` warns at `DATA_WARN_PCT` = 80% for data. Time still warns at 90%,
+    because both ends read the same clock ([SL-6]). Either cap past its own line warns,
+    and the warning names whichever cap is further along.
+  - When a single-hop tunnel stalls or drops past that data line, `standDownSession`
+    records the share used (`dataUsedPct`). The banner then says the session may have used
+    up its data and sends the user to check it in Sessions, rather than calling it open.
+    The node may have cut it at its cap, and with the kill switch armed the chain is out
+    of reach, so the app cannot tell. A chain's banner already names no hop as open.
 
 ## Windows (beta)
 
@@ -851,3 +865,20 @@ has the rest.
   tun2socks. The dead-peer detector reads the handshake age for AmneziaWG too: on Windows
   both run on the service's device, which keeps the same peer state either way, where
   Linux's userspace AmneziaWG device has none the daemon can read.
+- **[REL-47] A tunnel whose counters cannot be read is not a dropped tunnel while its
+  interface is listed.** On Windows `readTunnelBytes` asks the service for the counters
+  (`traffic_counters`, 3 s budget), and that read can come back empty while the adapter
+  works. On 2026-11-05 in the VM, a paid WireGuard tunnel was stood down as `dropped`
+  although pings went through it for another 76 s. The app's usage clock stopped about
+  75 s before the stand-down, and DevTools went unanswered for that stretch, which fits a
+  main thread that stalled: the read's 3 s timer then fires before its answer is read.
+  Windows Update was installing in the VM at the time. The cause was not confirmed.
+  - So `checkTunnelStalled` takes an empty read as gone only when `isVpnActive()` agrees.
+    The adapter list is local, and the liveness monitor checks it every 5 s.
+  - While the interface is listed, the check waits for a readable count.
+    `aliveUntilMs` does not move during that time, so if the tunnel is then stood down,
+    the unread time is not billed ([REL-20]).
+  - After `TUNNEL_COUNTERS_BLIND_MAX_MS` (180 s, the WireGuard dead line) with no
+    reading, the tunnel counts as gone, so a stuck service cannot leave "Connected"
+    showing over a tunnel nobody can see. Linux reads `/proc/net/dev`, where an empty
+    read and a missing interface are the same thing.

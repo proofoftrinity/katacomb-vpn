@@ -60,6 +60,12 @@ function SessionExpiredBanner({ expired, onBuyAgain }: {
     : null
 
   const node = expired.nodeMoniker || 'the node'
+  // After a single-hop stall or drop. Past the data warning line the node may have cut
+  // the session at its cap, which it counts higher than we do, so it is not called open
+  // there ([REL-48]).
+  const nextStep = expired.dataUsedPct !== undefined
+    ? ` The session may have used up its data (${expired.dataUsedPct}% by this app's count): check it in Sessions.`
+    : ' Your session is still open: reconnect it from Sessions.'
   // Every wording that sends the user to the Sessions tab also takes them there. Only
   // a single-hop expiry does not: that session is spent and there is nothing to do there.
   const pointsAtSessions = expired.reason === 'stalled' || expired.reason === 'dropped' ||
@@ -99,13 +105,12 @@ function SessionExpiredBanner({ expired, onBuyAgain }: {
                 local failure (a crash, a resume, something else deleting it) just as well
                 as by the node, and the user cannot tell which. Only 'stalled' below has
                 evidence: traffic left and nothing came back. */}
-            The VPN tunnel closed unexpectedly and was disconnected. Your session is still
-            open: reconnect it from Sessions.
+            The VPN tunnel closed unexpectedly and was disconnected.{nextStep}
           </>
         ) : expired.reason === 'stalled' ? (
           <>
             The tunnel to <span className="font-medium">{node}</span> stopped carrying traffic and
-            was disconnected. Your session is still open: reconnect it from Sessions.
+            was disconnected.{nextStep}
           </>
         ) : (
           <>

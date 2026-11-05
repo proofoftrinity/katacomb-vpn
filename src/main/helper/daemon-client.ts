@@ -210,8 +210,8 @@ export async function daemonWireguardHandshakeAge(): Promise<number | null> {
 /**
  * A Windows tunnel interface's byte counters, read by the service: Windows has no
  * world-readable /proc/net/dev. Null when the interface is not up or the answer
- * cannot be read; the caller treats that as "no tunnel interface", as it does an
- * absent /proc line on Linux.
+ * cannot be read. The quota watchdog tells the two apart by the adapter list: only an
+ * adapter that is gone is a dropped tunnel ([REL-47]).
  */
 export async function daemonTrafficCounters(iface: 'sntl0' | 'sntl-tun'): Promise<{ rx: number; tx: number } | null> {
   try {
