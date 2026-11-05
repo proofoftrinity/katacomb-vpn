@@ -28,6 +28,14 @@ export const INSUFFICIENT_FUNDS = 'INSUFFICIENT_FUNDS'
 export const RPC_UNREACHABLE = 'RPC_UNREACHABLE'
 
 /**
+ * [REL-49] Ending a session through the live tunnel got no answer from the chain: no
+ * connection, or no reply in time. The tunnel and the kill switch are untouched, so the
+ * renderer may offer to end it around the tunnel, which drops the connection while it
+ * runs, and only with the user's say. Never set when the chain answered and refused.
+ */
+export const UNREACHABLE_THROUGH_TUNNEL = 'UNREACHABLE_THROUGH_TUNNEL'
+
+/**
  * This machine is missing something the connect needs: the privileged helper
  * (absent or older than this build), wireguard-tools or a resolvconf. Like
  * WALLET_EXISTS it carries a payload naming what, as

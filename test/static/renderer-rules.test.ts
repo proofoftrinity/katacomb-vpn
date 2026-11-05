@@ -102,6 +102,26 @@ test('[REL-24] [RN-2] the Sessions tab uses the tested decisions: Connect gates 
   assert.ok(called.has('flooredUsage'), 'the gauges are floored by utils/session-card')
 })
 
+test('[REL-49] the Sessions tab ends through endSessions, told what carries the traffic, and never leaves the connection itself', () => {
+  const fn = nodes(parse('src/renderer/components/ActiveSessions.tsx'))
+    .find((n): n is ts.FunctionDeclaration => ts.isFunctionDeclaration(n) && n.name?.text === 'handleEndSession')
+  assert.ok(fn, 'handleEndSession moved: re-aim this test')
+  const calls = nodes(fn).filter(ts.isCallExpression)
+  const ends = calls.filter((c) => c.expression.getText() === 'endSessions')
+  assert.equal(ends.length, 1, 'one call to utils/end-session')
+  const steps = ends[0].arguments[0]
+  assert.ok(steps && ts.isObjectLiteralExpression(steps))
+  const inSteps = (n: ts.Node) => n.getStart() >= steps.getStart() && n.getEnd() <= steps.getEnd()
+  for (const callee of ['leaveConnection', 'window.api.walletEndSession']) {
+    const outside = calls.filter((c) => c.expression.getText() === callee && !inSteps(c))
+    assert.deepEqual(outside.map(where), [], `${callee} runs only as a step endSessions decides on`)
+  }
+  const step = (name: string) => steps.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText() === name)?.initializer.getText()
+  assert.equal(step('connection'), "isThisSessionConnected ? 'these' : vpnConnected ? 'other' : 'idle'",
+    'connected to another session is "other": a session ended beside the connection does not take it down')
+  assert.equal(step('unreachable'), 'isUnreachableThroughTunnel', 'the way around is offered only on main\'s marker')
+})
+
 test('[REL-23] the tab badge and the Sessions header count active rows only, never the ones settling', () => {
   const COUNTS: Array<[string, string]> = [['src/renderer/App.tsx', 'sessionCount'], ['src/renderer/components/ActiveSessions.tsx', 'activeCount']]
   for (const [file, name] of COUNTS) {

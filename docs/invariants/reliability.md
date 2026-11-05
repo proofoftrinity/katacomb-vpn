@@ -831,6 +831,41 @@ The connect path spends real on-chain funds, so these are enforced and must hold
     up its data and sends the user to check it in Sessions, rather than calling it open.
     The node may have cut it at its cap, and with the kill switch armed the chain is out
     of reach, so the app cannot tell. A chain's banner already names no hop as open.
+- **[REL-49] Ending a session beside the live connection goes through its tunnel, and the
+  connection goes down for it only when the user agrees.** `WALLET_END_SESSION` refused
+  while a tunnel was up, and the Sessions tab went around it: Disconnect, which lifts the
+  kill switch with the tunnel, then End, then Reconnect. In the Windows VM on 2026-11-05,
+  with the kill switch on, that sent about 14 s of traffic out on the real IP. The refusal
+  dated from 2026-07 ("the chain is unreachable through the tunnel"), after an End that
+  hung. That hang was a pooled socket ([REL-28]): Extend has reached the chain through the
+  live tunnel since 2026-11-04 ([REL-46]).
+  - With a tunnel up, the handler ends a session other than the live one through it, on
+    sockets of its own and tried twice (`endThroughTunnel`, shared with Extend). The
+    session that carries the connection is still refused, in every mode. Then it reads the
+    chain the same way and takes only the ended row into the session cache, which is the
+    Sessions tab's answer while connected, so the card reads ended. The live row stays as
+    cached, since its card adds this connection's bytes to it.
+  - No balance check runs first through the tunnel: the chain's own refusal of the fee
+    comes back as `INSUFFICIENT_FUNDS`. In proxy mode the chain is reached directly, as
+    before.
+  - When the chain did not answer through the tunnel (no connection, a request aborted, a
+    timeout), the error carries `UNREACHABLE_THROUGH_TUNNEL`. A refusal by the chain, and
+    a cancel broadcast that may still land, do not: going around would get the same answer.
+  - The Sessions tab runs End through `endSessions` (`utils/end-session.ts`). Beside another
+    connection it never leaves it on its own. Only on that marker, and only when the live
+    session is listed to come back to, does it ask to end the session without the VPN. The
+    confirm says the traffic goes out without the VPN until it reconnects, and the kill
+    switch does not stop it. If the user agrees, it disconnects, ends what is left, reads
+    the list while the chain answers directly, then reconnects, even when the End failed
+    again. Ending the session that carries the connection still disconnects first: that
+    End is a disconnect.
+
+  Measured in the Windows VM on 2026-11-05 (dvpnx 9.0.0 WireGuard, two 1 GB sessions on one
+  node, kill switch on): the older session ended through the live tunnel of the newer one
+  in about 20 s, from the confirm to its card reading ended. The tunnel and the firewall
+  stayed up, and no probe got out on the real IP. With the endpoint set to a closed port,
+  both attempts were refused at once and the confirm to go around came up after about 8 s.
+  Declining it left the connection and the kill switch as they were.
 
 ## Windows (beta)
 

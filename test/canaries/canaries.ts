@@ -29,6 +29,7 @@ const IPC_TS = 'src/main/ipc-handlers.ts'
 const VPN_TS = 'src/main/vpn/vpn-manager.ts'
 const PROTOCOLS = 'src/main/ipc-handlers.protocols.test.ts'
 const EXTEND = 'src/main/ipc-handlers.extend.test.ts'
+const END = 'src/main/ipc-handlers.end.test.ts'
 
 export const CANARIES: Canary[] = [
   // --- money --------------------------------------------------------------------
@@ -666,6 +667,34 @@ export const CANARIES: Canary[] = [
     find: "  if (open.length === 0) return 'ended'",
     replace: "  if (open.length < hops.length) return 'ended'",
     run: ['src/renderer/utils/session-card.test.ts'],
+  },
+  {
+    name: '[REL-49] End beside a live connection takes the connection down first',
+    file: 'src/renderer/utils/end-session.ts',
+    find: "    if (steps.connection === 'these') await steps.leave()\n",
+    replace: '    await steps.leave()\n',
+    run: ['src/renderer/utils/end-session.test.ts'],
+  },
+  {
+    name: '[REL-49] the way around the tunnel runs without asking',
+    file: 'src/renderer/utils/end-session.ts',
+    find: '    !(await steps.goAround(steps.ids[next], endError))) {',
+    replace: '    false) {',
+    run: ['src/renderer/utils/end-session.test.ts'],
+  },
+  {
+    name: '[REL-49] the Sessions tab calls a connection to another session its own',
+    file: 'src/renderer/components/ActiveSessions.tsx',
+    find: "      connection: isThisSessionConnected ? 'these' : vpnConnected ? 'other' : 'idle',",
+    replace: "      connection: vpnConnected ? 'these' : 'idle',",
+    run: ['test/static/renderer-rules.test.ts'],
+  },
+  {
+    name: '[REL-49] the End through the tunnel may reuse a socket pooled before the connect',
+    file: IPC_TS,
+    find: '        openChainFlow(wallet, { freshSockets: true }).then(async (flow) => {',
+    replace: '        openChainFlow(wallet).then(async (flow) => {',
+    run: [END],
   },
 
   // --- every sink, every protocol branch (closing the partial rules) ------------------

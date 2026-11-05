@@ -6,9 +6,10 @@ import {
   isDnsProvisionFailure,
   isInsufficientFunds,
   isRpcUnreachable,
+  isUnreachableThroughTunnel,
   setupItemsRequired,
 } from './connect-errors.ts'
-import { DNS_PROVISION_FAILED, INSUFFICIENT_FUNDS, RPC_UNREACHABLE, SYSTEM_SETUP_REQUIRED } from '../../shared/error-markers.ts'
+import { DNS_PROVISION_FAILED, INSUFFICIENT_FUNDS, RPC_UNREACHABLE, SYSTEM_SETUP_REQUIRED, UNREACHABLE_THROUGH_TUNNEL } from '../../shared/error-markers.ts'
 
 /** Exactly what ipcRenderer.invoke rejects with when a handler throws. */
 function viaIpc(channel: string, message: string): string {
@@ -19,7 +20,16 @@ test('the inlined markers have not drifted from the shared ones', () => {
   assert.ok(isDnsProvisionFailure(`${DNS_PROVISION_FAILED}: x`))
   assert.ok(isInsufficientFunds(`${INSUFFICIENT_FUNDS}: x`))
   assert.ok(isRpcUnreachable(`${RPC_UNREACHABLE}: x`))
+  assert.ok(isUnreachableThroughTunnel(`${UNREACHABLE_THROUGH_TUNNEL}: x`))
   assert.deepEqual(setupItemsRequired(`${SYSTEM_SETUP_REQUIRED}:helper: x`), ['helper'])
+})
+
+test('[REL-49] an End the chain never answered through the tunnel is told apart through the IPC wrapper, and shown without its marker', () => {
+  const failed = viaIpc('wallet:end-session', `${UNREACHABLE_THROUGH_TUNNEL}: Couldn't reach the blockchain through the VPN to end session #2001. (RPC connect timed out after 10000ms)`)
+  assert.ok(isUnreachableThroughTunnel(failed))
+  assert.equal(isRpcUnreachable(failed), false, 'not the endpoint: Settings → Network is not the fix')
+  assert.equal(displayConnectError(failed), "Couldn't reach the blockchain through the VPN to end session #2001. (RPC connect timed out after 10000ms)")
+  assert.equal(isUnreachableThroughTunnel(viaIpc('wallet:end-session', `${RPC_UNREACHABLE}: Couldn't reach the blockchain`)), false)
 })
 
 test('[RN-1] markers are detected through the Electron IPC wrapper', () => {
