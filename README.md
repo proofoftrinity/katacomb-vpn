@@ -39,10 +39,12 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64, and Windows 10/11 x64 as a 
   its nodes cover. *My plans* shows how much time and data each subscription has used,
   and manages cancelling and the auto-renewal policy.
 - **Sessions**: every active session with usage, price and remaining allowance;
-  reconnect or end it from here. Reconnect works while another session is connected: it
-  switches to this one, with no new transaction. Ended sessions, which stay listed while
-  the blockchain settles them, are hidden behind *Show ended*. A chain that has lost a hop
-  is marked *Chain broken*, with End for the hop still open.
+  reconnect, extend or end it from here. Reconnect works while another session is
+  connected: it switches to this one, with no new transaction. Ending a session beside
+  the live connection goes through the VPN, so the connection and the kill switch stay
+  up. Ended sessions, which stay listed while the blockchain settles them, are hidden
+  behind *Show ended*. A chain that has lost a hop is marked *Chain broken*, with End for
+  the hop still open.
 
 **Connecting**
 
@@ -64,6 +66,11 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64, and Windows 10/11 x64 as a 
   before the purchase, so apps go out directly and the kill switch is off until the new
   one is up; and the session you leave stays open, to go back to or end from Sessions. If
   the new connection fails, it offers to reconnect to the one you had.
+- **Extend**: buy more data or time on the node you are connected to without
+  disconnecting. It buys a new session there, moves the tunnel onto it, then ends the old
+  one; the unused part of the old deposit comes back when the chain settles it, about 2
+  hours later. P2P single-node sessions only, and over WireGuard and AmneziaWG only on
+  nodes running dvpnx.
 - **Auto-reconnect**: up to 5 attempts with backoff when a tunnel drops.
 - **Proxy mode**: for the SOCKS-capable protocols, run just the local listener at
   `127.0.0.1:1080` without touching system routing or asking for root.
