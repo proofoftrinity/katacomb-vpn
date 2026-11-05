@@ -6,8 +6,9 @@ const DNS_PROVISION_FAILED = 'DNS_PROVISION_FAILED'
 const INSUFFICIENT_FUNDS = 'INSUFFICIENT_FUNDS'
 const RPC_UNREACHABLE = 'RPC_UNREACHABLE'
 const SYSTEM_SETUP_REQUIRED = 'SYSTEM_SETUP_REQUIRED'
+const UNREACHABLE_THROUGH_TUNNEL = 'UNREACHABLE_THROUGH_TUNNEL'
 
-const MARKERS = [DNS_PROVISION_FAILED, INSUFFICIENT_FUNDS, RPC_UNREACHABLE]
+const MARKERS = [DNS_PROVISION_FAILED, INSUFFICIENT_FUNDS, RPC_UNREACHABLE, UNREACHABLE_THROUGH_TUNNEL]
 
 // The one marker with a payload: `SYSTEM_SETUP_REQUIRED:helper,wireguard-tools: text`.
 const SETUP_REQUIRED_RE = new RegExp(`^${SYSTEM_SETUP_REQUIRED}:([a-z,-]+):\\s*`)
@@ -47,6 +48,11 @@ export function isInsufficientFunds(message: string): boolean {
 /** Did the chain call never reach the RPC endpoint? The fix is the endpoint, not a retry. */
 export function isRpcUnreachable(message: string): boolean {
   return unwrapIpc(message).startsWith(RPC_UNREACHABLE)
+}
+
+/** [REL-49] Did an End through the live tunnel get no answer from the chain? Going around it might. */
+export function isUnreachableThroughTunnel(message: string): boolean {
+  return unwrapIpc(message).startsWith(UNREACHABLE_THROUGH_TUNNEL)
 }
 
 /**

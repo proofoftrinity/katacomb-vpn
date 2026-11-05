@@ -5,6 +5,8 @@ import { join } from 'path'
 import { IPC } from '../shared/ipc-channels'
 import { DERIVE_PREVIEW_MAX_COUNT } from '../shared/hd-path'
 import { effectiveCaps, nodeClockSeconds, paidTimeEndsAtMs, type NodeCaps } from '../shared/node-quota'
+import { UNREACHABLE_THROUGH_TUNNEL } from '../shared/error-markers'
+import { isRpcConnectivityError } from '../shared/rpc-health'
 import {
   onRpcEndpointChanged,
   onChainPathChanged,
@@ -2008,7 +2010,8 @@ async function extendLiveSession(
   }
 
   sendExtendProgress('end-old', `Ending session #${bought.oldSessionId}`)
-  const endError = await endReplacedSession(bought.oldSessionId, wallet, address)
+  const endError = await endThroughTunnel(bought.oldSessionId, wallet, address)
+    .then(() => null, (err: unknown) => (err instanceof Error ? err.message : String(err)))
   // While connected the cache is the Sessions tab's answer: read the chain again so the
   // old card reads ended and the new one is listed. An empty read proves nothing ([REL-22]).
   // New sockets, as for the End: a read that hung here left the old card reading active.
@@ -2035,17 +2038,19 @@ async function extendLiveSession(
 }
 
 /**
- * [REL-46] End the session Extend replaced, over the new tunnel. Right after a switch a
- * socket the RPC client kept from the old tunnel can be dead with nothing to say so: a
- * WireGuard peer's new address leaves the old one unanswered ([REL-28] is the same
- * hazard). So every request here goes on a socket of its own (`freshSockets`), and a
- * failure is tried once more. Null when it ended, else why not.
+ * End a session through the live tunnel: the one Extend replaced ([REL-46]), or one the
+ * Sessions tab ends beside the connection ([REL-49]). A socket the RPC client pooled on
+ * the other side of a tunnel change can be dead with nothing to say so: after a switch
+ * the WireGuard peer's new address leaves the old one unanswered, and one opened before
+ * the connect leaves on the physical NIC, where the kill switch drops it ([REL-28]). So
+ * every request here goes on a socket of its own (`freshSockets`), and a failure is
+ * tried once more. Throws the last failure.
  */
-async function endReplacedSession(
+async function endThroughTunnel(
   sessionId: string,
   wallet: NonNullable<ReturnType<typeof getWallet>>,
   address: string,
-): Promise<string | null> {
+): Promise<void> {
   let last: unknown = null
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -2060,13 +2065,23 @@ async function endReplacedSession(
         REFUND_TIMEOUT_MS,
         'end',
       )
-      return null
+      return
     } catch (err) {
-      console.error(`[extend] ending replaced session #${sessionId} failed (attempt ${attempt + 1}):`, err)
+      console.error(`[session] ending #${sessionId} through the tunnel failed (attempt ${attempt + 1}):`, err)
       last = err
     }
   }
-  return last instanceof Error ? last.message : String(last)
+  throw last
+}
+
+/**
+ * [REL-49] The End through the tunnel never had the chain's answer: no connection, or no
+ * reply in time. Going around the tunnel may then get through. A refusal by the chain,
+ * and a cancel broadcast that may still land, are answers and do not count.
+ */
+function unansweredThroughTunnel(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return isRpcConnectivityError(message) || /timed out after \d+ms|operation was aborted|EHOSTUNREACH|ENETUNREACH/i.test(message)
 }
 
 /** One hop's purchase inputs for a multihop chain. */
@@ -3220,18 +3235,19 @@ export function registerIpcHandlers(): void {
     if (!wallet || !address) {
       throw new Error('Wallet not loaded.')
     }
-    // Ending a session needs the chain, which is unreachable while our own tunnel is
-    // up (traffic routes to the node) — fail fast instead of hanging (finding M2).
-    if (isVpnActive()) {
-      throw new Error('Disconnect the VPN before ending a session. The chain is unreachable through the tunnel.')
-    }
-    // isVpnActive() is false in local-proxy mode and mid-reconnect, where the chain
-    // is reachable but the session is live all the same. Cancelling THAT session
-    // pulls the tunnel out from under the watchdog, and the reconnect ladder would
-    // resurrect a session the chain has closed. Other sessions stay endable there.
+    // Cancelling the session that carries the connection pulls the tunnel out from under
+    // the watchdog, and the reconnect ladder would resurrect a session the chain has
+    // closed: in tunnel mode, in local-proxy mode and mid-reconnect alike. Other sessions
+    // stay endable.
     if ((sessionId === activeSessionId || sessionId === activeExitSessionId) && connectionIsLive()) {
       throw new Error('This session is carrying your connection. Disconnect first to end it.')
     }
+    // [REL-49] With a tunnel up, the cancel goes through it: the connection and the kill
+    // switch stay as they are. This was refused until 2026-11 ("the chain is unreachable
+    // through the tunnel", after a hang that was a pooled socket, the [REL-28] trap), and
+    // the Sessions tab went around it: Disconnect, End, Reconnect, the kill switch lifted
+    // all the while. In the Windows VM on 2026-11-05 that was about 14 s on the real IP.
+    const throughTunnel = isVpnActive()
     // A per-hop-wallet chain's exit session belongs to a SECOND account, and
     // x/session only accepts a cancel signed by the session's own account — so
     // "End both" on such a chain has to switch signer for the second hop or the
@@ -3243,11 +3259,39 @@ export function registerIpcHandlers(): void {
       ? { ...(await loadWalletCredentials(ownerId)), walletId: ownerId }
       : { wallet, address, privKey: new Uint8Array() }
     try {
-      // Gas only — but a wallet drained to zero can't afford even that, and this is
-      // the action that reclaims the deposit. Say so plainly rather than failing on chain.
-      if (foreign) await assertSufficientFundsFor(owner.address, 0)
-      else await assertSufficientFunds(0)
-      await endSession({ wallet: owner.wallet, address: owner.address, sessionId }).catch(noteChainError)
+      if (throughTunnel) {
+        // No balance check first: it is one more request to get through, and the chain's
+        // own refusal of the fee comes back as INSUFFICIENT_FUNDS (broadcastOrTimeout).
+        // Nor noteChainError: a path through our own tunnel failing is not the RPC's fault.
+        await endThroughTunnel(sessionId, owner.wallet, owner.address).catch((err: unknown) => {
+          if (!unansweredThroughTunnel(err)) throw err
+          throw new Error(`${UNREACHABLE_THROUGH_TUNNEL}: Couldn't reach the blockchain through the VPN to end session #${sessionId}. (${err instanceof Error ? err.message : String(err)})`)
+        })
+        // WALLET_SESSIONS answers from the cache while the tunnel is up, so the chain is
+        // read here, on sockets of their own like the End, and the ended row taken from
+        // it. Only that row: the live card adds this connection's bytes to its cached row,
+        // and a fresher one already counts some of them (Extend keeps its old row for the
+        // same reason). A read that lists nothing changes nothing ([REL-22]).
+        const rows = await withTimeout(
+          openChainQuery({ freshSockets: true }).then(async (q) => {
+            try {
+              return await readAllSessions(q.query)
+            } finally {
+              q.disconnect()
+            }
+          }),
+          REFUND_TIMEOUT_MS,
+          'session read',
+        ).catch(() => null)
+        const endedRow = rows?.find((s) => s.id === sessionId)
+        if (endedRow) primeSessionsCache((lastKnownSessions as SessionInfo[]).map((s) => (s.id === sessionId ? endedRow : s)))
+      } else {
+        // Gas only — but a wallet drained to zero can't afford even that, and this is
+        // the action that reclaims the deposit. Say so plainly rather than failing on chain.
+        if (foreign) await assertSufficientFundsFor(owner.address, 0)
+        else await assertSufficientFunds(0)
+        await endSession({ wallet: owner.wallet, address: owner.address, sessionId }).catch(noteChainError)
+      }
     } finally {
       if (foreign) owner.privKey.fill(0)
       // Unconditional: a cancel that reported an error may still have landed, and a

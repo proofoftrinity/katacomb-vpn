@@ -7,7 +7,8 @@ import { useReconnect } from '../hooks/useReconnect'
 import { leaveConnection } from '../hooks/useConnectFlow'
 import { previousConnection } from '../utils/switch'
 import Spinner from './Spinner'
-import { displayConnectError, setupItemsRequired } from '../utils/connect-errors'
+import { displayConnectError, isUnreachableThroughTunnel, setupItemsRequired } from '../utils/connect-errors'
+import { endSessions } from '../utils/end-session'
 import SystemSetup from './SystemSetup'
 import ChainUnreachable from './ChainUnreachable'
 import RouteStrip from './RouteStrip'
@@ -274,8 +275,8 @@ export default function ActiveSessions({
       : null
     const isThisSessionConnected = vpnConnected &&
       (status.sessionId === session.id || status.chainExit?.sessionId === session.id)
-    // When ending a *different* session than the one we're on, the tunnel is only
-    // torn down to reach the chain — capture the live session so we can restore it.
+    // Ending a *different* session than the one we're on goes through the live tunnel
+    // ([REL-49]). The live session is what comes back if the End has to go around it.
     const reconnectTarget = vpnConnected && !isThisSessionConnected
       ? sessions.find((s) => s.id === status.sessionId) ?? null
       : null
@@ -302,9 +303,6 @@ export default function ActiveSessions({
         ? `You already ended the ${otherRole} hop of this chain. This ends the ${session.chainRole ?? 'other'} hop as well.`
         : `This is the ${session.chainRole ?? 'first'} hop of a chain whose ${otherRole} hop has already ended. On its own it carries no traffic.`)
     }
-    if (reconnectTarget) {
-      warnings.push('Note: Your current VPN connection will be temporarily interrupted to reach the blockchain, then reconnected.')
-    }
     if (!(await requestConfirm({
       title: `End session #${session.id}?`,
       body: warnings,
@@ -317,34 +315,46 @@ export default function ActiveSessions({
     setBusy(session.id)
     setError(null)
 
-    let endError: string | null = null
-    try {
-      if (vpnConnected) {
-        await leaveConnection()
-        await refreshConnection()
-      }
-
-      await window.api.walletEndSession(session.id)
+    const { endError, rejoinError } = await endSessions({
       // Sequential, not parallel: both are txs from one account and would collide
       // on the sequence number. A failure here still leaves the first one ended.
-      if (peer && peer.status === 'active') await window.api.walletEndSession(peer.id)
-      await refresh()
-    } catch (err) {
-      endError = err instanceof Error ? err.message : 'Failed to end session'
-    }
-
-    // Restore the tunnel we tore down only to reach the chain. Run this even if the
-    // end failed — the reconnect target is unrelated to the ended session.
-    if (reconnectTarget) {
-      setSetupSessionId(reconnectTarget.id)
-      const result = await reconnect(reconnectTarget)
-      if (result.ok) await refreshConnection()
-      else endError = endError
-        ? `${endError}. Reconnect also failed: ${displayConnectError(result.error ?? 'Reconnection failed')}`
-        : (result.error ?? 'Reconnection failed')
-    }
-
-    if (endError) setError(endError)
+      ids: peer && peer.status === 'active' ? [session.id, peer.id] : [session.id],
+      connection: isThisSessionConnected ? 'these' : vpnConnected ? 'other' : 'idle',
+      end: (id) => window.api.walletEndSession(id),
+      leave: async () => {
+        await leaveConnection()
+        await refreshConnection()
+      },
+      reread: refresh,
+      unreachable: isUnreachableThroughTunnel,
+      // The way around drops the connection while it runs, so it is the user's call, and
+      // the cost is said in full: the kill switch goes with the tunnel.
+      goAround: reconnectTarget
+        ? (id, reason) => requestConfirm({
+          title: `End #${id} without the VPN?`,
+          body: [
+            displayConnectError(reason),
+            `The app can end it over your own internet connection instead: it disconnects from ${liveLabel}, ends the session, then reconnects.`,
+            'Until it has reconnected, about 15 seconds, your traffic goes out without the VPN. The kill switch does not stop it.',
+          ],
+          confirmLabel: 'Disconnect and end',
+          danger: true,
+        })
+        : null,
+      // Run even if the End failed: the reconnect target is unrelated to the ended session.
+      rejoin: async () => {
+        if (!reconnectTarget) return null
+        setSetupSessionId(reconnectTarget.id)
+        const result = await reconnect(reconnectTarget)
+        if (!result.ok) return result.error ?? 'Reconnection failed'
+        await refreshConnection()
+        return null
+      },
+    })
+    const shown = endError && rejoinError
+      ? `${endError}. Reconnect also failed: ${displayConnectError(rejoinError)}`
+      : endError ?? rejoinError
+    if (shown) setError(shown)
     setBusy(null)
   }
 
