@@ -93,7 +93,9 @@ Linux asks for an admin password.
 
 - **The dead-tunnel detectors work as on Linux.** `checkTunnelStalled` reads the service's
   counters, and the dead-peer detector reads the handshake age for WireGuard and AmneziaWG
-  alike, since both run on the service's device ([REL-45]).
+  alike, since both run on the service's device ([REL-45]). One difference: a counters read
+  can come back empty while the adapter works, so it is a drop only once the adapter list
+  agrees, or after three minutes without a reading ([REL-47]).
 - **Proxy cores die with the app.** Node on Windows puts every child it spawns into a job
   object that kills them when the app's process ends, a crash included, so
   `proxy-children.ts` has nothing to reap there, and records nothing (it identifies a core

@@ -1,5 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { loadIpcHandlers, type FreshOptions, type IpcHarness } from '../../test/harness/ipc.ts'
 import { REQUEST, NODE_WG } from '../../test/harness/requests.ts'
 
@@ -85,4 +87,51 @@ test('[REL-45] control: on Linux AmneziaWG\'s userspace device has no age to rea
   await h.advance(15_000 * 4)
   assert.deepEqual(staleHandshake(h), [])
   assert.equal(h.tunnel.up, true)
+})
+
+// [REL-47] Seen in the Windows VM on 2026-11-05: a paid WireGuard tunnel was stood down as
+// 'dropped' while it still carried pings, after a counters read came back empty. The
+// counters are a round trip to the service there; the adapter list is local.
+let current: IpcHarness
+const blindable = (readable: () => boolean): FreshOptions => ({
+  fakes: { 'vpn/vpn-manager': { readTunnelBytes: async () => {
+    const { tunnel } = current
+    if (!tunnel.up || !readable()) return null
+    tunnel.rx += 200_000
+    tunnel.tx += 20_000
+    return { rx: tunnel.rx, tx: tunnel.tx }
+  } } },
+})
+const expired = async (h: IpcHarness) =>
+  (await h.settle(h.invoke('CONNECTION_STATUS')) as { expired?: { reason: string } }).expired
+
+test('[REL-47] Windows: counters the service could not read are not a dropped tunnel while its adapter is listed', async (t) => {
+  let readable = true
+  const h = current = windows.fresh(blindable(() => readable))
+  t.after(() => h.dispose())
+  await connect(h, 'wireguard')
+  await h.advance(10 * 60_000)
+  readable = false
+  await h.advance(90_000)
+  assert.equal(h.tunnel.up, true, 'an empty read is not a missing adapter')
+  readable = true
+  await h.advance(60_000)
+  assert.equal(h.tunnel.up, true)
+  assert.equal(await expired(h), undefined)
+})
+
+test('[REL-47] Windows: counters unreadable for three minutes are a dropped tunnel, and usage stops at the last reading', async (t) => {
+  let readable = true
+  const h = current = windows.fresh(blindable(() => readable))
+  t.after(() => h.dispose())
+  await connect(h, 'wireguard')
+  await h.advance(10 * 60_000)
+  readable = false
+  await h.advance(2 * 60_000)
+  assert.equal(h.tunnel.up, true, 'two blind minutes are ridden out')
+  await h.advance(2 * 60_000)
+  assert.equal(h.tunnel.up, false, 'a stuck service must not leave "Connected" over a tunnel nothing can see')
+  assert.equal((await expired(h))?.reason, 'dropped')
+  const usage = JSON.parse(readFileSync(join(h.world.userData, 'session-usage.json'), 'utf-8')) as Record<string, { durationSeconds: number }>
+  assert.ok(usage['1001'].durationSeconds <= 10 * 60 + 15, `the blind minutes are not billed (${usage['1001'].durationSeconds}s)`)
 })

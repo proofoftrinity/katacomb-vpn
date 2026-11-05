@@ -372,12 +372,26 @@ test('evaluateQuota: with both caps the WORST one decides, and names itself as t
   )
 })
 
-test('evaluateQuota: boundaries are inclusive — exactly 90% warns, exactly 100% expires', () => {
+test('[REL-48] evaluateQuota: boundaries are inclusive — data warns at exactly 80%, time at 90%, both expire at 100%', () => {
   const gig = { ...CAPLESS, maxBytes: 1000 }
-  assert.equal(evaluateQuota({ ...gig, liveBytes: 899 }).level, 'ok')
-  assert.equal(evaluateQuota({ ...gig, liveBytes: 900 }).level, 'warn')
+  assert.equal(evaluateQuota({ ...gig, liveBytes: 799 }).level, 'ok')
+  assert.equal(evaluateQuota({ ...gig, liveBytes: 800 }).level, 'warn')
   assert.equal(evaluateQuota({ ...gig, liveBytes: 999 }).level, 'warn')
   assert.equal(evaluateQuota({ ...gig, liveBytes: 1000 }).level, 'expired')
+  const span = { ...CAPLESS, maxDurationSeconds: 1000 }
+  assert.equal(evaluateQuota({ ...span, connectedSeconds: 899 }).level, 'ok', 'time has no undercount to allow for')
+  assert.equal(evaluateQuota({ ...span, connectedSeconds: 900 }).level, 'warn')
+  assert.equal(evaluateQuota({ ...span, connectedSeconds: 1000 }).level, 'expired')
+})
+
+test('[REL-48] evaluateQuota: either cap past its own line warns, and the worse of the two is named', () => {
+  const both = { ...CAPLESS, maxDurationSeconds: 1000, maxBytes: 1000 }
+  // 85% of the time (under its 90% line), 82% of the data (over its 80%).
+  const v = evaluateQuota({ ...both, connectedSeconds: 850, liveBytes: 820 })
+  assert.equal(v.level, 'warn', 'the data line is crossed')
+  assert.equal(v.level === 'warn' && v.reason, 'time', 'and time, further through its cap, is the one named')
+  assert.equal(v.level === 'warn' && v.remaining, 150)
+  assert.equal(evaluateQuota({ ...both, connectedSeconds: 850, liveBytes: 500 }).level, 'ok', 'neither line crossed')
 })
 
 test('[SL-6] evaluateQuota: time is the node clock when that is further along, gaps included', () => {

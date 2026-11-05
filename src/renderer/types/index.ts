@@ -321,6 +321,12 @@ export interface ConnectionStatus {
     chainRole?: 'entry' | 'exit'
     /** MULTIHOP: the tunnel was a chain, even when no hop could be named (a stall). */
     chain?: boolean
+    /**
+     * [REL-48] A single-hop 'stalled' or 'dropped' past the data warning line: how much
+     * of its data this app had counted, in percent. The node counts more than we do on
+     * a lossy link, so it may have cut the session at its cap.
+     */
+    dataUsedPct?: number
   }
 }
 

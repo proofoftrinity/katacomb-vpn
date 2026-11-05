@@ -18,7 +18,7 @@ const SAVED = (sessionId: string, extra: Record<string, unknown> = {}) => ({
 const privileged = (h: IpcHarness) => h.calls('helper/privileged', 'runPrivileged').map((c) => (c.args[0] as string[]).join(' '))
 const marker = (h: IpcHarness) => existsSync(join(h.world.userData, 'killswitch-armed.state'))
 const status = async (h: IpcHarness) => await h.settle(h.invoke('CONNECTION_STATUS')) as {
-  state: string; killSwitchFailed?: boolean; expired?: { reason: string; trafficBlocked: boolean }
+  state: string; killSwitchFailed?: boolean; expired?: { reason: string; trafficBlocked: boolean; dataUsedPct?: number }
 }
 
 async function connect(h: IpcHarness, req: Record<string, unknown> = REQUEST.CONNECTION_SUBSCRIBE, connectParams: Record<string, unknown> = { protocol: 'wireguard' }): Promise<void> {
@@ -174,6 +174,48 @@ test('[REL-20] [REL-17] a tunnel that stops answering is stood down, and usage s
   const usage = JSON.parse(readFileSync(join(h.world.userData, 'session-usage.json'), 'utf-8')) as Record<string, { durationSeconds: number }>
   const used = usage['1001'].durationSeconds
   assert.ok(used >= 600 && used <= 630, `charged for ${used}s: the dead minutes after the last reply must not count`)
+})
+
+// Seen on mainnet 2026-11-05: the node cut a 1 GB session at its cap while our count read
+// 86%, and the banner said "Your session is still open".
+describe('[REL-48] a tunnel that dies past the data warning line is not called open', () => {
+  // A 1 GB session whose counters start at `fromRx`.
+  const from = (fromRx: number) => {
+    const h: IpcHarness = ipc.fresh({ fakes: { 'vpn/vpn-manager': { readTunnelBytes: async () => {
+      if (!h.tunnel.up) return null
+      if (h.tunnel.carries) h.tunnel.rx += 200_000
+      h.tunnel.tx += 20_000
+      return { rx: fromRx + h.tunnel.rx, tx: h.tunnel.tx }
+    } } } })
+    return h
+  }
+  const ends: Array<[string, string, (h: IpcHarness) => void]> = [
+    ['stops answering', 'stalled', (h) => { h.tunnel.carries = false }],
+    ['closes', 'dropped', (h) => { h.tunnel.down() }],
+  ]
+  for (const [how, reason, end] of ends) {
+    test(`[REL-48] a tunnel that ${how} at 86% of its data is reported with that share`, async (t) => {
+      const h = from(860e6)
+      t.after(() => h.dispose())
+      await connect(h)
+      await h.advance(60_000)
+      end(h)
+      await h.advance(5 * 60_000)
+      const { expired } = await status(h)
+      assert.deepEqual([expired?.reason, expired?.dataUsedPct], [reason, 86])
+    })
+
+    test(`[REL-48] control: a tunnel that ${how} at 30% of its data is still called open`, async (t) => {
+      const h = from(300e6)
+      t.after(() => h.dispose())
+      await connect(h)
+      await h.advance(60_000)
+      end(h)
+      await h.advance(5 * 60_000)
+      const { expired } = await status(h)
+      assert.deepEqual([expired?.reason, expired?.dataUsedPct], [reason, undefined])
+    })
+  }
 })
 
 describe('[REL-30] quit runs the full disconnect', () => {

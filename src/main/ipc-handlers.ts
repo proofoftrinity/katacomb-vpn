@@ -40,7 +40,7 @@ import { openChainFlow, openChainQuery } from './chain/chain-clients'
 import type { SentinelClient } from '@sentinel-official/sentinel-js-sdk'
 import type https from 'node:https'
 import { withTimeout } from './async-utils'
-import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, evaluateQuota, serviceTypeToNodeType, stripDnsLines, replaceDnsLines, isTunnelOneWay, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs, chainDeadlineStep, CHAIN_DEADLINE_RECHECK_MS, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, shouldRetrySessionHandshake, HANDSHAKE_RETRY_DELAY_MS, REFUND_FAILED_TAIL, extendRefusal, extendNodeRefusal, extendSwitchFailedMessage, extendCancelledMessage, type QuotaVerdict } from './vpn/connect-decisions'
+import { sessionFailureMessage, chainFailureMessage, refundEachInTurn, decideReconnect, evaluateQuota, DATA_WARN_PCT, serviceTypeToNodeType, stripDnsLines, replaceDnsLines, isTunnelOneWay, isWireGuardPeerGone, WG_HANDSHAKE_DEAD_SECONDS, WG_HANDSHAKE_STALE_SAMPLES, latestProofOfLifeMs, chainDeadlineStep, CHAIN_DEADLINE_RECHECK_MS, usageAccruesWithoutTunnelInterface, prunableUsageIds, describeNodeApiError, deadTunnelMessage, decideFirewallAction, shouldRetrySessionHandshake, HANDSHAKE_RETRY_DELAY_MS, REFUND_FAILED_TAIL, extendRefusal, extendNodeRefusal, extendSwitchFailedMessage, extendCancelledMessage, type QuotaVerdict } from './vpn/connect-decisions'
 import { discoverPlans, listCachedPlans, listNodesForPlan, listPlansForNode, subscribeToPlan, startSessionWithExistingSubscription, cancelSubscription, renewSubscription, updateSubscriptionPolicy, getPlanOverview, getCachedPlanNodes, TX_TIMEOUT_MESSAGE as PLAN_TX_TIMEOUT_MESSAGE, type PlanOverview } from './plans/plan-service'
 import { rankPlanCandidates, shouldTryNextCandidate, isFreeFailure, MAX_FREE_FAILURES, ladderNextTx, smartConnectFailureSummary, type PlanNodeCandidate, type SmartConnectFailure } from './plans/plan-connect'
 import { getCachedPlans } from './plans/plan-cache'
@@ -509,6 +509,8 @@ let lastExpiry: {
    * that has lost a hop, so the banner needs to know.
    */
   chain?: boolean
+  /** [REL-48] 'stalled'/'dropped' past the data warning line: the share of the data used. */
+  dataUsedPct?: number
 } | null = null
 
 // Quota is coarse — the 5s interface poll is not a useful cadence for it.
@@ -731,6 +733,11 @@ let aliveBytes = { rx: 0, tx: 0 }
 let staleHandshakeTicks = 0
 // One probe at a time: the interval re-enters, and the probe awaits a socket.
 let handshakeProbeInFlight = false
+// [REL-47] When the counters stopped reading while the interface stayed listed; 0 while
+// they read. The limit is the WireGuard dead line (WG_HANDSHAKE_DEAD_SECONDS): with no
+// reading for longer than a peer's keys may live, nothing says the tunnel is up.
+let countersBlindSinceMs = 0
+const TUNNEL_COUNTERS_BLIND_MAX_MS = 180_000
 
 function resetOneWayTracking(): void {
   lastRxBytes = 0
@@ -738,6 +745,7 @@ function resetOneWayTracking(): void {
   lastRxMovedAtMs = 0
   aliveBytes = { rx: 0, tx: 0 }
   staleHandshakeTicks = 0
+  countersBlindSinceMs = 0
 }
 
 /**
@@ -770,9 +778,29 @@ function checkTunnelStalled(bytes: { rx: number; tx: number } | null): 'stalled'
     // the interface left it — the node stops metering when the tunnel drops, so
     // advancing it here billed the user for every second of a tunnel that no longer
     // existed, and wrote that figure into lastSessionUsage as a permanent floor.
+    //
+    // [REL-47] Unless the interface is still listed: then what failed is the read, not
+    // the tunnel. On Windows the counters are a round trip to the service on a 3 s
+    // budget, and a read that came back empty stood a tunnel down on 2026-11-05 while
+    // it still carried traffic.
+    // The adapter list, local and checked every 5 s by the liveness monitor, says when
+    // it is gone. aliveUntilMs stays put here too, so a blind stretch that ends in a
+    // stand-down bills nothing, and one longer than TUNNEL_COUNTERS_BLIND_MAX_MS is
+    // taken as gone, or a stuck service would leave "Connected" over a dead tunnel.
+    if (isVpnActive()) {
+      countersBlindSinceMs ||= now
+      const blindMs = now - countersBlindSinceMs
+      if (blindMs < TUNNEL_COUNTERS_BLIND_MAX_MS) {
+        console.warn('[vpn] the tunnel counters could not be read; its interface is still up')
+        return null
+      }
+      console.error(`[vpn] the tunnel counters have been unreadable for ${Math.round(blindMs / 1000)}s — the tunnel is down`)
+      return 'dropped'
+    }
     console.error('[vpn] the tunnel interface is gone — the tunnel is down')
     return 'dropped'
   }
+  countersBlindSinceMs = 0
   aliveBytes = bytes
   if (lastRxMovedAtMs === 0 || bytes.rx > lastRxBytes) {
     lastRxBytes = bytes.rx
@@ -989,6 +1017,15 @@ async function standDownSession(
       : isExitHop ? 'exit' : 'entry'
   // Read before the stand-down clears activeExitSessionId below.
   const chain = activeExitSessionId !== null
+  // [REL-48] A single-hop tunnel that died on its own past the data warning line may
+  // have been cut by the node at its cap, which counts more than we do (DATA_WARN_PCT),
+  // so the banner must not call that session open. Read before the quota is cleared.
+  const usedPct = activeQuota && activeQuota.maxBytes > 0
+    ? (activeQuota.baselineBytes + aliveBytes.rx + aliveBytes.tx) / activeQuota.maxBytes * 100
+    : 0
+  const dataUsedPct = !chain && (reason === 'stalled' || reason === 'dropped') && usedPct >= DATA_WARN_PCT
+    ? Math.round(usedPct)
+    : undefined
   console.log(
     reason === 'stalled' || reason === 'dropped'
       ? `[vpn] session #${sessionId} tunnel ${reason === 'stalled' ? 'stopped carrying traffic' : 'closed unexpectedly'} — disconnecting`
@@ -1041,7 +1078,7 @@ async function standDownSession(
     // idempotent click to clear) rather than under-reporting it (user stranded). If
     // arming truly failed, the Restore button runs killswitch-off (idempotent) and
     // everything self-corrects.
-    lastExpiry = { sessionId, nodeMoniker, nodeAddress, reason, trafficBlocked: isKillSwitchArmed(), chainRole, chain }
+    lastExpiry = { sessionId, nodeMoniker, nodeAddress, reason, trafficBlocked: isKillSwitchArmed(), chainRole, chain, dataUsedPct }
     isIntentionalDisconnect = false
     sendStateChange('idle')
   })

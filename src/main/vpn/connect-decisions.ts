@@ -166,7 +166,13 @@ export type QuotaVerdict =
   | { level: 'warn'; pct: number; reason: 'time' | 'data'; remaining: number }
   | { level: 'expired'; reason: 'time' | 'data' }
 
-const QUOTA_WARN_PCT = 90
+// Data warns earlier than time. The node counts the bytes it sends and this app the
+// bytes that arrive, so on a lossy link our count runs behind by what was lost on the
+// way: on 2026-11-05 the node cut a 1 GB session at 86% of our count (a Windows VM whose
+// uplink was losing about a third of its pings; 18-24% apart over two connects), and a
+// 90% warning never came. Time has no such gap: both ends read the same clock ([SL-6]).
+export const DATA_WARN_PCT = 80
+const TIME_WARN_PCT = 90
 
 /**
  * How much of the paid session is used up? Only the caps that actually exist are
@@ -189,9 +195,10 @@ const QUOTA_WARN_PCT = 90
  * down, destroying a full paid hour. The node's clock starts at the handshake, not
  * at `startAt`, which is why it can be taken without repeating that mistake.
  *
- * The node's own metering may still differ slightly from ours, which is what the
- * reconnect give-up path absorbs. In local-proxy mode there is no interface to
- * count, so `liveBytes` is 0 and only a time cap can expire.
+ * The node's own metering may still differ from ours, which is what the reconnect
+ * give-up path absorbs, and on a lossy link by more than slightly (DATA_WARN_PCT).
+ * In local-proxy mode there is no interface to count, so `liveBytes` is 0 and only a
+ * time cap can expire.
  */
 export function evaluateQuota(input: QuotaInput): QuotaVerdict {
   const hasTimeCap = input.maxDurationSeconds !== null && input.maxDurationSeconds > 0
@@ -211,7 +218,8 @@ export function evaluateQuota(input: QuotaInput): QuotaVerdict {
   const pct = Math.max(timePct ?? 0, dataPct ?? 0)
 
   if (pct >= 100) return { level: 'expired', reason }
-  if (pct >= QUOTA_WARN_PCT) {
+  // Either cap past its own line warns, and the worse of the two is the one named.
+  if ((dataPct ?? 0) >= DATA_WARN_PCT || (timePct ?? 0) >= TIME_WARN_PCT) {
     const remaining = reason === 'time'
       ? Math.max(0, input.maxDurationSeconds! - usedSeconds)
       : Math.max(0, input.maxBytes - usedBytes)

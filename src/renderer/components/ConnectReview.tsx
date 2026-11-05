@@ -552,7 +552,9 @@ export function FooterReason({ text, tone = 'danger' }: { text: string; tone?: '
  */
 export function useReviewSettings() {
   const [dnsResolver, setDnsResolver] = useState<string | null>(null)
-  const [killSwitch, setKillSwitch] = useState(false)
+  // Null until read: a default of false had the Extend window say "the kill switch is
+  // off" for the second or two the read takes, with the kill switch on.
+  const [killSwitch, setKillSwitch] = useState<boolean | null>(null)
   const [dnsBusy, setDnsBusy] = useState(false)
   const [dnsError, setDnsError] = useState<string | null>(null)
 
@@ -595,7 +597,7 @@ export function useReviewSettings() {
  */
 export function switchCheck(prev: PreviousConnection | null, s: ReturnType<typeof useReviewSettings>): CheckSpec | null {
   if (!prev) return null
-  const facts = switchFacts(prev, s.killSwitch)
+  const facts = switchFacts(prev, s.killSwitch === true)
   return {
     id: 'switch',
     tone: 'warning',
