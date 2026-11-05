@@ -32,6 +32,7 @@ import { leaseStopsSoon } from './utils/lease-runway'
 import { formatDuration } from './utils/format'
 import { IS_WINDOWS } from './utils/protocols'
 import AppLogo from './components/AppLogo'
+import { HelpIcon } from './components/Icons'
 
 /**
  * Main took the tunnel down on its own: the session ran out of what it was paid for,
@@ -439,17 +440,19 @@ function AppInner() {
         <div className="flex items-center gap-3 shrink-0">
           <WalletPanel address={wallet.address} name={wallet.name} chainFrozen={chainFrozen} />
           <button
-            onClick={() => openHelp()}
-            className="text-text-secondary hover:text-accent text-sm transition-colors"
-          >
-            Help
-          </button>
-          <button
             onClick={() => openSettings()}
             className="text-text-secondary hover:text-accent text-sm transition-colors"
             title="Settings"
           >
             Settings
+          </button>
+          <button
+            onClick={() => openHelp()}
+            className="text-text-secondary hover:text-accent transition-colors"
+            aria-label="Help"
+            title="Help"
+          >
+            <HelpIcon />
           </button>
         </div>
       </header>

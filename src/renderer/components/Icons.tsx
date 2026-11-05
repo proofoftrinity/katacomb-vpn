@@ -160,6 +160,16 @@ export function AlertIcon(p: IconProps) {
   )
 }
 
+export function HelpIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M6 6.2a2 2 0 1 1 3.3 1.5C8.5 8.3 8 8.7 8 9.5" />
+      <circle cx="8" cy="11.6" r="0.55" fill="currentColor" />
+    </Svg>
+  )
+}
+
 export function LaptopIcon(p: IconProps) {
   return (
     <Svg {...p}>
