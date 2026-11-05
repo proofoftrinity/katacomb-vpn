@@ -12,7 +12,7 @@ import {
   dnsCheck, encryptionCheck, keysLimit, modeSummary, otherVpnCheck, seesBothLimit, signingCheck, switchCheck, useActiveWalletName, useOtherVpns, useReviewSettings,
   type CheckSpec, type Limit,
 } from './ConnectReview'
-import { connectionRelation, previousConnection, switchFooterText } from '../utils/switch'
+import { connectionRelation, previousConnection, switchFooterText, extendPauseCopy } from '../utils/switch'
 import { useNavigation } from '../contexts/NavigationContext'
 import { useConnection } from '../hooks/useConnection'
 import { protocolMeta, isProtocolSupported, isProxyCapable } from '../utils/protocols'
@@ -823,8 +823,10 @@ function ExtendSteps({ marker, detail, done, from, proxy, killSwitch }: {
   done?: 'ended' | 'end-failed'
   from: string
   proxy: boolean
-  killSwitch: boolean
+  /** Null while the setting is still being read. */
+  killSwitch: boolean | null
 }) {
+  const pause = extendPauseCopy(killSwitch)
   const buyStep = marker ? ['1/5', '2/5', '3/5', '4/5'].indexOf(marker) : -1
   const buyLabel = ['Preparing', 'Buying the new session on chain', 'Confirming the session', 'Handshaking with the node'][buyStep]
   const active = done ? 3 : marker === null ? -1 : marker === 'extend:switch' ? 1 : marker === 'extend:end-old' ? 2 : 0
@@ -839,13 +841,8 @@ function ExtendSteps({ marker, detail, done, from, proxy, killSwitch }: {
       label: 'Move onto it',
       sub: proxy ? 'The local proxy stops for a few seconds' : 'Pauses for a few seconds',
       now: marker === 'extend:switch' ? detail : null,
-      tip: proxy
-        ? 'The local proxy moves to the new session on the same node.'
-        : `Your connection moves to the new session on the same node, and downloads or calls in progress restart. ${killSwitch
-          ? 'The kill switch stays on, so nothing leaves outside the tunnel during the pause.'
-          : 'The kill switch is off, so apps that send anything during the pause reach the internet directly.'}`,
-      // Said only when it is the exception: with the kill switch on, the pause is quiet.
-      note: !proxy && !killSwitch ? 'The kill switch is off, so apps go direct during the pause.' : null,
+      tip: proxy ? 'The local proxy moves to the new session on the same node.' : pause.tip,
+      note: proxy ? null : pause.note,
     },
     {
       label: done === 'ended' ? `Ended session #${from}` : `End session #${from}`,

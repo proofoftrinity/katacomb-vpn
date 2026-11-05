@@ -99,6 +99,24 @@ export function switchFacts(prev: PreviousConnection, killSwitch: boolean): { te
   return { text: `Switches from ${prev.label}`, line: gap, tip: `${whyTip} ${leftOpenTip}` }
 }
 
+/**
+ * [REL-46] What the Extend window says about its pause. `killSwitch` is null while the
+ * setting is still being read, and then nothing is said about it: "off" said by
+ * default is false whenever the kill switch is on.
+ */
+export function extendPauseCopy(killSwitch: boolean | null): { tip: string; note: string | null } {
+  const tail = killSwitch === true
+    ? ' The kill switch stays on, so nothing leaves outside the tunnel during the pause.'
+    : killSwitch === false
+      ? ' The kill switch is off, so apps that send anything during the pause reach the internet directly.'
+      : ''
+  return {
+    tip: `Your connection moves to the new session on the same node, and downloads or calls in progress restart.${tail}`,
+    // Said only when it is the exception: with the kill switch on, the pause is quiet.
+    note: killSwitch === false ? 'The kill switch is off, so apps go direct during the pause.' : null,
+  }
+}
+
 /** The footer's line while a switch is what Pay will do. */
 export function switchFooterText(prev: PreviousConnection): string {
   return `Disconnects from ${prev.label} first. ${prev.chain ? 'Its sessions stay' : 'Its session stays'} open.`

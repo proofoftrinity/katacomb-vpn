@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   connectionRelation,
+  extendPauseCopy,
   previousConnection,
   switchFacts,
   switchFooterText,
@@ -114,4 +115,17 @@ test('[RN-10] the switch row says the gap, the kill switch and the session left 
   assert.equal(switchFooterText(prev), 'Disconnects from Alpha first. Its session stays open.')
   // No em dashes in anything the user reads (docs/renderer.md).
   for (const s of [on.text, on.line, on.tip, proxy.line, proxy.tip, switchFooterText(prev)]) assert.doesNotMatch(s, /—/)
+})
+
+// Seen in the Windows VM on 2026-11-05: the Extend window said "The kill switch is off,
+// so apps go direct during the pause" for the second or two the setting took to read,
+// with the kill switch on.
+test('[REL-46] the Extend window says nothing about the kill switch before the setting is read', () => {
+  const unread = extendPauseCopy(null)
+  assert.equal(unread.note, null)
+  assert.doesNotMatch(unread.tip, /kill switch/)
+  assert.equal(extendPauseCopy(true).note, null, 'with it on, the pause is quiet')
+  assert.match(extendPauseCopy(true).tip, /kill switch stays on/)
+  assert.match(extendPauseCopy(false).note ?? '', /kill switch is off/)
+  assert.match(extendPauseCopy(false).tip, /kill switch is off/)
 })
