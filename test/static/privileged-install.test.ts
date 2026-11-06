@@ -26,13 +26,21 @@ async function sandbox(): Promise<{ dir: string; target: string; env: NodeJS.Pro
     chmodSync(join(bin, tool), 0o755)
   }
   const target = join(dir, 'katacomb-vpn-helper')
-  copyFileSync('/bin/sleep', target)
+  // A copy of the shell, waiting on a read from a pipe nothing writes to. Not /bin/sleep:
+  // on Ubuntu 26.04 that is uutils' multicall binary, which picks the tool from the file's
+  // own name, so a copy named katacomb-vpn-helper exits at once.
+  copyFileSync('/bin/sh', target)
   chmodSync(target, 0o755)
-  const running = spawn(target, ['30'], { stdio: 'ignore' })
-  // Until the exec lands the file is not busy yet: wait for the kernel to say it runs.
-  for (let i = 0; i < 200; i++) {
-    try { if (readlinkSync(`/proc/${running.pid}/exe`) === target) break } catch { /* not yet */ }
-    await new Promise((r) => setTimeout(r, 10))
+  const running = spawn(target, ['-c', 'read x'], { stdio: ['pipe', 'ignore', 'ignore'] })
+  // Until the exec lands the file is not busy yet: wait for the kernel to say it runs, and
+  // still runs a moment later. A copy that exits at once makes every test here vacuous.
+  const runs = (): boolean => { try { return readlinkSync(`/proc/${running.pid}/exe`) === target } catch { return false } }
+  for (let i = 0; i < 200 && !runs(); i++) await new Promise((r) => setTimeout(r, 10))
+  await new Promise((r) => setTimeout(r, 50))
+  if (!runs()) {
+    running.kill('SIGKILL')
+    rmSync(dir, { recursive: true, force: true })
+    throw new Error(`the copy of /bin/sh at ${target} is not running, so nothing here would be busy`)
   }
   return {
     dir,
