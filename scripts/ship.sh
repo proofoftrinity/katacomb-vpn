@@ -261,6 +261,10 @@ elif [ "$DRY_RUN" = 1 ]; then
 else
   info "building and signing, this takes a few minutes"
   run_phase "cutting the release" "$SCRIPT_DIR/release.sh" "$VERSION"
+  # The tag exists now. Left at 0, phase 4 measures from the nearest tag to HEAD,
+  # which is this one: no range at all, so packaging always read "unchanged" on
+  # the run that cut (the v1.20.0 run said "unchanged since v1.20.0").
+  CUT_DONE=1
 fi
 
 # --- 4. portability ---------------------------------------------------------
@@ -371,7 +375,14 @@ fi
 
 # --- 5. install -------------------------------------------------------------
 phase 5/7 "install this build"
-INSTALLED="$(dpkg-query -W -f='${Version}' "$DEB_PACKAGE" 2>/dev/null || true)"
+# Only an installed package counts. One removed but not purged (state "rc") still
+# has a version in dpkg, which made a first install read "installed: 1.19.0". The
+# abbreviation is three characters, the second the state: i is installed.
+INSTALLED="$(dpkg-query -W -f='${db:Status-Abbrev}${Version}' "$DEB_PACKAGE" 2>/dev/null || true)"
+case "$INSTALLED" in
+  ?i?*) INSTALLED="${INSTALLED:3}" ;;
+  *)    INSTALLED="" ;;
+esac
 NEED_INSTALL=1
 REINSTALL=0
 INSTALL_REASON="installed: ${INSTALLED:-none}, want: $VERSION"
