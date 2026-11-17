@@ -9,11 +9,12 @@ wrong until shown otherwise. The rules for changing the suite itself are in
 
 | Command | What it runs |
 |---|---|
-| `npm run verify` | `typecheck`, `test`, then `test:canaries` - the gate, and what the commit hook runs |
+| `npm run verify` | `check`, then `test:canaries` - the gate a change passes before it lands on `main` |
+| `npm run check` | `typecheck`, then `test` - the gate before a commit on a work branch |
 | `npm run typecheck` | `tsc` over main+preload, renderer, and the tests (`tsconfig.test.json`) |
 | `npm test` | `node --test` over `src/**/*.test.ts` and `test/**/*.test.ts`, then `go test ./...` in `daemon/`, then the architecture-doc check |
 | `npm run test:daemon` | the Go tests alone |
-| `npm run test:canaries` | every mutation canary must turn its tests red (about 80 s) |
+| `npm run test:canaries` | every mutation canary must turn its tests red (about 2 min) |
 | `npm run test:fuzz` | each Go fuzz target for `FUZZTIME` (default 10 s); CI also runs the daemon under `-race` |
 | `npm run check:chain [address…]` | the live-chain facts the `manual` rules SL-2..SL-4 rest on, and the plan-cap fact behind SL-6, read from mainnet; never part of `verify` (see below) |
 | `npx electron-vite build && node scripts/check-bundle-requires.mjs` | CI: builds the app, then checks the bundles require no npm package ([ARCH-3]) |
@@ -24,6 +25,22 @@ wrong until shown otherwise. The rules for changing the suite itself are in
   script and its own CI step.
 - Every test file prints a `MODULE_TYPELESS_PACKAGE_JSON` warning: `package.json` has
   no `"type"`, so Node re-parses each `.ts` file as ESM. Harmless and expected.
+
+### When the commit hook runs what
+
+| Command | What must have passed, on the tree it commits |
+|---|---|
+| `git commit` on a work branch | `npm run check` |
+| `git commit` on `main`, or one that concludes a merge | `npm run verify` |
+| `git merge` into `main` | `npm run verify`, on the tree the merge makes |
+
+The hook (`.claude/hooks/verify_hook.py`, untracked) records each pass against the exact
+tree in `verify-passed.json` in the git dir and never checks a tree twice. Run
+`python3 .claude/hooks/verify_hook.py --run full` on the finished branch: the merge into
+`main` is then free when the branch is up to date with `main`. When `main` has moved on,
+the merge makes a tree nothing has run, and the hook says so: merge with `--no-commit`,
+and the commit that concludes it runs `verify`. A change git does not see (an upgraded
+dependency or Go toolchain) makes no new tree: run `npm run verify` itself after one.
 
 ## Rule IDs
 

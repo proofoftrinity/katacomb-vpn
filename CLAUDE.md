@@ -48,10 +48,14 @@ Two rules that outrank convenience, stated here so they are never missed:
 
 ## The suite is the invariant
 
-`npm run verify` green is the definition of done, for every change; a local hook runs it
-before any commit Claude Code or Codex makes (`.claude/settings.local.json`,
-`.codex/hooks.json`, both untracked; `.codex/rules/` runs the suite outside Codex's
-sandbox, which blocks its sockets). `docs/testing.md` is the map.
+`npm run verify` green is the definition of done, for every change. A local hook holds
+Claude Code and Codex to it in two steps (`.claude/settings.local.json`,
+`.codex/hooks.json` and `.claude/hooks/`, all untracked): `npm run check` before a commit
+on a work branch, the whole of `verify` before the work lands on `main`. It records each
+pass against the exact tree and never checks a tree twice: run
+`python3 .claude/hooks/verify_hook.py --run full` on the finished branch, then switch to
+`main` in one command and merge in the next. `.codex/rules/` runs the suite outside
+Codex's sandbox, which blocks its sockets. `docs/testing.md` is the map.
 
 - Every rule in `docs/` carries an ID (`**[REL-n] …**`), and a test that pins a rule
   carries its ID in its title. `test/invariants/registry.test.ts` goes red when a rule
