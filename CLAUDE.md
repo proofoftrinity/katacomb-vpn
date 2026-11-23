@@ -130,7 +130,8 @@ verified, not assumed. `getWalletMnemonic` turns that failure into a re-import
 instruction; the wallet index is copied so the name/address stay visible.
 **[ARCH-5]** Upgrades never lose the user's data: every `settings.json` and
 `wallets-index.json` a past release wrote still loads with the user's choices intact
-(`test/fixtures/settings/`), every migration is idempotent, a seed the keyring can no
+(`test/fixtures/settings/`; the one exception is a name two wallets shared, [REL-50]),
+every migration is idempotent, a seed the keyring can no
 longer open asks for re-import instead of failing raw, and no seed is ever written under
 the insecure `basic_text` backend.
 

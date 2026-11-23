@@ -122,3 +122,15 @@ test('[REL-41] whether a keyring answered is asked only once a seed failed: an e
   assert.equal((await h.invoke('WALLET_STORE_STATUS') as { keyringMissing: boolean }).keyringMissing, false)
   assert.equal(h.world.safeStorage.calls, 0, 'reading an empty store, as on a first run, must not bring up a keyring prompt')
 })
+
+test('[REL-50] the rename handler refuses another wallet\'s name and leaves the store as it was', async (t) => {
+  const h = ipc.fresh(world())
+  t.after(() => h.dispose())
+  const before = index(h)
+  const refused = await h.invoke('WALLET_RENAME', 'w2', ' main ').then(() => null, (e: Error) => e)
+  assert.match(String(refused), /A wallet named "main" already exists/)
+  assert.equal(index(h), before)
+  // Control: a free name is written, trimmed.
+  await h.invoke('WALLET_RENAME', 'w2', ' Exit ')
+  assert.deepEqual((JSON.parse(index(h)) as Array<{ name: string }>).map((w) => w.name), ['Main', 'Exit'])
+})

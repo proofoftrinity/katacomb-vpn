@@ -4,7 +4,7 @@ What each module in `src/main/` is for. The folder each lives in is listed in
 CLAUDE.md; this is the per-module detail.
 
 - `wallet.ts`: BIP-39 mnemonic import, `DirectSecp256k1HdWallet` derivation with `sent` prefix, `safeStorage` encryption (OS keyring via libsecret on Linux), balance/session queries via `SentinelClient`.
-- `settings.ts`: Multi-wallet store (`wallets/` dir with encrypted `.enc` files + `wallets-index.json`), app settings (`settings.json`), old single-wallet migration, and which keyring the seeds' key is kept in ([REL-41]). Wallet entries have `id` (UUID), `name`, `address`.
+- `settings.ts`: Multi-wallet store (`wallets/` dir with encrypted `.enc` files + `wallets-index.json`), app settings (`settings.json`), old single-wallet migration, and which keyring the seeds' key is kept in ([REL-41]). Wallet entries have `id` (UUID), `name` (unique, [REL-50]), `address`.
   **There is no seed id on disk**: every entry holds its own encrypted copy of the phrase
   (a derived subaccount re-encrypts the same words), so which wallets share a seed is
   computed by decrypt-and-compare on every `WALLET_STORE_STATUS` read (`assignSeedGroups`

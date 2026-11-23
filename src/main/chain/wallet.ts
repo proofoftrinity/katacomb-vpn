@@ -81,8 +81,8 @@ export async function importWallet(mnemonic: string, name?: string, accountIndex
   // handshakes with a key that did not match the address the session was bought with.
   const privKey = await derivePrivKey(wallet.mnemonic, cosmosHdPath(accountIndex))
 
-  const walletName = name || `Wallet ${listWallets().length + 1}`
-  const entry = addWalletEntry(walletName, account.address, wallet.mnemonic, { accountIndex })
+  // addWalletEntry names a wallet left unnamed and refuses a name in use ([REL-50]).
+  const entry = addWalletEntry(name ?? '', account.address, wallet.mnemonic, { accountIndex })
   saveSettings({ activeWalletId: entry.id })
 
   state.wallet = wallet
@@ -179,8 +179,7 @@ export async function deriveSubaccount(
   // Picking a path that's already stored yields an address we already hold;
   // addWalletEntry rejects that (and every other collision) at the store. The
   // renderer greys those rows out, but this is the authoritative check.
-  const walletName = name.trim() || `Wallet ${listWallets().length + 1}`
-  addWalletEntry(walletName, account.address, wallet.mnemonic, { accountIndex, addressIndex })
+  addWalletEntry(name, account.address, wallet.mnemonic, { accountIndex, addressIndex })
 
   // The new entry now holds its own encrypted copy of this seed, so the retained
   // one is redundant — drop it and we're back to the ordinary "the seed lives in

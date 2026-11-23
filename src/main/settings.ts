@@ -3,6 +3,7 @@ import { readFileSync, existsSync, unlinkSync, mkdirSync, cpSync, readdirSync } 
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { WALLET_EXISTS } from '../shared/error-markers'
+import { defaultWalletName, isWalletNameTaken, renameDuplicateNames, walletNameTakenMessage } from '../shared/wallet-names'
 import { writeFileAtomic } from './fs-utils'
 import { IS_WINDOWS } from './platform'
 
@@ -303,17 +304,23 @@ export function addWalletEntry(
   // (two rows, both showing as active, one wallet). The blank-address guard
   // matters: migrateOldWallet writes `address: ''` until the first restore fills
   // it in, and blank is not an identity.
-  const clash = listWallets().find((w) => w.address && w.address === address)
+  const stored = listWallets()
+  const clash = stored.find((w) => w.address && w.address === address)
   if (clash) {
     throw new Error(`${WALLET_EXISTS}:${clash.id}: That seed is already stored as "${clash.name}".`)
   }
+
+  // [REL-50] One wallet per name, checked after the address so a seed that is already
+  // stored still offers its wallet. No name typed takes the next free "Wallet N".
+  const walletName = name.trim() || defaultWalletName(stored)
+  if (isWalletNameTaken(stored, walletName)) throw new Error(walletNameTakenMessage(walletName))
 
   const id = randomUUID()
   const encrypted = safeStorage.encryptString(mnemonic)
   writeFileAtomic(join(walletsDir(), `${id}.enc`), encrypted)
   recordKeyring()
 
-  const entry: WalletEntry = { id, name, address, accountIndex, addressIndex }
+  const entry: WalletEntry = { id, name: walletName, address, accountIndex, addressIndex }
   const wallets = listWallets()
   wallets.push(entry)
   saveWalletIndex(wallets)
@@ -406,7 +413,10 @@ export function renameWallet(id: string, newName: string): void {
   const wallets = listWallets()
   const wallet = wallets.find((w) => w.id === id)
   if (!wallet) throw new Error('Wallet not found')
-  wallet.name = newName
+  // [REL-50] The wallet's own name in another case is not a clash.
+  const name = newName.trim()
+  if (isWalletNameTaken(wallets, name, id)) throw new Error(walletNameTakenMessage(name))
+  wallet.name = name
   saveWalletIndex(wallets)
 }
 
@@ -555,6 +565,16 @@ export function dedupeWalletEntries(): void {
   }
 
   console.log(`[wallets] merged ${dropped.length} duplicate entr${dropped.length === 1 ? 'y' : 'ies'}`)
+}
+
+/**
+ * [REL-50] Stores written before names were unique can hold two wallets of one name:
+ * every later one is renamed ("Main", "Main" becomes "Main", "Main 2"). Reads only the
+ * index, so it calls no keyring ([REL-40]), and writes nothing when no name repeats.
+ */
+export function dedupeWalletNames(): void {
+  const renamed = renameDuplicateNames(listWallets())
+  if (renamed) saveWalletIndex(renamed)
 }
 
 /**

@@ -16,7 +16,7 @@ import {
 import { killAllTunnels, detectExistingConnection } from './vpn/vpn-manager'
 import { onChainPathChanged, runAutoRpcSelection, startRpcMonitor, stopRpcMonitor } from './chain/rpc-monitor'
 import { sweepStaleSessionFiles } from './chain/chain-service'
-import { migrateLegacyUserData, dedupeWalletEntries, migrateProviderModeToWallet, migrateRpcMode, keyringSwitch } from './settings'
+import { migrateLegacyUserData, dedupeWalletEntries, dedupeWalletNames, migrateProviderModeToWallet, migrateRpcMode, keyringSwitch } from './settings'
 import { followRunningCopy } from './autostart'
 import { listProviders } from './provider/provider-service'
 import { registerWithDesktopSession } from './desktop-session'
@@ -393,6 +393,9 @@ app.whenReady().then(() => {
   // Repair installs that predate the uniqueness guard in addWalletEntry, where
   // re-importing a stored seed created a second entry for the same address.
   dedupeWalletEntries()
+  // Names became unique later still ([REL-50]): a second wallet of a name is renamed.
+  // After the dedupe, so two entries it merges into one are not renamed first.
+  dedupeWalletNames()
   // Provider mode used to be global, so it leaked onto every seed imported after
   // it was turned on. Runs after the dedupe, which can rewrite activeWalletId.
   migrateProviderModeToWallet()

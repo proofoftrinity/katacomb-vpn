@@ -58,6 +58,15 @@ test('[REL-31] startup heals in order: migrate, adopt, close the orphan, then cl
     'healStrandedKillSwitch must run in a .then() chained on healOrphanedTunnel')
 })
 
+test('[REL-50] startup renames a second wallet of a name: after the address dedupe, before any handler reads the store', () => {
+  const steps = whenReadySteps()
+  // Two entries the dedupe merges into one must not be renamed first; a handler that
+  // listed the store before the rename would show the same name twice.
+  const order = ['dedupeWalletEntries', 'dedupeWalletNames', 'registerIpcHandlers']
+  const positions = order.map((name) => firstAt(steps, name))
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b), `startup order must be ${order.join(' -> ')}`)
+})
+
 test('[REL-36] the app registers with the desktop session at startup, and a session end runs the normal quit', () => {
   const register = whenReadySteps().find((s) => calleeName(s) === 'registerWithDesktopSession')
   assert.ok(register, 'registerWithDesktopSession() is no longer called at startup')

@@ -18,7 +18,7 @@ const GENERATIONS = readdirSync(FIXTURES).filter((f) => f.endsWith('.settings.js
 
 /** The migrations whenReady runs before anything else touches settings (src/main/index.ts). */
 function startup(h: ModuleHarness): void {
-  for (const step of ['migrateLegacyUserData', 'dedupeWalletEntries', 'migrateProviderModeToWallet', 'migrateRpcMode']) (h.mod[step] as Fn)()
+  for (const step of ['migrateLegacyUserData', 'dedupeWalletEntries', 'dedupeWalletNames', 'migrateProviderModeToWallet', 'migrateRpcMode']) (h.mod[step] as Fn)()
 }
 const file = (h: ModuleHarness, name: string) => readFileSync(join(h.world.userData, name), 'utf-8')
 const seed = (h: ModuleHarness, id: string, keyId = h.world.safeStorage.keyId) => {
@@ -152,6 +152,85 @@ describe('[ARCH-5] the wallet store', () => {
     assert.equal((h.mod.getWalletMnemonic as Fn)(w.id), 'abandon abandon about')
     assert.equal(((h.mod.loadSettings as Fn)() as { activeWalletId: string }).activeWalletId, w.id)
     assert.equal(existsSync(join(h.world.userData, 'wallet.enc')), false)
+  })
+})
+
+// [REL-50] No two stored wallets share a name: the store refuses one, and a store
+// written before the rule is repaired at startup.
+describe('[REL-50] no two stored wallets share a name', () => {
+  type Entry = { id: string; name: string; address: string }
+  const names = (h: ModuleHarness) => ((h.mod.listWallets as Fn)() as Entry[]).map((w) => w.name)
+
+  test('[REL-50] a new wallet cannot take a name in use, in any case; another name goes through', (t) => {
+    const h = settings.fresh()
+    t.after(() => h.dispose())
+    const add = h.mod.addWalletEntry as Fn
+    add('Main', 'sent1aaa', 'abandon abandon about')
+    for (const name of ['Main', 'main', ' MAIN ']) {
+      assert.throws(() => add(name, 'sent1bbb', 'abandon abandon about'), /A wallet named "Main" already exists/i)
+    }
+    assert.deepEqual(names(h), ['Main'], 'a refused wallet was stored')
+    assert.deepEqual(readdirSync(join(h.world.userData, 'wallets')).length, 1, 'a refused wallet left its seed on disk')
+    // Control: the same wallet under a free name.
+    add(' Spare ', 'sent1bbb', 'abandon abandon about')
+    assert.deepEqual(names(h), ['Main', 'Spare'])
+  })
+
+  test('[REL-50] a seed already stored still offers its wallet, whatever name was typed', (t) => {
+    const h = settings.fresh()
+    t.after(() => h.dispose())
+    const add = h.mod.addWalletEntry as Fn
+    const first = add('Main', 'sent1aaa', 'abandon abandon about') as Entry
+    assert.throws(() => add('Main', 'sent1aaa', 'abandon abandon about'), new RegExp(`^Error: WALLET_EXISTS:${first.id}:`))
+  })
+
+  test('[REL-50] a wallet left unnamed takes the next free "Wallet N"', (t) => {
+    const h = settings.fresh()
+    t.after(() => h.dispose())
+    const add = h.mod.addWalletEntry as Fn
+    add('', 'sent1aaa', 'abandon abandon about')
+    const second = add('  ', 'sent1bbb', 'abandon abandon about') as Entry
+    assert.deepEqual(names(h), ['Wallet 1', 'Wallet 2'])
+    // "Wallet 1" goes: one wallet is left, and the count alone would say "Wallet 2" again.
+    ;(h.mod.deleteWalletEntry as Fn)(((h.mod.listWallets as Fn)() as Entry[])[0].id)
+    add('', 'sent1ccc', 'abandon abandon about')
+    assert.deepEqual(names(h), ['Wallet 2', 'Wallet 3'])
+    assert.equal(second.name, 'Wallet 2')
+  })
+
+  test('[REL-50] a rename onto another wallet\'s name is refused; its own name in another case is not', (t) => {
+    const h = settings.fresh()
+    t.after(() => h.dispose())
+    const add = h.mod.addWalletEntry as Fn
+    const rename = h.mod.renameWallet as Fn
+    const main = add('Main', 'sent1aaa', 'abandon abandon about') as Entry
+    const spare = add('Spare', 'sent1bbb', 'abandon abandon about') as Entry
+    assert.throws(() => rename(spare.id, 'main'), /A wallet named "main" already exists/)
+    assert.deepEqual(names(h), ['Main', 'Spare'])
+    rename(main.id, 'MAIN')
+    rename(spare.id, ' Cold ')
+    assert.deepEqual(names(h), ['MAIN', 'Cold'])
+  })
+
+  test('[REL-50] [ARCH-5] a store holding one name twice is repaired at startup: the later wallet is renamed, nothing else moves', (t) => {
+    const h = settings.fresh()
+    t.after(() => h.dispose())
+    const index = [
+      { id: 'w1', name: 'Main', address: 'sent1aaa', accountIndex: 0, addressIndex: 0, providerMode: true },
+      { id: 'w2', name: 'Main', address: 'sent1bbb', accountIndex: 0, addressIndex: 1 },
+      { id: 'w3', name: 'Spare', address: 'sent1ccc', accountIndex: 0, addressIndex: 2 },
+    ]
+    writeFileSync(join(h.world.userData, 'wallets-index.json'), JSON.stringify(index))
+    writeFileSync(join(h.world.userData, 'settings.json'), JSON.stringify({ activeWalletId: 'w2' }))
+    seed(h, 'w1'); seed(h, 'w2'); seed(h, 'w3')
+    startup(h)
+    assert.deepEqual((h.mod.listWallets as Fn)(), [index[0], { ...index[1], name: 'Main 2' }, index[2]])
+    assert.equal(((h.mod.loadSettings as Fn)() as { activeWalletId: string }).activeWalletId, 'w2')
+    assert.deepEqual(readdirSync(join(h.world.userData, 'wallets')).sort(), ['w1.enc', 'w2.enc', 'w3.enc'])
+    assert.equal(h.world.safeStorage.calls, 0, 'renaming reads only the index: no keyring call at startup ([REL-40])')
+    const once = file(h, 'wallets-index.json')
+    startup(h)
+    assert.equal(file(h, 'wallets-index.json'), once, 'the repair is idempotent')
   })
 })
 
