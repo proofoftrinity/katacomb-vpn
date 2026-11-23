@@ -2,7 +2,7 @@ module katacomb.vpn/daemon
 
 go 1.27
 
-toolchain go1.27.0
+toolchain go1.27.4
 
 require (
 	github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828
