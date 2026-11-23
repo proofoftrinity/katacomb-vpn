@@ -1,5 +1,6 @@
-import { useState, useRef, useMemo, type ReactNode } from 'react'
-import { checkMnemonic } from '../../../shared/mnemonic'
+import { useState, useRef, useMemo, useEffect, type ReactNode } from 'react'
+import { checkSeedWords, cleanSeedWord, seedWordsIn, settleSeedWord, suggestSeedWords } from '../../../shared/mnemonic'
+import { isWalletNameTaken, walletNameTakenMessage } from '../../../shared/wallet-names'
 import { parseWalletExists } from '../../../shared/wallet-errors'
 import { displayConnectError } from '../../utils/connect-errors'
 import { countryCode, polyCode } from '../../utils/country-codes'
@@ -17,16 +18,24 @@ interface Props {
   onBackToWallets?: () => void
   /** Open the wallet that already holds the entered seed's address. */
   onUseExisting: (walletId: string) => Promise<void>
+  /** The stored wallets: a name one of them has cannot be taken again ([REL-50]). */
+  wallets: { id: string; name: string }[]
 }
+
+/** The import grid always holds 24 slots; the 12-word tab shows and checks the first 12. */
+const NO_WORDS: string[] = Array.from({ length: 24 }, () => '')
 
 type Mode = 'choose' | 'import' | 'create'
 
-export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting }: Props) {
+export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting, wallets }: Props) {
   const [mode, setMode] = useState<Mode>('choose')
   // Set when the entered seed is already stored: nothing was created, so offer
   // that wallet instead of leaving the user at a dead end.
   const [duplicate, setDuplicate] = useState<{ id: string; message: string } | null>(null)
-  const [mnemonic, setMnemonic] = useState('')
+  // The import grid ([RN-16]): its words, which tab is open, and the input being typed in.
+  const [words, setWords] = useState(NO_WORDS)
+  const [importCount, setImportCount] = useState<12 | 24>(12)
+  const [editing, setEditing] = useState<number | null>(null)
   const [walletName, setWalletName] = useState('')
   const [generatedMnemonic, setGeneratedMnemonic] = useState('')
   const [wordCount, setWordCount] = useState<12 | 24>(12)
@@ -38,14 +47,16 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
   // clipboard for good. The callback touches only the clipboard and the ref.
   const copyClearTimer = useRef<number | null>(null)
 
-  // Word list, word count and checksum, re-run on every keystroke.
-  const check = useMemo(() => checkMnemonic(mnemonic), [mnemonic])
+  // Each word against the list, then the checksum, re-run on every keystroke.
+  const check = useMemo(() => checkSeedWords(words.slice(0, importCount), editing), [words, importCount, editing])
+  // Main refuses a name in use; saying so here spares a seed typed or generated for nothing.
+  const nameTaken = isWalletNameTaken(wallets, walletName)
 
   async function handleImportSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setDuplicate(null)
-    if (check.status !== 'valid') return
+    if (check.status !== 'valid' || nameTaken) return
     setLoading(true)
     try {
       // The normalized phrase, not what was typed: it is the form the checksum
@@ -108,7 +119,9 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
 
   function handleBack() {
     setMode('choose')
-    setMnemonic('')
+    setWords(NO_WORDS)
+    setImportCount(12)
+    setEditing(null)
     setWalletName('')
     setGeneratedMnemonic('')
     setError('')
@@ -270,7 +283,7 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
               Import Wallet
             </h1>
             <p className="text-text-secondary text-sm">
-              Enter your BIP-39 mnemonic phrase.
+              Type your recovery phrase one word per box, or paste all of it into any box.
             </p>
           </div>
 
@@ -287,28 +300,27 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
               className="w-full bg-bg-tertiary border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:border-border-focus rounded-md"
               autoComplete="off"
             />
+            {nameTaken && <p className="text-danger text-sm">{walletNameTakenMessage(walletName)}</p>}
           </div>
 
           <div className="space-y-2">
-            <label className="text-text-secondary text-sm font-medium block">
-              BIP-39 Mnemonic
-            </label>
-            <textarea
-              value={mnemonic}
-              onChange={(e) => { setMnemonic(e.target.value); if (error) setError('') }}
-              placeholder="Enter your 12 or 24 word mnemonic phrase..."
-              rows={4}
-              className={`w-full bg-bg-tertiary border p-4 font-mono text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden rounded-md resize-none ${
-                check.status === 'invalid' ? 'border-danger' : 'border-border focus:border-border-focus'
-              }`}
-              autoFocus
-              spellCheck={false}
-              autoComplete="off"
+            <span className="text-text-secondary text-sm font-medium block">
+              Recovery phrase
+            </span>
+            <SeedGrid
+              count={importCount}
+              words={words}
+              editing={editing}
+              unknown={check.unknown}
+              onCount={setImportCount}
+              onWords={(next) => { setWords(next); if (error) setError('') }}
+              onEditing={setEditing}
             />
             {error ? (
               <p className="text-danger text-sm">{error}</p>
             ) : check.message ? (
               <p
+                role="status"
                 className={`text-sm ${
                   check.status === 'valid'
                     ? 'text-success'
@@ -326,7 +338,7 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
 
           <button
             type="submit"
-            disabled={loading || check.status !== 'valid'}
+            disabled={loading || check.status !== 'valid' || nameTaken}
             className="btn btn-primary w-full disabled:opacity-30 disabled:cursor-not-allowed"
           >
             {loading ? 'Importing...' : 'Import Wallet'}
@@ -371,6 +383,7 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
                 className="w-full bg-bg-tertiary border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:border-border-focus rounded-md"
                 autoComplete="off"
               />
+              {nameTaken && <p className="text-danger text-sm">{walletNameTakenMessage(walletName)}</p>}
             </div>
 
             <div className="space-y-2">
@@ -407,7 +420,7 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
 
             <button
               onClick={handleGenerate}
-              disabled={loading}
+              disabled={loading || nameTaken}
               className="btn btn-primary w-full disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {loading ? 'Generating...' : 'Generate Mnemonic'}
@@ -472,6 +485,221 @@ export default function MnemonicInput({ onImport, onBackToWallets, onUseExisting
         )}
       </div>
     </SetupLayout>
+  )
+}
+
+/** The 12 / 24 choice, as the create screen draws it. */
+const COUNT_TAB = 'flex-1 py-2 px-4 text-sm border transition-colors rounded-md'
+const COUNT_TAB_ON = 'bg-accent border-accent text-text-on-accent'
+const COUNT_TAB_OFF = 'border-border text-text-secondary hover:border-text-secondary'
+const WORD_INPUT =
+  'w-full bg-bg-tertiary border pl-8 pr-2 py-1.5 font-mono text-sm text-text-primary focus:outline-hidden rounded-md'
+
+/**
+ * The import screen's recovery phrase ([RN-16]): a 12 / 24 tab and one input per word.
+ * Each input lists the BIP-39 words that start with what is typed; Up and Down move
+ * through the list, and Enter, Space, Tab or a click take a word and move on. Pasting a
+ * whole phrase into any input picks the tab and fills every input. What counts as a
+ * word, what is listed and what a key settles on are `shared/mnemonic.ts`'s to decide.
+ */
+function SeedGrid({ count, words, editing, unknown, onCount, onWords, onEditing }: {
+  count: 12 | 24
+  /** All 24 slots; the first `count` are shown. */
+  words: string[]
+  /** The input being typed in, spared the word check until it loses focus. */
+  editing: number | null
+  /** The inputs to mark as not a BIP-39 word. */
+  unknown: number[]
+  onCount: (count: 12 | 24) => void
+  onWords: (words: string[]) => void
+  onEditing: (index: number | null) => void
+}) {
+  const inputs = useRef<(HTMLInputElement | null)[]>([])
+  const list = useRef<HTMLUListElement | null>(null)
+  // The list shows for the focused input until Escape or a settled word closes it.
+  const [listOpen, setListOpen] = useState(false)
+  const [highlight, setHighlight] = useState(-1)
+  const [pasteNote, setPasteNote] = useState('')
+
+  const suggestions = useMemo(
+    () => (listOpen && editing !== null ? suggestSeedWords(words[editing]) : []),
+    [listOpen, editing, words],
+  )
+
+  // Keep the highlighted word in sight while the keys move through a long list.
+  useEffect(() => {
+    list.current?.children[highlight]?.scrollIntoView({ block: 'nearest' })
+  }, [highlight])
+
+  function setWord(index: number, word: string) {
+    const next = words.slice()
+    next[index] = word
+    onWords(next)
+  }
+
+  function closeList() {
+    setListOpen(false)
+    setHighlight(-1)
+  }
+
+  /** Put a word in its input and move to the next one; the last input keeps the focus. */
+  function take(index: number, word: string) {
+    if (word !== words[index]) setWord(index, word)
+    closeList()
+    if (index < count - 1) inputs.current[index + 1]?.focus()
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (suggestions.length === 0) return
+      e.preventDefault()
+      const n = suggestions.length
+      setHighlight((h) => (e.key === 'ArrowDown' ? (h + 1) % n : h <= 0 ? n - 1 : h - 1))
+      return
+    }
+    if (e.key === 'Escape') {
+      if (suggestions.length === 0) return
+      e.preventDefault()
+      closeList()
+      return
+    }
+    // A fresh press only: a held Backspace stops at the empty input instead of running
+    // back through the words before it.
+    if (e.key === 'Backspace' && !e.repeat && words[index] === '' && index > 0) {
+      e.preventDefault()
+      inputs.current[index - 1]?.focus()
+      return
+    }
+    if (e.key !== 'Enter' && e.key !== ' ' && !(e.key === 'Tab' && !e.shiftKey)) return
+
+    const word = settleSeedWord(words[index], highlight >= 0 ? suggestions[highlight] : null)
+    if (word === null) {
+      // Several words fit, or none. Enter and Space wait for more letters; Tab moves on
+      // and the word check names what was left behind.
+      if (e.key !== 'Tab') e.preventDefault()
+      return
+    }
+    if (e.key === 'Tab') {
+      // The browser moves the focus itself, to the next input or out of the grid.
+      if (word !== words[index]) setWord(index, word)
+      closeList()
+      return
+    }
+    // Enter on a finished last word is left to the form: it imports a valid phrase.
+    if (e.key === 'Enter' && index === count - 1 && word === words[index]) {
+      closeList()
+      return
+    }
+    e.preventDefault()
+    take(index, word)
+  }
+
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const pasted = seedWordsIn(e.clipboardData.getData('text'))
+    // One word lands in this input like typed text.
+    if (pasted.length < 2) return
+    e.preventDefault()
+    if (pasted.length !== 12 && pasted.length !== 24) {
+      setPasteNote(`A recovery phrase is 12 or 24 words. What you pasted has ${pasted.length}.`)
+      return
+    }
+    setPasteNote('')
+    onCount(pasted.length)
+    onWords([...pasted, ...NO_WORDS.slice(pasted.length)])
+    // No input is spared: every pasted word is checked now, and then the checksum.
+    onEditing(null)
+    closeList()
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-3" role="group" aria-label="Number of words">
+        {([12, 24] as const).map((n) => (
+          <button
+            key={n}
+            type="button"
+            aria-pressed={count === n}
+            onClick={() => onCount(n)}
+            className={`${COUNT_TAB} ${count === n ? COUNT_TAB_ON : COUNT_TAB_OFF}`}
+          >
+            {n} words
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-4 gap-2">
+        {words.slice(0, count).map((word, i) => {
+          const open = editing === i && suggestions.length > 0
+          return (
+            <div key={i} className="relative">
+              <span
+                aria-hidden
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-text-tertiary text-xs tabular-nums pointer-events-none"
+              >
+                {i + 1}
+              </span>
+              <input
+                ref={(el) => { inputs.current[i] = el }}
+                type="text"
+                value={word}
+                role="combobox"
+                aria-label={`Word ${i + 1}`}
+                aria-invalid={unknown.includes(i)}
+                aria-expanded={open}
+                aria-controls="seed-suggestions"
+                aria-autocomplete="list"
+                aria-activedescendant={open && highlight >= 0 ? `seed-suggestion-${highlight}` : undefined}
+                onChange={(e) => {
+                  setWord(i, cleanSeedWord(e.target.value))
+                  onEditing(i)
+                  setListOpen(true)
+                  setHighlight(-1)
+                  setPasteNote('')
+                }}
+                onFocus={() => { onEditing(i); setListOpen(true); setHighlight(-1) }}
+                onBlur={() => { if (editing === i) onEditing(null) }}
+                onKeyDown={(e) => handleKeyDown(e, i)}
+                onPaste={handlePaste}
+                maxLength={8}
+                className={`${WORD_INPUT} ${unknown.includes(i) ? 'border-danger' : 'border-border focus:border-border-focus'}`}
+                autoFocus={i === 0}
+                spellCheck={false}
+                autoComplete="off"
+                autoCapitalize="none"
+              />
+              {open && (
+                <ul
+                  ref={list}
+                  id="seed-suggestions"
+                  role="listbox"
+                  aria-label={`Words starting with ${word}`}
+                  className="absolute z-10 left-0 right-0 top-full mt-1 max-h-44 overflow-y-auto bg-bg-secondary border border-border rounded-md shadow-overlay py-1"
+                >
+                  {suggestions.map((s, j) => (
+                    <li
+                      key={s}
+                      id={`seed-suggestion-${j}`}
+                      role="option"
+                      aria-selected={j === highlight}
+                      // mousedown, not click: a click would blur the input first and close the list.
+                      onMouseDown={(e) => { e.preventDefault(); take(i, s) }}
+                      onMouseEnter={() => setHighlight(j)}
+                      className={`px-2 py-1 font-mono text-sm cursor-pointer ${
+                        j === highlight ? 'bg-accent-subtle text-text-primary' : 'text-text-secondary'
+                      }`}
+                    >
+                      {s}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {pasteNote && <p className="text-danger text-sm">{pasteNote}</p>}
+    </div>
   )
 }
 

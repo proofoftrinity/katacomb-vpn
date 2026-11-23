@@ -414,6 +414,7 @@ function AppInner() {
             await wallet.importWallet(mnemonic, name)
           }}
           onBackToWallets={stored.length > 0 ? () => setAddingWallet(false) : undefined}
+          wallets={stored}
           onUseExisting={async (walletId) => {
             await window.api.walletSwitch(walletId)
             if (switchingFromActive) {

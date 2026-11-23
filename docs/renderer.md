@@ -440,13 +440,32 @@ from `src/main/`; `src/shared/` is the only overlap.
   there names no topic. Shortening is also when a stale claim surfaces: the create screen
   said the recovery phrase would not be shown again, which the Wallets tab's Recovery
   phrase window contradicts, and a test keeps that claim out.
-- BIP-39 validation lives in `src/shared/mnemonic.ts` (`checkMnemonic`, pure + unit-tested):
-  word list, word count and **checksum**, re-run on every keystroke so the Import button
-  only enables on a phrase that will actually import. It uses `@scure/bip39` — the package
-  main generates seeds with — never the `bip39` package's `validateMnemonic`, whose dynamic
-  require fails in Vite's renderer bundle. `MnemonicInput` imports `check.phrase` (NFKD,
-  lowercase, single-spaced), not the raw textarea value: that is the form the checksum was
-  verified against and the only one CosmJS's `EnglishMnemonic` accepts.
+- **[RN-16] The Import screen takes the recovery phrase one word per input, and never
+  picks a word for the user.** It was one text box until 2026-11-23. `SeedGrid` (in
+  `MnemonicInput.tsx`) has a 12 / 24 tab and one input per word; what it decides is in
+  `src/shared/mnemonic.ts`, pure and unit-tested, and the component only wires keys to it.
+  - Each input lists the BIP-39 words starting with the letters typed
+    (`suggestSeedWords`), narrowing with every letter. Up and Down move through the list;
+    Enter, Space, Tab or a click take a word and move to the next input.
+  - `settleSeedWord` is what a key takes: the highlighted word, else the typed word, else
+    the ONE word the letters can still become. Letters that fit several words settle on
+    nothing: Enter and Space wait, Tab moves on. A word picked silently would be a real
+    word, so the per-word check passes it, and one such 12-word phrase in 16 passes the
+    checksum too and opens a different, empty wallet.
+  - A word is checked against the list when its input loses focus (`checkSeedWords`, its
+    `editing` slot), and at once when no word starts with its letters. The input turns
+    red and the line under the grid names the word and its number.
+  - When every input holds a word the final check runs, with no blur needed:
+    `checkMnemonic`'s checksum. Import enables only on a phrase that will import.
+  - A paste of 12 or 24 words into any input picks the tab, fills every input and runs
+    both checks (`seedWordsIn`: anything that is not a letter separates, so the create
+    screen's numbered box pastes clean). Any other count fills nothing and says the count.
+  - The checks use `@scure/bip39`, the package main generates seeds with, never the
+    `bip39` package's `validateMnemonic`, whose dynamic require fails in Vite's renderer
+    bundle. What is imported is `check.phrase` (NFKD, lowercase, single-spaced): the form
+    the checksum was verified against and the only one CosmJS's `EnglishMnemonic` accepts.
+  - The name field on the import and create screens says when a wallet already has the
+    name ([REL-50]) and holds Import and Generate until it changes.
 - **[RN-9] A copied recovery phrase is wiped from the clipboard 30 s later, even if the
   screen that copied it has closed.** The create screen (`MnemonicInput`) and the Wallets
   tab's Recovery phrase window both cancelled the wipe in their unmount cleanup, and both

@@ -867,6 +867,21 @@ The connect path spends real on-chain funds, so these are enforced and must hold
   both attempts were refused at once and the confirm to go around came up after about 8 s.
   Declining it left the connection and the kill switch as they were.
 
+- **[REL-50] No two stored wallets share a name.** Two wallets could both be called
+  "Main" (seen 2026-11-23): the store only ever compared addresses, so the name, the
+  first thing every wallet list shows, did not say which wallet a row was. Names are compared trimmed and without case (`shared/wallet-names.ts`).
+  `addWalletEntry` and `renameWallet` refuse a name another wallet has, so an import, a
+  created wallet, a derived account and a rename all meet one check; a rename to the
+  wallet's own name in another case goes through. The address is checked first, so a seed
+  that is already stored still offers its wallet. A wallet left unnamed takes the next
+  free "Wallet N": the count alone named a second "Wallet 2" once "Wallet 1" had been
+  deleted. A store written before the rule is repaired at startup (`dedupeWalletNames`,
+  after the address dedupe): the first wallet of a name keeps it, each later one takes
+  the name and the lowest free number from 2 ("Main 2"). That is the one change an
+  upgrade makes to a name the user chose ([ARCH-5]); it reads only the index, so it
+  calls no keyring ([REL-40]). The setup screens run the same test before a seed is typed
+  or generated, since the create screen has no name field left once the words are shown.
+
 ## Windows (beta)
 
 The Windows helper builds the kill switch and DNS protection from the Windows Filtering
