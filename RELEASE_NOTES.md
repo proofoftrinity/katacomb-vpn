@@ -1,71 +1,32 @@
-# Katacomb VPN 1.20.0
+# Katacomb VPN 1.21.0
 
 A desktop client for the Sentinel decentralized VPN network. Pick a node, pay for a
 session on-chain, and tunnel through WireGuard, AmneziaWG, V2Ray, XRAY or Hysteria2.
 
-1.20.0 adds Extend: buy more data or time on the node you are connected to, without
-disconnecting. It also ends a session beside your connection through the VPN instead of
-dropping it, and shortens the app's text, with the reasons one press away in a new Help
-panel.
+1.21.0 makes importing a wallet easier: the seed phrase goes in one word per input, with
+suggestions as you type. It also stops two wallets from sharing a name.
 
 ## Highlights
 
-- **Extend a session while connected.** On a single-node session paid per GB or per hour,
-  Extend (in the node's window, and on the connected session's card in Sessions) buys a
-  new session on the same node, moves the connection onto it, then ends the old one. The
-  unused part of the old deposit comes back when the chain settles it, about 2 hours
-  later. In mainnet tests with the kill switch on, traffic paused for under a second over
-  WireGuard and V2Ray and about 2 seconds over Hysteria2 on Linux, and about 11 seconds
-  over WireGuard on Windows, and nothing got out during the pause. When a single-node
-  session runs out, the banner now offers **Buy again on** that node.
-- **Ending a session no longer drops your connection.** Ending a session from Sessions
-  while connected to another one used to disconnect, end it and reconnect, and the kill
-  switch went down with the tunnel: in a test on Windows, about 14 seconds of traffic went
-  out without the VPN. The app now ends it through the VPN. If the blockchain cannot be
-  reached that way, it asks before ending it over your own connection, and says that your
-  traffic goes out without the VPN until it reconnects.
-- **Shorter text, with the reasons one press away.** Each screen says one thing per line,
-  and the explanation sits behind a **?**. Many of them lead to a new Help panel, which the
-  **?** at the right of the header also opens. Tips open on keyboard focus as well as on
-  hover.
-- **The data warning comes earlier.** The node counts the data it sends and the app counts
-  what arrives, so on a lossy link the node runs ahead: in one test it cut a 1 GB session
-  when the app read 86%. The warning now comes at 80% of the data (time stays at 90%).
-  When a connection stops past that line, the banner says the session may have used up
-  its data, instead of saying it is still open.
-- **Sessions are counted the way nodes enforce them.** Data counts download plus upload,
-  a GB is 10^9 bytes, and time runs from the first handshake, gaps between connects
-  included. Cards show when an hourly or plan session's paid time ends, and a renewed plan
-  session is no longer offered a Reconnect that cannot work.
-- **The End confirmation says what happens to your money.** It said the remaining data or
-  time was "forfeited". A P2P session pays the node for the usage it reported and returns
-  the rest of the deposit when the chain settles it, about 2 hours after End; a plan
-  session leaves what is left to the plan. For the same reason, the buy window now says you
-  pay only for what you use, and the rest comes back about 2 hours after you end it.
-- **Windows (beta): a working tunnel is no longer dropped when its counters miss a read.**
-  The byte counters come from the Windows service, and a slow reply was taken for a lost
-  adapter: in a test, the app stood down a tunnel that carried traffic for another 76
-  seconds.
+- **Import a seed one word at a time.** Import now asks for 12 or 24 words and gives each
+  word its own input. As you type, the input lists the BIP-39 words that start with those
+  letters. Choose one with the arrow keys and Enter, Space or Tab, or click it, and the
+  cursor moves on to the next word. When several words still fit, the app never picks one
+  for you. A word that is not on the BIP-39 list is marked when you leave its input, and
+  the whole phrase is checked once the last word is in.
+- **Paste the whole phrase into the first input.** The app counts the words, switches to
+  12 or 24, fills every input and runs both checks. Numbers and line breaks between the
+  words are ignored, so the numbered list the create screen copies pastes as it is.
+- **Two wallets can no longer share a name.** Adding, importing, deriving or renaming a
+  wallet refuses a name another wallet already has, ignoring case and spaces at either
+  end, and says so under the name field. Wallets that already share a name are renamed
+  once, on the first start of 1.21.0: three wallets called "Main" become "Main", "Main 2"
+  and "Main 3", in the order they were added. A wallet added without a name gets the
+  next free "Wallet N".
 
-## Fixes in 1.20.0
+## Fixes in 1.21.0
 
-- Record the Windows measurements under REL-49
-- End a session beside the live connection through its tunnel (REL-49)
-- Record the Windows Extend measurements under REL-46
-- Say nothing about the kill switch in Extend until the setting is read
-- Keep a tunnel whose counters miss a read, and judge data early (REL-47, REL-48)
-- Header Help as a "?" icon on the far right
-- Short lines on the Provider, Plans and Multi-hop pages (RN-15)
-- Short lines in Sessions, Settings, wallets and the header (RN-15)
-- Short lines in the connect windows, details one press away (RN-15)
-- End and re-read on fresh sockets after an Extend switch
-- Keep the Sessions list through an Extend's switch
-- Record the Extend live checks in REL-46
-- Extend a live session: buy on the same node, move the tunnel, end the old one
-- Say what End does to the money instead of "forfeited"
-- Say in the buy window that over-buying a P2P session is safe
-- Score sessions the way the node enforces them
-- Give the CI verify job a 20-minute limit
+<!-- regenerated by release.sh from v1.20.0..HEAD at cut time; leave the heading -->
 
 ## Known limitations
 
@@ -106,16 +67,17 @@ panel.
 ## Platform support
 
 **Linux x86_64.** Tested on Debian 11+, Ubuntu 20.04+, and derivatives (Mint,
-Pop!\_OS, Zorin). The packaging and the VPN helper are unchanged since 1.19.0, whose .deb
-was checked in containers on Debian 12 and 13 and Ubuntu 22.04, 24.04 and 26.04, and its
-AppImage on those and Fedora 44. 1.20.0's .deb and AppImage were checked on a clean
+Pop!\_OS, Zorin). The packaging and the VPN helper's code are unchanged since 1.19.0,
+whose .deb was checked in containers on Debian 12 and 13 and Ubuntu 22.04, 24.04 and
+26.04, and its AppImage on those and Fedora 44. The helper is now built with Go 1.27.4
+(1.20.0's was built with 1.27.0). 1.21.0's .deb and AppImage were checked on a clean
 Ubuntu 24.04 desktop.
 
-**Windows 10 and 11, x64 (beta).** The installer and the Windows service are unchanged
-since 1.19.0. 1.20.0's installer was checked in a clean Windows 11 VM (install, the
-service, the app, reinstall over a running copy, uninstall), and connecting, Extend and
-ending a session while connected were tested there on mainnet. Windows 10 has not been
-tested.
+**Windows 10 and 11, x64 (beta).** The installer and the Windows service's code are
+unchanged since 1.19.0, and the service is built with Go 1.27.4 like the Linux helper.
+1.21.0's installer was checked in a clean Windows 11 VM (install, the service, the app,
+reinstall over a running copy, uninstall). Connecting on mainnet was last tested there
+with 1.20.0. Windows 10 has not been tested.
 
 ## Installation
 
