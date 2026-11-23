@@ -98,7 +98,9 @@ Electron 41 + React 18 + TypeScript. **Linux x86_64, and Windows 10/11 x64 as a 
 **Wallet**
 
 - BIP-39 import or generate (12 or 24 words), multiple wallets, subaccounts derived at a
-  chosen account index.
+  chosen account index. Import takes one word per input and suggests words as you type,
+  and a whole phrase pasted into the first input fills them all. No two wallets share a
+  name.
 - Seeds are encrypted at rest with Electron `safeStorage`, whose key lives in the OS
   keyring: KDE Wallet on Plasma, the Secret Service (GNOME Keyring) everywhere else. The
   app records which keyring saved the seeds and asks that one on every desktop, so a
